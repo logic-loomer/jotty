@@ -14,6 +14,7 @@
 		18BAC487B1E51BF1AB0FB1D0 /* Todo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454A8AE1874899F469A5E8C /* Todo.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
+		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */; };
 		659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FC8742B157EA7431075271 /* TodoTests.swift */; };
 		69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D93F9D0664E78E14B656E7D /* CaptureView.swift */; };
@@ -30,6 +31,7 @@
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
 		B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006FA2D88232464A90253AFC /* ConfigStoreTests.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
+		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
 		DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
@@ -64,6 +66,7 @@
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
+		7336303002FC0750BF76F3EB /* RolloverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverService.swift; sourceTree = "<group>"; };
 		8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
 		9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
@@ -76,6 +79,7 @@
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
 		E454A8AE1874899F469A5E8C /* Todo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Todo.swift; sourceTree = "<group>"; };
 		EC759DA0F19FAD410B08429D /* Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Action.swift; sourceTree = "<group>"; };
+		F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -96,6 +100,7 @@
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
 				08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */,
 				5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */,
+				F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */,
 				B74F35AEAC40DCE682986CCC /* SmokeTest.swift */,
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
@@ -114,10 +119,19 @@
 				C6FE6D81CF7AC65E0720A24B /* Keybindings */,
 				5A5FDEEAC250C0E47F3653A5 /* Menubar */,
 				78260507BD3C890EA1E9BFDB /* Resources */,
+				2C0E6BBE9D8F920A613EA2F9 /* Rollover */,
 				9579870D50605B3F694D932C /* Settings */,
 				97D58AA03E8D457406DE7991 /* Store */,
 			);
 			path = Jotty;
+			sourceTree = "<group>";
+		};
+		2C0E6BBE9D8F920A613EA2F9 /* Rollover */ = {
+			isa = PBXGroup;
+			children = (
+				7336303002FC0750BF76F3EB /* RolloverService.swift */,
+			);
+			path = Rollover;
 			sourceTree = "<group>";
 		};
 		5A5FDEEAC250C0E47F3653A5 /* Menubar */ = {
@@ -302,6 +316,7 @@
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
 				9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */,
 				12914BA284FA48BF21F59CBE /* MarkdownDocTests.swift in Sources */,
+				562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
 				659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */,
@@ -325,6 +340,7 @@
 				6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */,
 				8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */,
 				1211D18D25659470981B10CB /* MenubarController.swift in Sources */,
+				DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */,
 				DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */,
 				91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */,
 				396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */,
