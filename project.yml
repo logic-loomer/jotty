@@ -41,6 +41,9 @@ targets:
     platform: macOS
     sources:
       - JottyTests
+    resources:
+      - path: JottyTests/Resources
+        type: folder
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.jotty.JottyTests
       GENERATE_INFOPLIST_FILE: YES

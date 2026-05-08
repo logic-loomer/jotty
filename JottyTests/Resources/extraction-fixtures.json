@@ -1,0 +1,644 @@
+{
+  "$schema_version": "1.0",
+  "$description": "Provider-agnostic reference fixtures for Jotty task extraction. Loaded by the XCTest target (Phase 3, Apple FM) and re-used by Phase 4 (Ollama / Claude / OpenAI / Gemini). Each sample is fully self-contained: input text, the `now` anchor, the timezone, and the expected structural output. Comparators on structured fields are STRICT (dueDate, timeBlock, calendarBlock, task count). Comparator on `title` is FUZZY (substring containment, normalized whitespace, normalized case) to tolerate cross-provider phrasing variance while still policing fidelity.",
+  "$comparator_rules": {
+    "title": "lowercased and whitespace-normalized expected.title MUST be a substring of lowercased and whitespace-normalized actual.title; actual.title MUST also be <= 1.5x the length of expected.title (catches paraphrase drift).",
+    "dueDate": "if expected.dueDate is null, actual.dueDate MUST be null. If expected.dueDate is set, actual.dueDate MUST equal it as 'yyyy-MM-dd' in the sample timezone.",
+    "timeBlock": "if expected.timeBlock is null, actual.timeBlock MUST be null. If set, actual.timeBlock.start and .end MUST equal the ISO-8601 instants in the sample timezone.",
+    "calendarBlock": "MUST equal expected.calendarBlock exactly (the calendarBlock = (timeBlock != nil) rule is encoded into expected, so a mismatch is a mapper bug).",
+    "task_count": "actual.tasks.count MUST equal expected.tasks.length exactly. Over-extraction is the #1 hallucination failure mode; under-extraction is also a fail because it loses user intent.",
+    "note_body": "actual.note_body MUST contain expected.note_body as a substring (whitespace-normalized). The capture-non-lossy invariant: every non-task line of input flows into the note body."
+  },
+  "$failure_mode_legend": {
+    "wellness_hallucination": "Venting / emotional / observational prose must yield zero tasks.",
+    "past_tense_fabrication": "Past-tense reports must yield zero tasks.",
+    "soon_hallucinated_date": "Vague urgency words must NOT resolve to a specific date.",
+    "timezone_naive_tomorrow": "'tomorrow' / 'today' must resolve in the user's timezone, not UTC.",
+    "duration_vs_timeblock": "Durations ('1-2 hours of focus') must NOT become timeBlocks.",
+    "lost_modifier": "Modifying clauses must be preserved in title; truncation is a fail.",
+    "run_on_split_failure": "Punctuation-light run-ons must split into multiple tasks on intent boundaries.",
+    "confident_wrong_weekday": "Same-day weekday name resolves to next occurrence (today + 7), never today.",
+    "calendar_block_default": "calendarBlock = (timeBlock != nil); 'remind me at 5pm' is NOT a calendar block.",
+    "note_preservation": "Surrounding prose flows into note body alongside extracted tasks.",
+    "happy_path": "Canonical correct extraction; baseline that the system works at all."
+  },
+  "fixtures": [
+    {
+      "id": "happy-001-single-explicit-deadline",
+      "input": "email Jamie about Q2 plan by Friday",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "email Jamie about Q2 plan",
+            "dueDate": "2026-05-08",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "email Jamie about Q2 plan by Friday"
+      },
+      "failure_mode_tested": "happy_path"
+    },
+    {
+      "id": "happy-002-explicit-time-block",
+      "input": "block 1-2pm laptop setup",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "laptop setup",
+            "dueDate": null,
+            "timeBlock": {
+              "start": "2026-05-04T13:00:00-07:00",
+              "end": "2026-05-04T14:00:00-07:00"
+            },
+            "calendarBlock": true
+          }
+        ],
+        "note_body": "block 1-2pm laptop setup"
+      },
+      "failure_mode_tested": "happy_path"
+    },
+    {
+      "id": "happy-003-bare-task-no-date",
+      "input": "look into the auth bug",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "look into the auth bug",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "look into the auth bug"
+      },
+      "failure_mode_tested": "happy_path"
+    },
+    {
+      "id": "happy-004-time-block-explicit",
+      "input": "block 2-3pm tomorrow for the migration script review",
+      "now": "2026-05-08T10:30:00+10:00",
+      "timezone": "Australia/Sydney",
+      "expected": {
+        "tasks": [
+          {
+            "title": "Migration script review",
+            "dueDate": null,
+            "timeBlock": {
+              "start": "2026-05-09T14:00:00+10:00",
+              "end": "2026-05-09T15:00:00+10:00"
+            },
+            "calendarBlock": true
+          }
+        ],
+        "note_body": "block 2-3pm tomorrow for the migration script review"
+      },
+      "failure_mode_tested": "happy_path"
+    },
+    {
+      "id": "wellness-001-tired-vent",
+      "input": "I'm exhausted, this week has been brutal",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "I'm exhausted, this week has been brutal"
+      },
+      "failure_mode_tested": "wellness_hallucination"
+    },
+    {
+      "id": "wellness-002-anxious-vent",
+      "input": "feeling anxious about the launch tomorrow, can't focus",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "feeling anxious about the launch tomorrow, can't focus"
+      },
+      "failure_mode_tested": "wellness_hallucination"
+    },
+    {
+      "id": "wellness-003-observation",
+      "input": "the team seems checked out this week",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "the team seems checked out this week"
+      },
+      "failure_mode_tested": "wellness_hallucination"
+    },
+    {
+      "id": "past-tense-001-coffee",
+      "input": "got coffee with Maria, talked about Q3 hiring",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "got coffee with Maria, talked about Q3 hiring"
+      },
+      "failure_mode_tested": "past_tense_fabrication"
+    },
+    {
+      "id": "past-tense-002-shipped",
+      "input": "shipped the migration script yesterday, smaller blast radius than expected",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "shipped the migration script yesterday, smaller blast radius than expected"
+      },
+      "failure_mode_tested": "past_tense_fabrication"
+    },
+    {
+      "id": "past-tense-003-meeting-recap",
+      "input": "had the standup, Liz raised the auth flow concern again, Marc agreed to review the PR",
+      "now": "2026-05-04T18:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": "had the standup, Liz raised the auth flow concern again, Marc agreed to review the PR"
+      },
+      "failure_mode_tested": "past_tense_fabrication"
+    },
+    {
+      "id": "soon-001-vague-soon",
+      "input": "should look into the auth bug soon",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "look into the auth bug",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "should look into the auth bug soon"
+      },
+      "failure_mode_tested": "soon_hallucinated_date"
+    },
+    {
+      "id": "soon-002-eventually",
+      "input": "need to refactor the parser eventually",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "refactor the parser",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "need to refactor the parser eventually"
+      },
+      "failure_mode_tested": "soon_hallucinated_date"
+    },
+    {
+      "id": "soon-003-at-some-point",
+      "input": "at some point I want to write up the postmortem",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "write up the postmortem",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "at some point I want to write up the postmortem"
+      },
+      "failure_mode_tested": "soon_hallucinated_date"
+    },
+    {
+      "id": "tz-001-late-night-tomorrow-pst",
+      "input": "drop off package tomorrow",
+      "now": "2026-05-04T23:50:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "drop off package",
+            "dueDate": "2026-05-05",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "drop off package tomorrow"
+      },
+      "failure_mode_tested": "timezone_naive_tomorrow"
+    },
+    {
+      "id": "tz-002-late-night-tomorrow-est",
+      "input": "send invoice tomorrow",
+      "now": "2026-05-04T23:30:00-04:00",
+      "timezone": "America/New_York",
+      "expected": {
+        "tasks": [
+          {
+            "title": "send invoice",
+            "dueDate": "2026-05-05",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "send invoice tomorrow"
+      },
+      "failure_mode_tested": "timezone_naive_tomorrow"
+    },
+    {
+      "id": "tz-003-today-pst-evening",
+      "input": "ship the readme today",
+      "now": "2026-05-04T20:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "ship the readme",
+            "dueDate": "2026-05-04",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "ship the readme today"
+      },
+      "failure_mode_tested": "timezone_naive_tomorrow"
+    },
+    {
+      "id": "duration-001-1-2-hours",
+      "input": "need 1-2 hours for deep work on the migration",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "deep work on the migration",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "need 1-2 hours for deep work on the migration"
+      },
+      "failure_mode_tested": "duration_vs_timeblock"
+    },
+    {
+      "id": "duration-002-30-min-focus",
+      "input": "30 min focus block on the auth flow today",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "focus block on the auth flow",
+            "dueDate": "2026-05-04",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "30 min focus block on the auth flow today"
+      },
+      "failure_mode_tested": "duration_vs_timeblock"
+    },
+    {
+      "id": "duration-003-couple-hours",
+      "input": "couple hours of design review tomorrow",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "design review",
+            "dueDate": "2026-05-05",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "couple hours of design review tomorrow"
+      },
+      "failure_mode_tested": "duration_vs_timeblock"
+    },
+    {
+      "id": "modifier-001-design-team-auth-flow",
+      "input": "follow up with the design team on the auth flow",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "follow up with the design team on the auth flow",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "follow up with the design team on the auth flow"
+      },
+      "failure_mode_tested": "lost_modifier"
+    },
+    {
+      "id": "modifier-002-ping-sam-q2-plan",
+      "input": "ping Sam re Q2 plan",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "ping Sam re Q2 plan",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "ping Sam re Q2 plan"
+      },
+      "failure_mode_tested": "lost_modifier"
+    },
+    {
+      "id": "modifier-003-domain-renewal-friday",
+      "input": "domain renewal due Friday",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "domain renewal",
+            "dueDate": "2026-05-08",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "domain renewal due Friday"
+      },
+      "failure_mode_tested": "lost_modifier"
+    },
+    {
+      "id": "runon-001-three-tasks",
+      "input": "email Jamie about the contract domain renewal due Friday block 1-2pm setup laptop",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "email Jamie about the contract",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          },
+          {
+            "title": "domain renewal",
+            "dueDate": "2026-05-08",
+            "timeBlock": null,
+            "calendarBlock": false
+          },
+          {
+            "title": "setup laptop",
+            "dueDate": null,
+            "timeBlock": {
+              "start": "2026-05-04T13:00:00-07:00",
+              "end": "2026-05-04T14:00:00-07:00"
+            },
+            "calendarBlock": true
+          }
+        ],
+        "note_body": "email Jamie about the contract domain renewal due Friday block 1-2pm setup laptop"
+      },
+      "failure_mode_tested": "run_on_split_failure"
+    },
+    {
+      "id": "runon-002-comma-separated",
+      "input": "review the PR, ship the readme, draft the launch email",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "review the PR",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          },
+          {
+            "title": "ship the readme",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          },
+          {
+            "title": "draft the launch email",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "review the PR, ship the readme, draft the launch email"
+      },
+      "failure_mode_tested": "run_on_split_failure"
+    },
+    {
+      "id": "weekday-001-friday-on-friday",
+      "input": "demo prep Friday",
+      "now": "2026-05-08T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "demo prep",
+            "dueDate": "2026-05-15",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "demo prep Friday"
+      },
+      "failure_mode_tested": "confident_wrong_weekday"
+    },
+    {
+      "id": "weekday-002-monday-on-monday",
+      "input": "1:1 with Priya Monday",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "1:1 with Priya",
+            "dueDate": "2026-05-11",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "1:1 with Priya Monday"
+      },
+      "failure_mode_tested": "confident_wrong_weekday"
+    },
+    {
+      "id": "weekday-003-tomorrow-explicit",
+      "input": "review the PR tomorrow",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "review the PR",
+            "dueDate": "2026-05-05",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "review the PR tomorrow"
+      },
+      "failure_mode_tested": "confident_wrong_weekday"
+    },
+    {
+      "id": "calblock-001-remind-at-5pm-no-block",
+      "input": "remind me to call mom at 5pm",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "call mom at 5pm",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "remind me to call mom at 5pm"
+      },
+      "failure_mode_tested": "calendar_block_default"
+    },
+    {
+      "id": "calblock-002-block-9-to-11",
+      "input": "block 9 to 11 deep work on the migration",
+      "now": "2026-05-04T08:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "deep work on the migration",
+            "dueDate": null,
+            "timeBlock": {
+              "start": "2026-05-04T09:00:00-07:00",
+              "end": "2026-05-04T11:00:00-07:00"
+            },
+            "calendarBlock": true
+          }
+        ],
+        "note_body": "block 9 to 11 deep work on the migration"
+      },
+      "failure_mode_tested": "calendar_block_default"
+    },
+    {
+      "id": "calblock-003-around-3-no-block",
+      "input": "check in with Marc around 3",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "check in with Marc around 3",
+            "dueDate": null,
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "check in with Marc around 3"
+      },
+      "failure_mode_tested": "calendar_block_default"
+    },
+    {
+      "id": "note-001-task-in-paragraph",
+      "input": "lots happening this week. Demo on Friday is the big one — need to prep slides by Wednesday. Also, the auth flow refactor is still blocking three downstream tickets.",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "prep slides",
+            "dueDate": "2026-05-06",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "lots happening this week. Demo on Friday is the big one — need to prep slides by Wednesday. Also, the auth flow refactor is still blocking three downstream tickets."
+      },
+      "failure_mode_tested": "note_preservation"
+    },
+    {
+      "id": "note-002-mixed-vent-and-task",
+      "input": "wiped out today. brain refusing to engage. need to send the contract to Jamie before EOD though.",
+      "now": "2026-05-04T15:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "send the contract to Jamie",
+            "dueDate": "2026-05-04",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "wiped out today. brain refusing to engage. need to send the contract to Jamie before EOD though."
+      },
+      "failure_mode_tested": "note_preservation"
+    },
+    {
+      "id": "edge-001-empty-input",
+      "input": "",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [],
+        "note_body": ""
+      },
+      "failure_mode_tested": "happy_path"
+    },
+    {
+      "id": "edge-002-typos-and-lowercase",
+      "input": "emial jamie re q2 plan tmrw",
+      "now": "2026-05-04T09:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "emial jamie re q2 plan",
+            "dueDate": "2026-05-05",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "emial jamie re q2 plan tmrw"
+      },
+      "failure_mode_tested": "lost_modifier"
+    },
+    {
+      "id": "edge-003-eod-resolution",
+      "input": "ship the readme by EOD",
+      "now": "2026-05-04T15:00:00-07:00",
+      "timezone": "America/Los_Angeles",
+      "expected": {
+        "tasks": [
+          {
+            "title": "ship the readme",
+            "dueDate": "2026-05-04",
+            "timeBlock": null,
+            "calendarBlock": false
+          }
+        ],
+        "note_body": "ship the readme by EOD"
+      },
+      "failure_mode_tested": "happy_path"
+    }
+  ]
+}

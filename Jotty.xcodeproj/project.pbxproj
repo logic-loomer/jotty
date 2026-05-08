@@ -12,8 +12,10 @@
 		1211D18D25659470981B10CB /* MenubarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AC3F72A417E829574D72E6 /* MenubarController.swift */; };
 		12914BA284FA48BF21F59CBE /* MarkdownDocTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */; };
 		18BAC487B1E51BF1AB0FB1D0 /* Todo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454A8AE1874899F469A5E8C /* Todo.swift */; };
+		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
+		5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
@@ -44,6 +46,7 @@
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
 		DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
+		EFE4C2C74BBA2997F75419E0 /* extraction-fixtures.json in Resources */ = {isa = PBXBuildFile; fileRef = BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
 		F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */; };
 		FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */; };
@@ -78,6 +81,7 @@
 		49657BD3B4A790B6E76F2286 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCombo.swift; sourceTree = "<group>"; };
 		49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDoc.swift; sourceTree = "<group>"; };
+		4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleFMProviderSubsetTests.swift; sourceTree = "<group>"; };
 		4D0F6484D307F784AA064A13 /* StorageTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageTab.swift; sourceTree = "<group>"; };
 		53AC3F72A417E829574D72E6 /* MenubarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarController.swift; sourceTree = "<group>"; };
 		5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocTests.swift; sourceTree = "<group>"; };
@@ -95,10 +99,12 @@
 		AE591493870DE367A409DBE2 /* StoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreTests.swift; sourceTree = "<group>"; };
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
+		BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "extraction-fixtures.json"; sourceTree = "<group>"; };
 		BFEB5F765220DE9666B68F7B /* JottyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JottyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
 		CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapperTests.swift; sourceTree = "<group>"; };
+		D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewListView.swift; sourceTree = "<group>"; };
 		E454A8AE1874899F469A5E8C /* Todo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Todo.swift; sourceTree = "<group>"; };
 		EC759DA0F19FAD410B08429D /* Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Action.swift; sourceTree = "<group>"; };
 		F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverServiceTests.swift; sourceTree = "<group>"; };
@@ -127,6 +133,7 @@
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
 				547C70B02E19E956E281543A /* AI */,
+				9CBBAE578DFC2E5EF6F44C14 /* Resources */,
 			);
 			path = JottyTests;
 			sourceTree = "<group>";
@@ -161,6 +168,7 @@
 		547C70B02E19E956E281543A /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */,
 				365D40E78DF10E20BB8B1EFE /* ExtractedTaskTests.swift */,
 				CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */,
 			);
@@ -219,6 +227,7 @@
 				6D93F9D0664E78E14B656E7D /* CaptureView.swift */,
 				45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */,
 				9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */,
+				D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -244,6 +253,14 @@
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
 			);
 			path = AI;
+			sourceTree = "<group>";
+		};
+		9CBBAE578DFC2E5EF6F44C14 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		C6FE6D81CF7AC65E0720A24B /* Keybindings */ = {
@@ -291,6 +308,7 @@
 			buildConfigurationList = 12F7A5BB83D9BA2F19262C4C /* Build configuration list for PBXNativeTarget "JottyTests" */;
 			buildPhases = (
 				8C2094A3CDA9197C7022CBC0 /* Sources */,
+				0FC83E6911CB0F385E742E77 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -344,6 +362,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0FC83E6911CB0F385E742E77 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFE4C2C74BBA2997F75419E0 /* extraction-fixtures.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C569C73F6153340E745F796A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -360,6 +386,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */,
 				8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */,
 				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
@@ -399,6 +426,7 @@
 				8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */,
 				1211D18D25659470981B10CB /* MenubarController.swift in Sources */,
 				B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */,
+				5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */,
 				DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */,
 				DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */,
 				91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */,
