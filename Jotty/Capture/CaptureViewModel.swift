@@ -27,8 +27,30 @@ final class CaptureViewModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let id = "n_" + String(UUID().uuidString.prefix(8)).lowercased()
-        try store.appendNote(text: trimmed, at: clock(), id: id)
+        let now = clock()
+        var noteLines: [String] = []
+        var tasks: [Todo] = []
+        let taskRegex = /^- \[([ xX])\] (.+)$/
+
+        for line in trimmed.components(separatedBy: "\n") {
+            if let match = line.firstMatch(of: taskRegex) {
+                let done = match.1 != " "
+                let title = String(match.2).trimmingCharacters(in: .whitespaces)
+                let id = "t_" + String(UUID().uuidString.prefix(8)).lowercased()
+                tasks.append(Todo(id: id, text: title, createdAt: now,
+                                  done: done,
+                                  completedAt: done ? now : nil))
+            } else {
+                noteLines.append(line)
+            }
+        }
+
+        let noteBody = noteLines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteId = noteBody.isEmpty ? nil : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+
+        try store.appendCapture(noteText: noteBody, noteId: noteId,
+                                tasks: tasks, at: now)
 
         text = ""
         autosaveTask?.cancel()
