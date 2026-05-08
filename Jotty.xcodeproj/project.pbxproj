@@ -11,8 +11,10 @@
 		11B763B580EADE4B89F4756E /* default-keybindings.json in Resources */ = {isa = PBXBuildFile; fileRef = 6DE9FB54B158EC494838B935 /* default-keybindings.json */; };
 		6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */; };
 		76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC759DA0F19FAD410B08429D /* Action.swift */; };
+		86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */; };
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
+		B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006FA2D88232464A90253AFC /* ConfigStoreTests.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
@@ -29,7 +31,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		006FA2D88232464A90253AFC /* ConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreTests.swift; sourceTree = "<group>"; };
 		08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStoreTests.swift; sourceTree = "<group>"; };
+		1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		3DF97B79250F715F0DC65677 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		428DD70FF55C0CDADC0E5444 /* Jotty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jotty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCombo.swift; sourceTree = "<group>"; };
@@ -55,6 +59,7 @@
 		0F2A3FDA3E2F92EF6C208F8D /* JottyTests */ = {
 			isa = PBXGroup;
 			children = (
+				006FA2D88232464A90253AFC /* ConfigStoreTests.swift */,
 				08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */,
 				B74F35AEAC40DCE682986CCC /* SmokeTest.swift */,
 			);
@@ -66,6 +71,7 @@
 			children = (
 				B026F43211BD2F9BB519C180 /* AppDelegate.swift */,
 				8A9053C9CFEB56811D8D06FA /* JottyApp.swift */,
+				98BACBAD039060A6F2FEB0F5 /* Config */,
 				C6FE6D81CF7AC65E0720A24B /* Keybindings */,
 				78260507BD3C890EA1E9BFDB /* Resources */,
 			);
@@ -79,6 +85,14 @@
 				6DE9FB54B158EC494838B935 /* default-keybindings.json */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		98BACBAD039060A6F2FEB0F5 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		C6FE6D81CF7AC65E0720A24B /* Keybindings */ = {
@@ -195,6 +209,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
 				9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
 			);
@@ -206,6 +221,7 @@
 			files = (
 				76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */,
 				0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */,
+				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */,
 				DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */,
 				6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */,
