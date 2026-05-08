@@ -7,6 +7,11 @@ final class CaptureViewModelTests: XCTestCase {
     var draftURL: URL!
     var store: Store!
 
+    /// No-op provider for tests. Returns empty ExtractionResult (AI path leads to empty review).
+    private func makeNoOpProvider() -> MockAIProvider {
+        MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "")))
+    }
+
     override func setUp() async throws {
         try await super.setUp()
         folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -21,7 +26,7 @@ final class CaptureViewModelTests: XCTestCase {
     }
 
     func testDraftPersistsOnTextChange() async throws {
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { Date() })
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
         vm.text = "in progress"
         try await Task.sleep(nanoseconds: 50_000_000)   // allow autosave debounce
         let saved = try String(contentsOf: draftURL, encoding: .utf8)
@@ -30,15 +35,22 @@ final class CaptureViewModelTests: XCTestCase {
 
     func testNewVMRestoresDraft() throws {
         try "leftover".write(to: draftURL, atomically: true, encoding: .utf8)
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { Date() })
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
         XCTAssertEqual(vm.text, "leftover")
     }
 
-    func testSubmitWritesNoteAndClearsDraft() throws {
+    // Plain prose goes through AI path → review state. Commit to write to disk.
+    func testSubmitWritesNoteAndClearsDraft() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "hello")))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { now })
         vm.text = "hello"
-        try vm.submit()
+        await vm.submitAndWait()
+
+        // AI path yields review state; commit it.
+        if case .review = vm.state {
+            vm.commitFromReview()
+        }
 
         XCTAssertEqual(vm.text, "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: draftURL.path))
@@ -48,37 +60,44 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertTrue(body.contains("hello"))
     }
 
-    func testSubmitDoesNothingForEmptyText() throws {
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { Date() })
+    func testSubmitDoesNothingForEmptyText() async throws {
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
         vm.text = "   "
-        try vm.submit()
+        await vm.submitAndWait()
         // No file written.
         let dayFile = DailyFile.url(in: folder, on: Date(), timezone: .current)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dayFile.path))
     }
 
+    // Plain prose → AI path → review; commit clears draft.
     func testSubmitCancelsPendingAutosave() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "should not persist as draft")))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { now })
         vm.text = "should not persist as draft"
         // Submit immediately while the 30ms autosave debounce is still pending.
-        try vm.submit()
+        await vm.submitAndWait()
+        // Commit the review to clear the draft.
+        if case .review = vm.state {
+            vm.commitFromReview()
+        }
         // Wait well past the debounce window so any in-flight task would have fired by now.
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertFalse(FileManager.default.fileExists(atPath: draftURL.path),
-                       "Draft must not exist after submit, even if autosave was pending")
+                       "Draft must not exist after submit and commit, even if autosave was pending")
     }
 
-    func testSubmitSplitsTasksAndNote() throws {
+    // Mixed input (tasks + note) takes manual path (has `- [ ]` syntax).
+    func testSubmitSplitsTasksAndNote() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { now })
         vm.text = """
         quick brain-dump
         - [ ] call mom
         - [ ] renew domain
         follow-up: check prod logs after lunch
         """
-        try vm.submit()
+        await vm.submitAndWait()
 
         let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
         let body = try String(contentsOf: dayFile, encoding: .utf8)
@@ -89,14 +108,15 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertFalse(body.contains("- [ ] call mom <!-- id:t_") == false)
     }
 
-    func testSubmitOnlyTasksWritesNoNote() throws {
+    // Only task lines → manual path.
+    func testSubmitOnlyTasksWritesNoNote() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { now })
         vm.text = """
         - [ ] one
         - [ ] two
         """
-        try vm.submit()
+        await vm.submitAndWait()
         let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
         let body = try String(contentsOf: dayFile, encoding: .utf8)
         XCTAssertTrue(body.contains("- [ ] one"))
@@ -104,11 +124,19 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertFalse(body.contains("### "))
     }
 
-    func testSubmitOnlyNoteWritesNoTasks() throws {
+    // Plain note (no tasks) → AI path → review → commit.
+    func testSubmitOnlyNoteWritesNoTasks() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
-        vm.text = "just a note, no tasks"
-        try vm.submit()
+        let inputText = "just a note, no tasks"
+        // Provider returns the raw text as noteBody (simulating the AI passing it through).
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: inputText)))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { now })
+        vm.text = inputText
+        await vm.submitAndWait()
+        // AI path → enters review with noteBody from mock.
+        if case .review = vm.state {
+            vm.commitFromReview()
+        }
         let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
         let body = try String(contentsOf: dayFile, encoding: .utf8)
         XCTAssertTrue(body.contains("just a note"))

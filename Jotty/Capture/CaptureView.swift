@@ -52,15 +52,7 @@ struct CaptureView: View {
             // is dropped. Async dispatch lets the window become key first.
             DispatchQueue.main.async { focused = true }
         }
-        .onSubmitKeyCommand {
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["JOTTY_FORCE_REVIEW"] == "1" {
-                vm.devForceReviewWithStubTasks()
-                return
-            }
-            #endif
-            onSubmit()
-        }
+        .onSubmitKeyCommand { onSubmit() }
         .onCancelKeyCommand { onCancel() }
     }
 }

@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var configStore: ConfigStore!
     private var keybindings: KeybindingsStore!
     private var store: Store!
+    private var aiProvider: AppleFMProvider!
 
     private var midnightTimer: Timer?
 
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         store = Store(folder: configStore.config.storageFolder, timezone: .current)
+        aiProvider = AppleFMProvider()
 
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -94,10 +96,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         let draftURL = appSupport.appendingPathComponent("draft.txt")
 
-        let vm = CaptureViewModel(store: store, draftURL: draftURL)
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: aiProvider)
         let controller = CaptureWindowController(vm: vm)
         captureController = controller
         controller.showCenteredOnActiveDisplay()
+
+        // Prewarm Apple FM model load so first extraction is fast (AI-SPEC §3.5).
+        Task { [weak self] in
+            guard let self else { return }
+            await self.aiProvider.prewarm()
+        }
 
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,

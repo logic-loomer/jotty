@@ -19,15 +19,22 @@ final class CaptureViewModel: ObservableObject {
     @Published var state: CaptureState = .input
     /// Indices of rows the user has left checked. All rows checked by default on enterReview.
     @Published var acceptedRowIDs: Set<Int> = []
+    @Published var isExtracting: Bool = false
+    @Published var lastError: AIProviderError?
 
     private let store: Store
     private let draftURL: URL
+    private let provider: any AIProvider
     private let clock: () -> Date
     private var autosaveTask: Task<Void, Never>?
+    private var extractionTask: Task<Void, Never>?
 
-    init(store: Store, draftURL: URL, clock: @escaping () -> Date = Date.init) {
+    init(store: Store, draftURL: URL,
+         provider: any AIProvider,
+         clock: @escaping () -> Date = Date.init) {
         self.store = store
         self.draftURL = draftURL
+        self.provider = provider
         self.clock = clock
 
         // Restore draft if present.
@@ -36,20 +43,81 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Phase 2: manual regex parse (KEEP — AI fallback path, plan 08 adds AI on top)
+    // MARK: - Manual syntax detection
 
-    func submit() throws {
+    private static let manualTaskRegex = /^\s*[-*]\s\[([ xX])\]\s+(.+)$/
+
+    private func hasManualSyntax(_ s: String) -> Bool {
+        s.components(separatedBy: "\n").contains { $0.firstMatch(of: Self.manualTaskRegex) != nil }
+    }
+
+    // MARK: - Submit
+
+    func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        lastError = nil
 
+        if hasManualSyntax(trimmed) {
+            // Surface manual-path disk errors via lastError. NEVER try?.
+            do {
+                try submitManual(trimmed)
+            } catch {
+                lastError = .underlying(message: error.localizedDescription)
+                // Stay in input mode so the user can retry; draft autosave intact.
+            }
+            return
+        }
+
+        // AI path
+        isExtracting = true
+        extractionTask?.cancel()
+        let now = clock()
+        let tz = TimeZone.current
+        extractionTask = Task { [weak self] in
+            guard let self else { return }
+            let p = self.provider
+            do {
+                let result = try await p.extractTasks(from: trimmed, now: now, timezone: tz)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.isExtracting = false
+                    self.enterReview(tasks: result.tasks, noteBody: result.noteBody)
+                }
+            } catch is CancellationError {
+                return
+            } catch let e as AIProviderError {
+                await MainActor.run {
+                    self.isExtracting = false
+                    self.lastError = e
+                    // Degraded review state: zero tasks, raw capture as note body.
+                    self.enterReview(tasks: [], noteBody: trimmed)
+                }
+            } catch {
+                await MainActor.run {
+                    self.isExtracting = false
+                    self.lastError = .underlying(message: error.localizedDescription)
+                    self.enterReview(tasks: [], noteBody: trimmed)
+                }
+            }
+        }
+    }
+
+    /// Awaits in-flight extraction; for tests only.
+    func submitAndWait() async {
+        submit()
+        if let t = extractionTask { _ = await t.value }
+    }
+
+    // MARK: - Manual path
+
+    private func submitManual(_ input: String) throws {
         let now = clock()
         var noteLines: [String] = []
         var tasks: [Todo] = []
-        // Allow optional leading whitespace and `* ` as alternate bullet, so
-        // copy-pasted markdown still parses as tasks.
         let taskRegex = /^\s*[-*]\s\[([ xX])\]\s+(.+)$/
 
-        for line in trimmed.components(separatedBy: "\n") {
+        for line in input.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: taskRegex) {
                 let done = match.1 != " "
                 let title = String(match.2).trimmingCharacters(in: .whitespaces)
@@ -66,8 +134,7 @@ final class CaptureViewModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let noteId = noteBody.isEmpty ? nil : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
 
-        try store.appendCapture(noteText: noteBody, noteId: noteId,
-                                tasks: tasks, at: now)
+        try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: tasks, at: now)
 
         text = ""
         autosaveTask?.cancel()
@@ -101,34 +168,39 @@ final class CaptureViewModel: ObservableObject {
         self.state = .input
     }
 
-    /// TEMP for plan 06 smoke — prints accepted tasks to console. Plan 08 wires real commit via Store.
     func commitFromReview() {
-        if case .review(let tasks, let noteBody, _) = state {
-            let accepted = acceptedRowIDs.sorted().compactMap { tasks.indices.contains($0) ? tasks[$0] : nil }
-            NSLog("[Jotty][03-06 smoke] commit \(accepted.count) tasks; noteBody=\(noteBody.prefix(50))")
-            self.text = ""
-            self.state = .input
-            autosaveTask?.cancel()
-            try? FileManager.default.removeItem(at: draftURL)
+        guard case .review(let tasks, let noteBody, _) = state else { return }
+        let now = clock()
+        let accepted = acceptedRowIDs.sorted().compactMap { tasks.indices.contains($0) ? tasks[$0] : nil }
+
+        let noteId: String? = noteBody.isEmpty
+            ? nil
+            : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+
+        let todos: [Todo] = accepted.map { t in
+            Todo(
+                id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                text: t.title,
+                createdAt: now,
+                done: false,
+                dueDate: t.dueDate,
+                sourceNote: noteId
+            )
         }
-    }
 
-    // MARK: - Plan 06: Dev stub (plan 08 deletes this method)
+        do {
+            try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: todos, at: now)
+        } catch {
+            // Keep the user in review with their accepted rows so they can retry.
+            lastError = .underlying(message: error.localizedDescription)
+            return
+        }
 
-    /// Injects fake ExtractedTasks and transitions to review. Only used behind JOTTY_FORCE_REVIEW=1.
-    func devForceReviewWithStubTasks() {
-        let cal = Calendar.current
-        let tomorrow = cal.date(byAdding: .day, value: 1, to: clock())!
-        let startOfBlock = cal.date(bySettingHour: 13, minute: 0, second: 0, of: clock())!
-        let endOfBlock = cal.date(bySettingHour: 14, minute: 30, second: 0, of: clock())!
-        let stub: [ExtractedTask] = [
-            ExtractedTask(title: "email Jamie re Q2 plan"),
-            ExtractedTask(title: "laptop setup",
-                          timeBlock: TimeBlock(start: startOfBlock, end: endOfBlock),
-                          calendarBlock: true),
-            ExtractedTask(title: "domain renewal", dueDate: tomorrow),
-        ]
-        enterReview(tasks: stub, noteBody: text)
+        text = ""
+        autosaveTask?.cancel()
+        try? FileManager.default.removeItem(at: draftURL)   // best-effort cleanup; not user-visible
+        state = .input
+        acceptedRowIDs = []
     }
 
     // MARK: - Private

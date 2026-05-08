@@ -36,7 +36,7 @@ enum AIProviderError: Error, Equatable {
 /// - Throw `AIProviderError` on failure (NEVER a provider-private type).
 ///   Callers MUST be able to fall back to plain-note storage on any throw
 ///   (see AI-SPEC §4.6).
-protocol AIProvider {
+protocol AIProvider: Sendable {
     func extractTasks(
         from text: String,
         now: Date,

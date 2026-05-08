@@ -12,8 +12,37 @@ struct ReviewListView: View {
 
     @FocusState private var focusedRow: Int?
 
+    private func errorMessage(for error: AIProviderError) -> String {
+        switch error {
+        case .guardrail:
+            return "Apple Intelligence couldn't process this capture. It's been saved as a plain note — edit tasks manually."
+        case .modelUnavailable(let reason):
+            return "AI extraction unavailable (\(reason)). Capture saved as a plain note."
+        case .contextOverflow:
+            return "Capture too long for on-device extraction. Saved as a plain note."
+        case .underlying:
+            return "AI extraction failed. Capture saved as a plain note."
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // AI-SPEC §4.6 / §6.3: inline error banner when extraction failed.
+            if let error = vm.lastError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                        .font(.system(size: 12))
+                    Text(errorMessage(for: error))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.yellow.opacity(0.12))
+            }
+
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(tasks.indices, id: \.self) { index in
