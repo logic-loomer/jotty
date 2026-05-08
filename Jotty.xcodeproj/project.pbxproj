@@ -28,6 +28,7 @@
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
+		F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
 		BFEB5F765220DE9666B68F7B /* JottyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JottyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
 		EC759DA0F19FAD410B08429D /* Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Action.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -97,6 +99,7 @@
 				8A9053C9CFEB56811D8D06FA /* JottyApp.swift */,
 				98110515FAB8B246A26DE230 /* Capture */,
 				98BACBAD039060A6F2FEB0F5 /* Config */,
+				84A47C6603CD5ACA51EA6B82 /* Hotkey */,
 				C6FE6D81CF7AC65E0720A24B /* Keybindings */,
 				78260507BD3C890EA1E9BFDB /* Resources */,
 				97D58AA03E8D457406DE7991 /* Store */,
@@ -111,6 +114,14 @@
 				6DE9FB54B158EC494838B935 /* default-keybindings.json */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		84A47C6603CD5ACA51EA6B82 /* Hotkey */ = {
+			isa = PBXGroup;
+			children = (
+				C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */,
+			);
+			path = Hotkey;
 			sourceTree = "<group>";
 		};
 		97D58AA03E8D457406DE7991 /* Store */ = {
@@ -276,6 +287,7 @@
 				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
+				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */,
 				DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */,
 				6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */,
