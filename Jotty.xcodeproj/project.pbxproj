@@ -13,8 +13,10 @@
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
 		64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */; };
+		69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D93F9D0664E78E14B656E7D /* CaptureView.swift */; };
 		6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C10305FCA786584DA748E1 /* DailyFileTests.swift */; };
 		6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */; };
+		70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */; };
 		76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC759DA0F19FAD410B08429D /* Action.swift */; };
 		78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDA0A15DCF13E839E64C340 /* DailyFile.swift */; };
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
@@ -52,8 +54,10 @@
 		49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDoc.swift; sourceTree = "<group>"; };
 		5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocTests.swift; sourceTree = "<group>"; };
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
+		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
+		9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
 		AE591493870DE367A409DBE2 /* StoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreTests.swift; sourceTree = "<group>"; };
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
@@ -122,7 +126,9 @@
 		98110515FAB8B246A26DE230 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
+				6D93F9D0664E78E14B656E7D /* CaptureView.swift */,
 				45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */,
+				9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -265,7 +271,9 @@
 			files = (
 				76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */,
 				0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */,
+				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
 				64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */,
+				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */,
