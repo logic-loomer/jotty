@@ -16,6 +16,7 @@
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
+		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
 		5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */; };
 		64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */; };
 		659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FC8742B157EA7431075271 /* TodoTests.swift */; };
@@ -77,6 +78,7 @@
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		7336303002FC0750BF76F3EB /* RolloverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverService.swift; sourceTree = "<group>"; };
+		77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProvider.swift; sourceTree = "<group>"; };
 		8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
 		9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
@@ -221,6 +223,7 @@
 		9B697A19AD720FCBE7A97AA8 /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */,
 				3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */,
 				148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */,
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
@@ -359,6 +362,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */,
 				76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */,
 				0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */,
 				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
