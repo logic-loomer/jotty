@@ -58,31 +58,53 @@ final class CaptureViewModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         lastError = nil
 
-        if hasManualSyntax(trimmed) {
-            // Surface manual-path disk errors via lastError. NEVER try?.
+        // Per-line routing: extract manual `- [ ] ` lines as ExtractedTask
+        // directly (bypass AI); send the remaining prose to the AI provider.
+        // The Review state then shows manual + AI tasks combined.
+        var manualTasks: [ExtractedTask] = []
+        var remainingLines: [String] = []
+        for line in trimmed.components(separatedBy: "\n") {
+            if let match = line.firstMatch(of: Self.manualTaskRegex) {
+                let title = String(match.2).trimmingCharacters(in: .whitespaces)
+                manualTasks.append(ExtractedTask(title: title))
+            } else {
+                remainingLines.append(line)
+            }
+        }
+        let remainingText = remainingLines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Pure-manual capture (no prose to extract from): commit directly,
+        // skipping the Review state. Fast path for typed checklists.
+        if !manualTasks.isEmpty && remainingText.isEmpty {
             do {
                 try submitManual(trimmed)
             } catch {
                 lastError = .underlying(message: error.localizedDescription)
-                // Stay in input mode so the user can retry; draft autosave intact.
             }
             return
         }
 
-        // AI path
+        // Mixed or pure-prose capture: send remaining text to AI, combine
+        // any manual tasks into the Review state.
         isExtracting = true
         extractionTask?.cancel()
         let now = clock()
         let tz = TimeZone.current
+        let manualTasksCopy = manualTasks
+        let remainingTextCopy = remainingText
         extractionTask = Task { [weak self] in
             guard let self else { return }
             let p = self.provider
             do {
-                let result = try await p.extractTasks(from: trimmed, now: now, timezone: tz)
+                let aiResult = remainingTextCopy.isEmpty
+                    ? ExtractionResult(tasks: [], noteBody: "")
+                    : try await p.extractTasks(from: remainingTextCopy, now: now, timezone: tz)
                 try Task.checkCancellation()
                 await MainActor.run {
                     self.isExtracting = false
-                    self.enterReview(tasks: result.tasks, noteBody: result.noteBody)
+                    self.enterReview(tasks: manualTasksCopy + aiResult.tasks,
+                                     noteBody: aiResult.noteBody)
                 }
             } catch is CancellationError {
                 return
@@ -90,14 +112,14 @@ final class CaptureViewModel: ObservableObject {
                 await MainActor.run {
                     self.isExtracting = false
                     self.lastError = e
-                    // Degraded review state: zero tasks, raw capture as note body.
-                    self.enterReview(tasks: [], noteBody: trimmed)
+                    // Degraded review: keep manual tasks, raw remaining text as note body.
+                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
                 }
             } catch {
                 await MainActor.run {
                     self.isExtracting = false
                     self.lastError = .underlying(message: error.localizedDescription)
-                    self.enterReview(tasks: [], noteBody: trimmed)
+                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
                 }
             }
         }

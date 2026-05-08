@@ -87,10 +87,16 @@ final class CaptureViewModelTests: XCTestCase {
                        "Draft must not exist after submit and commit, even if autosave was pending")
     }
 
-    // Mixed input (tasks + note) takes manual path (has `- [ ]` syntax).
+    // Mixed input (tasks + prose): manual `- [ ] ` lines parse directly,
+    // remaining prose goes through AI; both meet in the Review state.
     func testSubmitSplitsTasksAndNote() async throws {
         let now = Date()
-        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { now })
+        // Mock returns the prose as noteBody so the test can assert on it after commit.
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(
+            tasks: [],
+            noteBody: "quick brain-dump\nfollow-up: check prod logs after lunch"
+        )))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { now })
         vm.text = """
         quick brain-dump
         - [ ] call mom
@@ -98,6 +104,14 @@ final class CaptureViewModelTests: XCTestCase {
         follow-up: check prod logs after lunch
         """
         await vm.submitAndWait()
+        // Per-line routing: mixed input → Review state with manual tasks + AI noteBody.
+        guard case .review(let tasks, _, _) = vm.state else {
+            return XCTFail("expected Review state, got \(vm.state)")
+        }
+        XCTAssertEqual(tasks.count, 2, "expected 2 manual tasks in review")
+        XCTAssertTrue(tasks.contains { $0.title == "call mom" })
+        XCTAssertTrue(tasks.contains { $0.title == "renew domain" })
+        vm.commitFromReview()
 
         let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
         let body = try String(contentsOf: dayFile, encoding: .utf8)
@@ -105,7 +119,6 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertTrue(body.contains("- [ ] renew domain"))
         XCTAssertTrue(body.contains("quick brain-dump"))
         XCTAssertTrue(body.contains("follow-up: check prod logs after lunch"))
-        XCTAssertFalse(body.contains("- [ ] call mom <!-- id:t_") == false)
     }
 
     // Only task lines → manual path.
