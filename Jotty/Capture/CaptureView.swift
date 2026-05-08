@@ -27,7 +27,13 @@ struct CaptureView: View {
             .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(width: 520, height: 280)
-        .onAppear { focused = true }
+        .onAppear {
+            // Defer focus by one runloop tick: with LSUIElement = true and
+            // .accessory activation policy, the window isn't quite settled
+            // as key when .onAppear fires, so SwiftUI's @FocusState assignment
+            // is dropped. Async dispatch lets the window become key first.
+            DispatchQueue.main.async { focused = true }
+        }
         .onSubmitKeyCommand { onSubmit() }
         .onCancelKeyCommand { onCancel() }
     }
