@@ -8,6 +8,24 @@ struct CaptureView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        Group {
+            switch vm.state {
+            case .input:
+                inputView
+            case .review(let tasks, _, _):
+                ReviewListView(
+                    vm: vm,
+                    tasks: tasks,
+                    onCommit: { vm.commitFromReview() },
+                    onCancel: { vm.returnToInput() }
+                )
+            }
+        }
+    }
+
+    // MARK: - Input view
+
+    private var inputView: some View {
         VStack(spacing: 0) {
             TextEditor(text: $vm.text)
                 .font(.system(size: 14))
@@ -34,7 +52,15 @@ struct CaptureView: View {
             // is dropped. Async dispatch lets the window become key first.
             DispatchQueue.main.async { focused = true }
         }
-        .onSubmitKeyCommand { onSubmit() }
+        .onSubmitKeyCommand {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["JOTTY_FORCE_REVIEW"] == "1" {
+                vm.devForceReviewWithStubTasks()
+                return
+            }
+            #endif
+            onSubmit()
+        }
         .onCancelKeyCommand { onCancel() }
     }
 }
