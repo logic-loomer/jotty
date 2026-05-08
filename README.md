@@ -2,7 +2,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** Phase 2 shipped. Menubar list and daily rollover are live. Phase 3 (AI extraction) incoming.
+**Status:** Phase 3 shipped. AI extraction with Apple Foundation Models. Capture → Review → Commit flow. Phase 4 (cloud AI providers) incoming.
 
 ## Build from source
 
@@ -58,6 +58,25 @@ follow-up: check prod logs after lunch
 Click the menubar `📝` icon to see today's tasks; click checkboxes to toggle.
 Incomplete tasks roll forward to today's file at app launch and at midnight.
 
+## AI task extraction (Phase 3)
+
+Type a freeform brain-dump, press ⌘↩, and the app silently extracts tasks, due dates, and time blocks using on-device Apple Foundation Models. A Review state appears with rows for each extracted item, showing metadata badges (`📅 today 1–2pm`, `📅 due Friday`). Navigate with ↑↓, toggle rows with space, press ⌘↩ to commit, or ⎋ to return and edit the original text. No network requests. Apple FM is the default and requires macOS 26+; older systems fall back to manual `- [ ] ` syntax parsing.
+
+Example:
+
+```
+call mom by Friday, block 1-2pm for standup, domain renewal
+```
+
+→ extraction creates three tasks ("call mom", "standup", "domain renewal") with due date, time block, and calendar block metadata. Review state displays all three with badges. Accept them and they land in today's `## Tasks` with full metadata preserved; reject and return to edit.
+
+**Manual syntax still works as an escape hatch:** if you type `- [ ] call mom`, it bypasses AI and lands directly as a task.
+
+**Known limits (Phase 3):**
+- Cloud AI providers (Ollama, Claude, OpenAI, Gemini) arrive in Phase 4.
+- Time blocks are extracted and displayed in Review, but do not yet write calendar events (Phase 5).
+- Undo (30-second window to reverse extraction and commit) is deferred.
+
 ## Testing
 
 ```bash
@@ -68,7 +87,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 
 - **Phase 1:** capture → markdown file (shipped)
 - **Phase 2:** menubar list, daily rollover (shipped)
-- **Phase 3:** AI task extraction (Apple Foundation Models default)
+- **Phase 3:** AI task extraction (Apple Foundation Models default) (shipped)
 - **Phase 4:** Cloud AI providers (Ollama, Claude, OpenAI, Gemini)
 - **Phase 5:** Calendar integration (read + write)
 - **Phase 6:** Send-to-Claude, launch-at-login, full settings UI
