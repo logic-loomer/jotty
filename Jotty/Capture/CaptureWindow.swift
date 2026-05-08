@@ -22,12 +22,13 @@ final class CaptureWindowController: NSWindowController {
 
         let view = CaptureView(
             vm: vm,
-            onSubmit: { [weak vm, weak win] in
-                guard let vm else { return }
-                do { try vm.submit() } catch { NSSound.beep() }
-                win?.close()
+            onSubmitInput: { [weak vm] in
+                // Just kick off submission. Don't close — submit() spawns an
+                // async AI Task; the Review state lands later via vm.state and
+                // CaptureView re-renders to ReviewListView.
+                vm?.submit()
             },
-            onCancel: { [weak win] in
+            onDismiss: { [weak win] in
                 win?.close()
             }
         )

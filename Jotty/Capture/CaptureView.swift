@@ -2,8 +2,10 @@ import SwiftUI
 
 struct CaptureView: View {
     @ObservedObject var vm: CaptureViewModel
-    let onSubmit: () -> Void
-    let onCancel: () -> Void
+    /// User pressed ⌘↩ in input mode — kick off submit (manual or AI). Does NOT dismiss.
+    let onSubmitInput: () -> Void
+    /// User wants the window closed — ⎋ in input, or after a successful Review commit.
+    let onDismiss: () -> Void
 
     @FocusState private var focused: Bool
 
@@ -16,7 +18,12 @@ struct CaptureView: View {
                 ReviewListView(
                     vm: vm,
                     tasks: tasks,
-                    onCommit: { vm.commitFromReview() },
+                    onCommit: {
+                        vm.commitFromReview()
+                        // commitFromReview sets state back to .input on success;
+                        // stays .review on disk error (with lastError set).
+                        if case .input = vm.state { onDismiss() }
+                    },
                     onCancel: { vm.returnToInput() }
                 )
             }
@@ -52,8 +59,8 @@ struct CaptureView: View {
             // is dropped. Async dispatch lets the window become key first.
             DispatchQueue.main.async { focused = true }
         }
-        .onSubmitKeyCommand { onSubmit() }
-        .onCancelKeyCommand { onCancel() }
+        .onSubmitKeyCommand { onSubmitInput() }
+        .onCancelKeyCommand { onDismiss() }
     }
 }
 
