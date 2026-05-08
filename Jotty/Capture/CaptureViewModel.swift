@@ -103,6 +103,7 @@ final class CaptureViewModel: ObservableObject {
                 try Task.checkCancellation()
                 await MainActor.run {
                     self.isExtracting = false
+                    self.lastError = nil   // success — clear any stale error from a prior attempt
                     self.enterReview(tasks: manualTasksCopy + aiResult.tasks,
                                      noteBody: aiResult.noteBody)
                 }
