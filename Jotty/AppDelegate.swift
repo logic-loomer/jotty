@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openCapture() {
+        // Close any prior capture window to prevent stacking on rapid re-presses.
+        captureController?.window?.close()
+
         // Refresh store in case folder changed in settings.
         store = Store(folder: configStore.config.storageFolder, timezone: .current)
 
