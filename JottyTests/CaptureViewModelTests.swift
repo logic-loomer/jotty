@@ -56,4 +56,16 @@ final class CaptureViewModelTests: XCTestCase {
         let dayFile = DailyFile.url(in: folder, on: Date(), timezone: .current)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dayFile.path))
     }
+
+    func testSubmitCancelsPendingAutosave() async throws {
+        let now = Date()
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, clock: { now })
+        vm.text = "should not persist as draft"
+        // Submit immediately while the 30ms autosave debounce is still pending.
+        try vm.submit()
+        // Wait well past the debounce window so any in-flight task would have fired by now.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: draftURL.path),
+                       "Draft must not exist after submit, even if autosave was pending")
+    }
 }
