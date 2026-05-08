@@ -7,25 +7,31 @@ final class CaptureWindowController: NSWindowController {
 
     init(vm: CaptureViewModel) {
         self.vm = vm
-        let view = CaptureView(
-            vm: vm,
-            onSubmit: { [weak vm] in
-                guard let vm else { return }
-                do { try vm.submit() } catch { NSSound.beep() }
-                NSApp.keyWindow?.close()
-            },
-            onCancel: {
-                NSApp.keyWindow?.close()
-            }
+
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 280),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
         )
-        let host = NSHostingController(rootView: view)
-        let win = NSWindow(contentViewController: host)
-        win.styleMask = [.titled, .closable, .fullSizeContentView]
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
         win.isMovableByWindowBackground = true
         win.level = .floating
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        let view = CaptureView(
+            vm: vm,
+            onSubmit: { [weak vm, weak win] in
+                guard let vm else { return }
+                do { try vm.submit() } catch { NSSound.beep() }
+                win?.close()
+            },
+            onCancel: { [weak win] in
+                win?.close()
+            }
+        )
+        win.contentViewController = NSHostingController(rootView: view)
         super.init(window: win)
     }
 

@@ -66,6 +66,8 @@ private struct KeyMonitor: NSViewRepresentable {
 
 private final class _KeyMonitorView: NSView {
     let handler: (NSEvent) -> Bool
+    private nonisolated(unsafe) var monitor: Any?
+
     init(handler: @escaping (NSEvent) -> Bool) {
         self.handler = handler
         super.init(frame: .zero)
@@ -74,10 +76,21 @@ private final class _KeyMonitorView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Remove any prior monitor in case the view moved between windows.
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
         guard let window = self.window else { return }
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === window else { return event }
             return self.handler(event) ? nil : event
+        }
+    }
+
+    nonisolated deinit {
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
         }
     }
 }
