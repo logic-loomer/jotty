@@ -30,7 +30,9 @@ final class CaptureViewModel: ObservableObject {
         let now = clock()
         var noteLines: [String] = []
         var tasks: [Todo] = []
-        let taskRegex = /^- \[([ xX])\] (.+)$/
+        // Allow optional leading whitespace and `* ` as alternate bullet, so
+        // copy-pasted markdown still parses as tasks.
+        let taskRegex = /^\s*[-*]\s\[([ xX])\]\s+(.+)$/
 
         for line in trimmed.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: taskRegex) {
