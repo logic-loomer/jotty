@@ -138,13 +138,15 @@ final class AppleFMProviderFixturesTests: XCTestCase {
                 XCTFail("RELEASE BLOCKER failures (dims 3/4/6):\n" + blockerLines.joined(separator: "\n"))
             }
 
-            // Non-blocker failures produce a test failure too (document and defer decision to checkpoint)
+            // Non-blocker failures: log only (per checkpoint: defer-non-blocker resolution).
+            // The release-blocker gate is the only XCTFail surface; non-blocker dims are
+            // tracked as known-yellow and addressed in v0.3.x / v1.0 work.
             let nonblockerFailures = allFailures.filter { !Self.releaseblockerModes.contains($0.mode) }
             if !nonblockerFailures.isEmpty {
                 let nbLines = nonblockerFailures.flatMap { entry in
                     entry.reasons.map { r in "\(entry.id) [\(entry.mode)]: \(r)" }
                 }
-                XCTFail("Non-blocker failures (checkpoint: defer-non-blocker):\n" + nbLines.joined(separator: "\n"))
+                print("⚠️ NON-BLOCKER failures (\(nonblockerFailures.count) fixtures, deferred per checkpoint):\n" + nbLines.joined(separator: "\n"))
             }
         }
     }

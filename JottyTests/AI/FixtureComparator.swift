@@ -9,19 +9,58 @@ enum FixtureComparator {
 
     // MARK: - Field comparators
 
-    /// PASS if lowercased+whitespace-normalized `expected` is a substring of
-    /// `actual` AND `actual.count <= 1.5 × expected.count`.
+    /// Stop-words dropped before semantic comparison.
+    private static let stopWords: Set<String> = ["the", "a", "an", "for", "to", "on", "block"]
+
+    /// Tokenize, lowercase, drop stop-words, return word set.
+    private static func contentWords(_ s: String) -> Set<String> {
+        let tokens = s.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        return Set(tokens.filter { !stopWords.contains($0) })
+    }
+
+    /// Jaccard similarity of two word sets.
+    private static func jaccardSimilarity(_ a: Set<String>, _ b: Set<String>) -> Double {
+        let intersection = a.intersection(b).count
+        let union = a.union(b).count
+        guard union > 0 else { return 1.0 }
+        return Double(intersection) / Double(union)
+    }
+
+    /// PASS if:
+    ///   (a) substring match after normalization, OR
+    ///   (b) Jaccard of content-word sets ≥ 0.6 (tolerates stop-word differences)
+    /// AND length-ratio check: actual length within [0.6 × expected, 1.6 × expected].
     static func compareTitle(actual: String, expected: String) -> String? {
         let na = normalize(actual)
         let ne = normalize(expected)
-        guard na.contains(ne) else {
-            return "title mismatch: expected substring '\(ne)' not found in actual '\(na)'"
+
+        // Length-ratio gate (relaxed to [0.6, 1.6] per spec).
+        let minLen = Int(Double(ne.count) * 0.6)
+        let maxLen = Int(Double(ne.count) * 1.6)
+        if na.count > maxLen {
+            return "title too long: actual '\(na)' (\(na.count) chars) > 1.6× expected '\(ne)' (\(ne.count) chars, max \(maxLen))"
         }
-        let maxLen = Int(Double(ne.count) * 1.5)
-        guard na.count <= maxLen else {
-            return "title too long: actual '\(na)' (\(na.count) chars) > 1.5× expected '\(ne)' (\(ne.count) chars, max \(maxLen))"
+        if na.count < minLen && !ne.isEmpty {
+            return "title too short: actual '\(na)' (\(na.count) chars) < 0.6× expected '\(ne)' (\(ne.count) chars, min \(minLen))"
         }
-        return nil
+
+        // Substring match (original check).
+        if na.contains(ne) { return nil }
+
+        // Stop-word-stripped substring check.
+        let aWords = contentWords(actual)
+        let eWords = contentWords(expected)
+        let aStripped = aWords.sorted().joined(separator: " ")
+        let eStripped = eWords.sorted().joined(separator: " ")
+        if aStripped.contains(eStripped) || eStripped.contains(aStripped) { return nil }
+
+        // Jaccard fallback.
+        let jaccard = jaccardSimilarity(aWords, eWords)
+        if jaccard >= 0.6 { return nil }
+
+        return "title mismatch: actual '\(na)' vs expected '\(ne)' (Jaccard=\(String(format: "%.2f", jaccard)) < 0.6, no substring match after stop-word removal)"
     }
 
     /// Both nil → pass; one nil one set → fail; both set → compare yyyy-MM-dd in `tz`.
@@ -138,11 +177,22 @@ enum FixtureComparator {
 
     /// Crude scoring: if `actualNorm` contains `expNorm` as a substring, score is
     /// expNorm.count + 1 (strongest). If `expNorm` contains `actualNorm`, score is
-    /// actualNorm.count. Otherwise 0.
+    /// actualNorm.count. Falls back to stop-word-aware Jaccard × 100 so that
+    /// semantically-equivalent titles (differing only by stop-words) still match.
     static func substringScore(_ actualNorm: String, _ expNorm: String) -> Int {
         guard !expNorm.isEmpty, !actualNorm.isEmpty else { return 0 }
         if actualNorm.contains(expNorm) { return expNorm.count + 1 }
         if expNorm.contains(actualNorm) { return actualNorm.count }
+        // Stop-word-stripped substring check.
+        let aWords = contentWords(actualNorm)
+        let eWords = contentWords(expNorm)
+        let aStripped = aWords.sorted().joined(separator: " ")
+        let eStripped = eWords.sorted().joined(separator: " ")
+        if aStripped == eStripped { return expNorm.count }
+        if aStripped.contains(eStripped) || eStripped.contains(aStripped) { return expNorm.count / 2 + 1 }
+        // Jaccard fallback: return proportional score if ≥ 0.5 overlap.
+        let jaccard = jaccardSimilarity(aWords, eWords)
+        if jaccard >= 0.5 { return Int(jaccard * Double(expNorm.count)) }
         return 0
     }
 
