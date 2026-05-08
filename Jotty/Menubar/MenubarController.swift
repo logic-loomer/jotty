@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class MenubarController {
@@ -6,22 +7,46 @@ final class MenubarController {
     var onCapture: (() -> Void)?
     var onSettings: (() -> Void)?
 
-    init() {
+    private let popover = NSPopover()
+    let listModel: MenubarListModel
+
+    init(store: Store) {
+        self.listModel = MenubarListModel(store: store)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "📝"
+        statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.target = self
 
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Capture…", action: #selector(captureClicked), keyEquivalent: "n").also { $0.target = self })
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(settingsClicked), keyEquivalent: ",").also { $0.target = self })
-        menu.addItem(NSMenuItem(title: "Quit Jotty", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        statusItem.menu = menu
+        popover.behavior = .transient
+        popover.animates = true
     }
 
-    @objc private func captureClicked() { onCapture?() }
-    @objc private func settingsClicked() { onSettings?() }
-}
+    @objc private func togglePopover() {
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            showPopover()
+        }
+    }
 
-private extension NSObject {
-    func also(_ block: (Self) -> Void) -> Self { block(self); return self }
+    private func showPopover() {
+        listModel.reload()
+
+        let view = MenubarListView(
+            model: listModel,
+            onCapture: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onCapture?()
+            },
+            onSettings: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onSettings?()
+            }
+        )
+
+        popover.contentViewController = NSHostingController(rootView: view)
+        guard let button = statusItem.button else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
 }

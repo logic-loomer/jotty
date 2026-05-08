@@ -29,6 +29,7 @@
 		91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0F6484D307F784AA064A13 /* StorageTab.swift */; };
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
+		B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43923E183E14DDBEBB793B89 /* MenubarListView.swift */; };
 		B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006FA2D88232464A90253AFC /* ConfigStoreTests.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
@@ -56,6 +57,7 @@
 		3DF97B79250F715F0DC65677 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelTests.swift; sourceTree = "<group>"; };
 		428DD70FF55C0CDADC0E5444 /* Jotty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jotty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		43923E183E14DDBEBB793B89 /* MenubarListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListView.swift; sourceTree = "<group>"; };
 		45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModel.swift; sourceTree = "<group>"; };
 		49657BD3B4A790B6E76F2286 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCombo.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				53AC3F72A417E829574D72E6 /* MenubarController.swift */,
+				43923E183E14DDBEBB793B89 /* MenubarListView.swift */,
 			);
 			path = Menubar;
 			sourceTree = "<group>";
@@ -340,6 +343,7 @@
 				6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */,
 				8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */,
 				1211D18D25659470981B10CB /* MenubarController.swift in Sources */,
+				B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */,
 				DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */,
 				DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */,
 				91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */,
