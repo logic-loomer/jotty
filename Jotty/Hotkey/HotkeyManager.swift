@@ -7,7 +7,8 @@ final class HotkeyManager {
     private nonisolated(unsafe) var eventHandler: EventHandlerRef?
     private var handler: (() -> Void)?
 
-    func register(combo: KeyCombo, _ handler: @escaping () -> Void) {
+    @discardableResult
+    func register(combo: KeyCombo, _ handler: @escaping () -> Void) -> Bool {
         unregister()
         self.handler = handler
 
@@ -23,13 +24,16 @@ final class HotkeyManager {
             0,
             &ref
         )
-        guard status == noErr, let ref else { return }
+        guard status == noErr, let ref else {
+            NSLog("[Jotty] RegisterEventHotKey failed (status=\(status)) for keyCode=\(combo.keyCode)")
+            return false
+        }
         hotKeyRef = ref
 
         let context = Unmanaged.passUnretained(self).toOpaque()
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                  eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, ctx -> OSStatus in
+        let installStatus = InstallEventHandler(GetApplicationEventTarget(), { _, _, ctx -> OSStatus in
             guard let ctx else { return noErr }
             DispatchQueue.main.async {
                 let mgr = Unmanaged<HotkeyManager>.fromOpaque(ctx).takeUnretainedValue()
@@ -37,6 +41,13 @@ final class HotkeyManager {
             }
             return noErr
         }, 1, &spec, context, &eventHandler)
+        guard installStatus == noErr else {
+            NSLog("[Jotty] InstallEventHandler failed (status=\(installStatus))")
+            if let ref = hotKeyRef { UnregisterEventHotKey(ref) }
+            hotKeyRef = nil
+            return false
+        }
+        return true
     }
 
     func unregister() {
