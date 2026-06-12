@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAAFD291515674072BD84FC /* CodesignVerifier.swift */; };
 		0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B026F43211BD2F9BB519C180 /* AppDelegate.swift */; };
 		11B763B580EADE4B89F4756E /* default-keybindings.json in Resources */ = {isa = PBXBuildFile; fileRef = 6DE9FB54B158EC494838B935 /* default-keybindings.json */; };
 		1211D18D25659470981B10CB /* MenubarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AC3F72A417E829574D72E6 /* MenubarController.swift */; };
@@ -18,6 +19,7 @@
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
 		458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */; };
+		4D92D119A5DF67335C2570AB /* GitHubReleases.swift in Sources */ = {isa = PBXBuildFile; fileRef = E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */; };
 		5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
@@ -54,6 +56,7 @@
 		B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006FA2D88232464A90253AFC /* ConfigStoreTests.swift */; };
 		BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */; };
 		C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */; };
+		C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6EB8F59B589E10E72601FAE /* Quarantine.swift */; };
 		C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */; };
 		D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
@@ -135,8 +138,11 @@
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
 		CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapperTests.swift; sourceTree = "<group>"; };
+		CDAAFD291515674072BD84FC /* CodesignVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodesignVerifier.swift; sourceTree = "<group>"; };
+		D6EB8F59B589E10E72601FAE /* Quarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quarantine.swift; sourceTree = "<group>"; };
 		D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewListView.swift; sourceTree = "<group>"; };
 		E164C1254160F1C1D6633F02 /* OllamaBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBinaryLocatorTests.swift; sourceTree = "<group>"; };
+		E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubReleases.swift; sourceTree = "<group>"; };
 		E3B8DDE953367F6C614E57C3 /* OllamaError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaError.swift; sourceTree = "<group>"; };
 		E454A8AE1874899F469A5E8C /* Todo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Todo.swift; sourceTree = "<group>"; };
 		EC759DA0F19FAD410B08429D /* Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Action.swift; sourceTree = "<group>"; };
@@ -316,8 +322,11 @@
 		A4872F05770DD79F1C2FACE8 /* Ollama */ = {
 			isa = PBXGroup;
 			children = (
+				CDAAFD291515674072BD84FC /* CodesignVerifier.swift */,
+				E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */,
 				2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */,
 				E3B8DDE953367F6C614E57C3 /* OllamaError.swift */,
+				D6EB8F59B589E10E72601FAE /* Quarantine.swift */,
 			);
 			path = Ollama;
 			sourceTree = "<group>";
@@ -483,12 +492,14 @@
 				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
 				64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */,
 				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,
+				011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */,
 				B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */,
 				458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */,
 				32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */,
+				4D92D119A5DF67335C2570AB /* GitHubReleases.swift in Sources */,
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
 				E254C6286A6698C0962539B3 /* JSONSchemaBuilder.swift in Sources */,
@@ -501,6 +512,7 @@
 				B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */,
 				70202616D4F4B5A052D5F4AD /* OllamaBinaryLocator.swift in Sources */,
 				21A7F51F90F9E201E4DEF4E2 /* OllamaError.swift in Sources */,
+				C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */,
 				F1795581B4AF9AEA26BF24F4 /* RetryPolicy.swift in Sources */,
 				5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */,
 				DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */,
