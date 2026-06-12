@@ -62,8 +62,10 @@ final class MenubarListModel: ObservableObject {
         // Membership must be captured BEFORE the store write and reload():
         // reload repartitions the arrays and a just-completed leftover vanishes.
         let wasLeftover = leftovers.contains { $0.id == task.id }
+        // Single snapshot: the store write and the collapse key must agree
+        // on the day even if the wall clock crosses midnight mid-call.
         let snapshot = now()
-        try? store.toggleTodo(id: task.id, on: now())
+        try? store.toggleTodo(id: task.id, on: snapshot)
         // Auto-collapse only on the day's FIRST interaction; a manual
         // expand/collapse (key present) is the user's choice and wins.
         if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
