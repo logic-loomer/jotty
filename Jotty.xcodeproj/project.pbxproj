@@ -53,6 +53,7 @@
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
 		DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
+		E254C6286A6698C0962539B3 /* JSONSchemaBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5BB2D1CE2E9503B3140245 /* JSONSchemaBuilder.swift */; };
 		E4447D28FA66F03D1BDC5339 /* FixtureComparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE63561E779672ABC2A4103 /* FixtureComparator.swift */; };
 		EFE4C2C74BBA2997F75419E0 /* extraction-fixtures.json in Resources */ = {isa = PBXBuildFile; fileRef = BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
@@ -114,6 +115,7 @@
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
 		BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "extraction-fixtures.json"; sourceTree = "<group>"; };
+		BE5BB2D1CE2E9503B3140245 /* JSONSchemaBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONSchemaBuilder.swift; sourceTree = "<group>"; };
 		BFEB5F765220DE9666B68F7B /* JottyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JottyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C84E33A536DA47388C797099 /* MenubarListModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListModelTests.swift; sourceTree = "<group>"; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
@@ -273,6 +275,7 @@
 				1779948226E7290A4141189D /* ExtractedTaskAI.swift */,
 				148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */,
 				11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */,
+				BE5BB2D1CE2E9503B3140245 /* JSONSchemaBuilder.swift */,
 				A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */,
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
 			);
@@ -451,6 +454,7 @@
 				32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */,
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
+				E254C6286A6698C0962539B3 /* JSONSchemaBuilder.swift in Sources */,
 				A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */,
 				DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */,
 				6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */,
