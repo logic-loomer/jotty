@@ -46,6 +46,7 @@
 		B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1779948226E7290A4141189D /* ExtractedTaskAI.swift */; };
 		B6E1E0FEDCDD91A07FB120AA /* KeychainAPIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */; };
 		B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006FA2D88232464A90253AFC /* ConfigStoreTests.swift */; };
+		BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */; };
 		C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */; };
 		C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */; };
 		D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */; };
@@ -79,6 +80,7 @@
 		1779948226E7290A4141189D /* ExtractedTaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskAI.swift; sourceTree = "<group>"; };
 		1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelAIPathTests.swift; sourceTree = "<group>"; };
+		32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPromptTests.swift; sourceTree = "<group>"; };
 		365D40E78DF10E20BB8B1EFE /* ExtractedTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskTests.swift; sourceTree = "<group>"; };
 		3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTask.swift; sourceTree = "<group>"; };
 		3CDA0A15DCF13E839E64C340 /* DailyFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFile.swift; sourceTree = "<group>"; };
@@ -191,6 +193,7 @@
 				4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */,
 				28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */,
 				365D40E78DF10E20BB8B1EFE /* ExtractedTaskTests.swift */,
+				32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */,
 				7BE63561E779672ABC2A4103 /* FixtureComparator.swift */,
 				CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */,
 				569E74D1B7E1C17DC75AA83E /* JSONSchemaBuilderTests.swift */,
@@ -420,6 +423,7 @@
 				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
 				682CF1C7B61F0A2A68752E9D /* ExtractedTaskTests.swift in Sources */,
+				BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */,
 				E4447D28FA66F03D1BDC5339 /* FixtureComparator.swift in Sources */,
 				FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */,
 				66D400C90EF207A7A59136D3 /* JSONSchemaBuilderTests.swift in Sources */,
