@@ -128,6 +128,24 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertFalse(model.leftoversCollapsed)
     }
 
+    func testReloadRemovesAllStaleCollapseKeys() throws {
+        // MI-03: housekeeping must clear EVERY earlier day's key, not just
+        // exactly-yesterday's (the app may not run every day).
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        defaults.set(true, forKey: "leftoversCollapsed-2026-06-10")
+        defaults.set(false, forKey: "leftoversCollapsed-2026-06-08")
+        defaults.set(true, forKey: "leftoversCollapsed-2026-06-12")
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+
+        XCTAssertNil(defaults.object(forKey: "leftoversCollapsed-2026-06-10"))
+        XCTAssertNil(defaults.object(forKey: "leftoversCollapsed-2026-06-08"))
+        XCTAssertTrue(defaults.bool(forKey: "leftoversCollapsed-2026-06-12"))
+        XCTAssertTrue(model.leftoversCollapsed)
+    }
+
     func testManualSetCollapsedRoundTrips() throws {
         let store = Store(folder: folder, timezone: tz)
         let yesterday = makeDate(2026, 6, 11, h: 9)

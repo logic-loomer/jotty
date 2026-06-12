@@ -41,10 +41,13 @@ final class MenubarListModel: ObservableObject {
         leftovers = tasks.filter { cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done }
         todayTasks = tasks.filter { !(cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done) }
 
-        leftoversCollapsed = defaults.bool(forKey: collapseKey(for: snapshot))
-        // Housekeeping: drop yesterday's stale collapse key.
-        if let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) {
-            defaults.removeObject(forKey: collapseKey(for: yesterday))
+        let todayKey = collapseKey(for: snapshot)
+        leftoversCollapsed = defaults.bool(forKey: todayKey)
+        // Housekeeping: drop every stale collapse key from earlier days
+        // (the app may not run every day, so "yesterday only" leaks keys).
+        for key in defaults.dictionaryRepresentation().keys
+            where key.hasPrefix("leftoversCollapsed-") && key != todayKey {
+            defaults.removeObject(forKey: key)
         }
 
         let f = DateFormatter()
