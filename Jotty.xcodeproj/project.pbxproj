@@ -42,6 +42,7 @@
 		98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */; };
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
+		A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */; };
 		AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84E33A536DA47388C797099 /* MenubarListModelTests.swift */; };
 		ABAEFE960D853E31B130B707 /* AIAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */; };
 		B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43923E183E14DDBEBB793B89 /* MenubarListView.swift */; };
@@ -119,6 +120,7 @@
 		A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainAPIKeyStore.swift; sourceTree = "<group>"; };
 		AE591493870DE367A409DBE2 /* StoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreTests.swift; sourceTree = "<group>"; };
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetryPolicyTests.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
 		BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "extraction-fixtures.json"; sourceTree = "<group>"; };
 		BE5BB2D1CE2E9503B3140245 /* JSONSchemaBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONSchemaBuilder.swift; sourceTree = "<group>"; };
@@ -202,6 +204,7 @@
 				CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */,
 				569E74D1B7E1C17DC75AA83E /* JSONSchemaBuilderTests.swift */,
 				75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */,
+				B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */,
 				7EAAC2F1545290B13892D4C9 /* StubURLProtocol.swift */,
 			);
 			path = AI;
@@ -437,6 +440,7 @@
 				887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */,
 				12914BA284FA48BF21F59CBE /* MarkdownDocTests.swift in Sources */,
 				AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */,
+				A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */,
 				562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
