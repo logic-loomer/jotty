@@ -228,12 +228,12 @@ final class MenubarListModelTests: XCTestCase {
 
     func testSydneyMidnightBoundary() throws {
         let store = Store(folder: folder, timezone: tz)
-        let now = makeDate(2026, 6, 12, h: 0, m: 1)
+        let now = makeDate(2026, 6, 12, h: 0, min: 1)
         try store.appendCapture(noteText: "", noteId: nil, tasks: [
             Todo(id: "t_lateNight", text: "just before midnight",
-                 createdAt: makeDate(2026, 6, 11, h: 23, m: 59)),
+                 createdAt: makeDate(2026, 6, 11, h: 23, min: 59)),
             Todo(id: "t_earlyToday", text: "just after midnight",
-                 createdAt: makeDate(2026, 6, 12, h: 0, m: 1))
+                 createdAt: makeDate(2026, 6, 12, h: 0, min: 1))
         ], at: now)
 
         let model = MenubarListModel(store: store, timezone: tz,
@@ -242,11 +242,29 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.todayTasks.map(\.id), ["t_earlyToday"])
     }
 
+    func testSydneyDSTTransitionBoundary() throws {
+        // 2026-10-04: AEST -> AEDT in Sydney, clocks skip 02:00-03:00
+        // (a 23-hour day). Calendar.startOfDay must still partition correctly.
+        let store = Store(folder: folder, timezone: tz)
+        let now = makeDate(2026, 10, 4, h: 7)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_beforeDST", text: "late on the 3rd",
+                 createdAt: makeDate(2026, 10, 3, h: 23, min: 59)),
+            Todo(id: "t_afterDST", text: "after the skipped hour",
+                 createdAt: makeDate(2026, 10, 4, h: 3, min: 1))
+        ], at: now)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { now })
+        XCTAssertEqual(model.leftovers.map(\.id), ["t_beforeDST"])
+        XCTAssertEqual(model.todayTasks.map(\.id), ["t_afterDST"])
+    }
+
     // MARK: - Helpers
 
-    private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int = 12, m mn: Int = 0) -> Date {
+    private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int = 12, min: Int = 0) -> Date {
         var c = DateComponents()
-        c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
+        c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = min
         c.timeZone = tz
         return Calendar(identifier: .gregorian).date(from: c)!
     }
