@@ -109,7 +109,49 @@ struct MenubarListView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(model.tasks, id: \.id) { task in
+                        // Yesterday's leftovers — dedicated section above today's tasks.
+                        if !model.leftovers.isEmpty {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    model.setCollapsed(!model.leftoversCollapsed)
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: model.leftoversCollapsed ? "chevron.right" : "chevron.down")
+                                        .font(.system(size: 9, weight: .semibold))
+                                    Text("Yesterday · \(model.leftovers.count)")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Spacer()
+                                }
+                                .foregroundStyle(.secondary)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 3)
+
+                            if !model.leftoversCollapsed {
+                                ForEach(model.leftovers, id: \.id) { task in
+                                    Button(action: { model.toggle(task) }) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: task.done ? "checkmark.square" : "square")
+                                            Text(task.text)
+                                                .foregroundStyle(.secondary)
+                                            Spacer()
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 3)
+                                }
+                            }
+
+                            Divider()
+                                .padding(.vertical, 2)
+                        }
+
+                        ForEach(model.todayTasks, id: \.id) { task in
                             Button(action: { model.toggle(task) }) {
                                 HStack(spacing: 8) {
                                     Image(systemName: task.done ? "checkmark.square" : "square")
