@@ -23,7 +23,10 @@ final class ExtractionPromptTests: XCTestCase {
                       "prompt should contain the ISO-8601 form of the fixed date")
         XCTAssertTrue(text.contains("Australia/Sydney"),
                       "prompt should contain the timezone identifier")
-        XCTAssertTrue(text.contains("Tuesday"),
+        // A fresh gregorian Calendar carries the fixed locale, whose
+        // weekdaySymbols are abbreviated ("Tue") — same behavior as the
+        // original AppleFMProvider.makeSession logic this was extracted from.
+        XCTAssertTrue(text.contains("Weekday: Tue."),
                       "prompt should contain the weekday name of the fixed date")
         XCTAssertTrue(text.contains("Current local date-time anchor:"),
                       "prompt should carry the anchor line verbatim")
@@ -35,7 +38,7 @@ final class ExtractionPromptTests: XCTestCase {
         let lateUTC = ISO8601DateFormatter().date(from: "2026-06-09T20:00:00Z")!
         let text = ExtractionPrompt.text(now: lateUTC, timezone: sydney)
 
-        XCTAssertTrue(text.contains("Weekday: Wednesday"),
+        XCTAssertTrue(text.contains("Weekday: Wed."),
                       "weekday must resolve in the supplied timezone (Sydney is a day ahead)")
     }
 

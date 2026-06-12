@@ -142,66 +142,11 @@ actor AppleFMProvider: AIProvider {
     // MARK: Private
 
     private func makeSession(now: Date, timezone: TimeZone) -> LanguageModelSession {
-        let nowISO = ISO8601DateFormatter().string(from: now)
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
-        let weekdayName = cal.weekdaySymbols[cal.component(.weekday, from: now) - 1]
-
-        return LanguageModelSession {
-            "You convert a freeform brain-dump note into a list of actionable tasks."
-
-            "Current local date-time anchor: \(nowISO). Timezone: \(timezone.identifier). Weekday: \(weekdayName)."
-            "Resolve all relative phrases against that anchor (today, tomorrow, this afternoon, weekday names, EOM, EOW)."
-            "If a weekday name matches today, resolve to the NEXT occurrence (today + 7), never today, unless the user wrote 'today'."
-
-            "Output rules:"
-            "- title: preserve the user's wording verbatim or near-verbatim. No outcome-rewriting, no corporatizing, no truncation of modifiers."
-            "- dueDateISO: yyyy-MM-dd. Set ONLY for explicit deadlines — phrases like 'by Friday', 'due tomorrow', 'before EOM', 'due next Monday', 'by end of week'. Resolve the named day or phrase against the anchor date and emit the concrete yyyy-MM-dd. For vague phrasing ('soon', 'later', 'eventually', 'at some point'), OMIT the field."
-            "- blockStartISO + blockEndISO: full ISO-8601 with timezone offset. Set ONLY when the user named both a start AND an end clock time ('1-2pm', 'from 9 to 11', 'block 14:00-15:30'). For bare time mentions ('at 5pm', 'around 3') or durations ('1-2 hours of focus'), OMIT both."
-            "- Skip non-actionable text: observations, feelings, past-tense reports, venting."
-            "- Tolerate typos, lowercase, missing punctuation, run-ons, bullet variants."
-            "- Empty `tasks` array is the correct answer for venting or pure prose."
-
-            "Examples:"
-            "Input: 'email Jamie about Q2 plan by Friday'"
-            "Tasks: 1. title 'email Jamie about Q2 plan', dueDateISO=<this Friday's date>. 'by Friday' is an explicit deadline — resolve to the upcoming Friday."
-
-            "Input: 'email Jamie re Q2 plan today, block 1-2pm laptop setup, domain renewal due Friday'"
-            "Tasks: 3. (1) title 'email Jamie re Q2 plan', dueDateISO=<today>. (2) title 'laptop setup', blockStartISO=<today>T13:00, blockEndISO=<today>T14:00. (3) title 'domain renewal', dueDateISO=<this Friday>."
-
-            "Input: 'I'm exhausted, this week has been brutal'"
-            "Tasks: empty. This is venting, not a task."
-
-            "Input: 'should look into the auth bug soon'"
-            "Tasks: 1. title 'look into the auth bug'. NO dueDateISO — 'soon' is vague."
-
-            "RULE — Past-tense / completed-action: ZERO tasks."
-            "Past-tense verbs ('got', 'had', 'shipped', 'wrapped', 'raised', 'agreed', 'talked', 'wrote', 'finished', 'sent') describe completed actions. Do NOT extract any task from them."
-            "Input: 'got coffee with Sam this morning, was good' → Tasks: empty. Past tense."
-            "Input: 'had standup, team raised concerns, Jake agreed to check the logs' → Tasks: empty. All past-tense — no future action for the user."
-            "Input: 'shipped the script yesterday, blast radius was small' → Tasks: empty. Observation about a past event."
-
-            "RULE — One-task-only / no hallucination: extract ONLY what is explicitly stated."
-            "If the input contains exactly one actionable future task, return exactly ONE task. Do not invent extras."
-            "Input: 'need to fix the login bug at some point' → Tasks: 1. title 'fix the login bug'. No due date — 'at some point' is vague."
-
-            "RULE — Bare duration NEVER becomes a timeBlock."
-            "A duration phrase is one that names a LENGTH only, not a clock window. Patterns: 'N hours', 'N min', 'N-N hours', 'an hour', 'half hour', 'couple hours', 'few hours', 'all morning'. These NEVER produce blockStartISO or blockEndISO. They DO produce dueDateISO if a day reference is present."
-            "A timeBlock requires explicit clock endpoints — both a START hour and an END hour as digits. '1-2pm' is a timeBlock. '1-2 hours' is a duration."
-            "Input: 'couple hours of design review tomorrow' → Tasks: 1. title 'design review', dueDateISO=<tomorrow>. blockStartISO=null, blockEndISO=null."
-            "Input: '30 min focus on the report today' → Tasks: 1. title 'focus on the report', dueDateISO=<today>. blockStartISO=null, blockEndISO=null."
-            "Input: '1-2 hours of refactor work tomorrow' → Tasks: 1. title 'refactor work', dueDateISO=<tomorrow>. blockStartISO=null, blockEndISO=null. The '1-2' is hours-of-duration, not 1pm-2pm."
-            "Input: 'an hour of code review' → Tasks: 1. title 'code review'. NO dueDateISO (no day reference). NO timeBlock."
-
-            "RULE — Empty / whitespace-only input → empty tasks."
-            "If the input text is empty, blank, or contains only punctuation/whitespace, return an empty tasks array. Do NOT regurgitate examples from these instructions."
-            "Input: '' → Tasks: empty."
-            "Input: '   \\n  ' → Tasks: empty."
-
-            "RULE — Past-tense reports stay zero, even with temporal qualifiers."
-            "Past-tense verbs followed by 'yesterday', 'this morning', 'last week' are still past-tense. The temporal qualifier does NOT make them future actions."
-            "Input: 'shipped the migration script yesterday, blast radius was small' → Tasks: empty. 'shipped' is past tense; 'yesterday' confirms it's done."
-            "Input: 'wrote the spec last week and it's been reviewed' → Tasks: empty."
+        // The instructions text lives in ExtractionPrompt — the single shared
+        // copy consumed by every provider. A single string is a valid
+        // instructions builder element.
+        LanguageModelSession {
+            ExtractionPrompt.text(now: now, timezone: timezone)
         }
     }
 }
