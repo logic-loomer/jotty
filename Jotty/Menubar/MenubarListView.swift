@@ -76,6 +76,9 @@ final class MenubarListModel: ObservableObject {
 
     private func collapseKey(for date: Date) -> String {
         let f = DateFormatter()
+        // Fixed-format machine-readable key: pin POSIX locale so region
+        // calendar settings (Buddhist/Japanese era years) cannot skew it.
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = timezone
         return "leftoversCollapsed-\(f.string(from: date))"
