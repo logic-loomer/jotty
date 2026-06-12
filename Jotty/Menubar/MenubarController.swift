@@ -11,7 +11,9 @@ final class MenubarController {
     let listModel: MenubarListModel
 
     init(store: Store) {
-        self.listModel = MenubarListModel(store: store)
+        // Model timezone must match the Store's so leftover partitioning and
+        // collapse keys agree with the daily-file midnight boundary.
+        self.listModel = MenubarListModel(store: store, timezone: store.timezone)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "📝"
