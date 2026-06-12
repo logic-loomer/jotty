@@ -155,6 +155,31 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertFalse(third.leftoversCollapsed)
     }
 
+    func testToggleAfterManualExpandStaysExpanded() throws {
+        // MA-01 regression: a manual expand (key present) is the user's choice
+        // and must survive subsequent leftover toggles the same day.
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_old1", text: "leftover one", createdAt: yesterday),
+            Todo(id: "t_old2", text: "leftover two", createdAt: yesterday)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let first = try XCTUnwrap(model.leftovers.first)
+        model.toggle(first) // first interaction of the day auto-collapses
+        XCTAssertTrue(model.leftoversCollapsed)
+
+        model.setCollapsed(false) // manual expand via the header
+        let second = try XCTUnwrap(model.leftovers.first)
+        model.toggle(second) // must NOT re-collapse
+
+        XCTAssertFalse(model.leftoversCollapsed)
+        XCTAssertFalse(defaults.bool(forKey: "leftoversCollapsed-2026-06-12"))
+    }
+
     // MARK: - Done / undone membership
 
     func testCompletedLeftoverLeavesSection() throws {

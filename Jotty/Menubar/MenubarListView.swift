@@ -53,18 +53,21 @@ final class MenubarListModel: ObservableObject {
         dateLabel = f.string(from: snapshot)
     }
 
-    func setCollapsed(_ collapsed: Bool) {
+    func setCollapsed(_ collapsed: Bool, at date: Date? = nil) {
         leftoversCollapsed = collapsed
-        defaults.set(collapsed, forKey: collapseKey(for: now()))
+        defaults.set(collapsed, forKey: collapseKey(for: date ?? now()))
     }
 
     func toggle(_ task: Todo) {
         // Membership must be captured BEFORE the store write and reload():
         // reload repartitions the arrays and a just-completed leftover vanishes.
         let wasLeftover = leftovers.contains { $0.id == task.id }
+        let snapshot = now()
         try? store.toggleTodo(id: task.id, on: now())
-        if wasLeftover && !leftoversCollapsed {
-            setCollapsed(true)
+        // Auto-collapse only on the day's FIRST interaction; a manual
+        // expand/collapse (key present) is the user's choice and wins.
+        if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
+            setCollapsed(true, at: snapshot)
         }
         reload()
     }
