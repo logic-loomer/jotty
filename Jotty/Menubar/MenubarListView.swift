@@ -68,11 +68,16 @@ final class MenubarListModel: ObservableObject {
         // Single snapshot: the store write and the collapse key must agree
         // on the day even if the wall clock crosses midnight mid-call.
         let snapshot = now()
-        try? store.toggleTodo(id: task.id, on: snapshot)
-        // Auto-collapse only on the day's FIRST interaction; a manual
-        // expand/collapse (key present) is the user's choice and wins.
-        if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
-            setCollapsed(true, at: snapshot)
+        do {
+            try store.toggleTodo(id: task.id, on: snapshot)
+            // Auto-collapse only on the day's FIRST interaction; a manual
+            // expand/collapse (key present) is the user's choice and wins.
+            // Gated on write success: a failed toggle is not an interaction.
+            if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
+                setCollapsed(true, at: snapshot)
+            }
+        } catch {
+            NSLog("[Jotty] toggle failed: \(error.localizedDescription)")
         }
         reload()
     }
