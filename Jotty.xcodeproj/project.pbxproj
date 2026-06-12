@@ -38,6 +38,7 @@
 		98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */; };
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
+		AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84E33A536DA47388C797099 /* MenubarListModelTests.swift */; };
 		ABAEFE960D853E31B130B707 /* AIAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */; };
 		B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43923E183E14DDBEBB793B89 /* MenubarListView.swift */; };
 		B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1779948226E7290A4141189D /* ExtractedTaskAI.swift */; };
@@ -108,6 +109,7 @@
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
 		BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "extraction-fixtures.json"; sourceTree = "<group>"; };
 		BFEB5F765220DE9666B68F7B /* JottyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JottyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C84E33A536DA47388C797099 /* MenubarListModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListModelTests.swift; sourceTree = "<group>"; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
 		CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapperTests.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
 				08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */,
 				5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */,
+				C84E33A536DA47388C797099 /* MenubarListModelTests.swift */,
 				F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */,
 				B74F35AEAC40DCE682986CCC /* SmokeTest.swift */,
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
@@ -409,6 +412,7 @@
 				FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */,
 				9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */,
 				12914BA284FA48BF21F59CBE /* MarkdownDocTests.swift in Sources */,
+				AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */,
 				562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
