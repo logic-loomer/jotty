@@ -4,36 +4,79 @@ import SwiftUI
 final class MenubarListModel: ObservableObject {
     @Published private(set) var tasks: [Todo] = []
     @Published private(set) var dateLabel: String = ""
+    @Published private(set) var leftovers: [Todo] = []
+    @Published private(set) var todayTasks: [Todo] = []
+    @Published private(set) var leftoversCollapsed: Bool = false
 
     let store: Store
     private let timezone: TimeZone
+    private let defaults: UserDefaults
+    private let now: () -> Date
 
-    init(store: Store, timezone: TimeZone = .current) {
+    init(store: Store,
+         timezone: TimeZone = .current,
+         defaults: UserDefaults = .standard,
+         now: @escaping () -> Date = Date.init) {
         self.store = store
         self.timezone = timezone
+        self.defaults = defaults
+        self.now = now
         reload()
     }
 
     func reload() {
-        let now = Date()
+        // Single snapshot: grouping, collapse key, and dateLabel must all
+        // derive from the same instant (midnight Timer reloads an open popover).
+        let snapshot = now()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: snapshot)
+
         do {
-            let doc = try store.readDoc(on: now)
+            let doc = try store.readDoc(on: snapshot)
             tasks = doc.tasks
         } catch {
             tasks = []
         }
+        leftovers = tasks.filter { cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done }
+        todayTasks = tasks.filter { !(cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done) }
+
+        leftoversCollapsed = defaults.bool(forKey: collapseKey(for: snapshot))
+        // Housekeeping: drop yesterday's stale collapse key.
+        if let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) {
+            defaults.removeObject(forKey: collapseKey(for: yesterday))
+        }
+
         let f = DateFormatter()
         f.dateFormat = "EEE MMM d"
         f.timeZone = timezone
-        dateLabel = f.string(from: now)
+        dateLabel = f.string(from: snapshot)
+    }
+
+    func setCollapsed(_ collapsed: Bool) {
+        leftoversCollapsed = collapsed
+        defaults.set(collapsed, forKey: collapseKey(for: now()))
     }
 
     func toggle(_ task: Todo) {
-        try? store.toggleTodo(id: task.id, on: Date())
+        // Membership must be captured BEFORE the store write and reload():
+        // reload repartitions the arrays and a just-completed leftover vanishes.
+        let wasLeftover = leftovers.contains { $0.id == task.id }
+        try? store.toggleTodo(id: task.id, on: now())
+        if wasLeftover && !leftoversCollapsed {
+            setCollapsed(true)
+        }
         reload()
     }
 
     var doneCount: Int { tasks.filter(\.done).count }
+
+    private func collapseKey(for date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = timezone
+        return "leftoversCollapsed-\(f.string(from: date))"
+    }
 }
 
 struct MenubarListView: View {
