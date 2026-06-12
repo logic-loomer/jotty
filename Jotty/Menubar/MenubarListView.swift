@@ -150,7 +150,8 @@ struct MenubarListView: View {
                                 ForEach(model.leftovers, id: \.id) { task in
                                     Button(action: { model.toggle(task) }) {
                                         HStack(spacing: 8) {
-                                            Image(systemName: task.done ? "checkmark.square" : "square")
+                                            // Leftovers are filtered by !done, so the box is always empty.
+                                            Image(systemName: "square")
                                             Text(task.text)
                                                 .foregroundStyle(.secondary)
                                             Spacer()
