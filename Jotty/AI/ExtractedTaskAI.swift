@@ -21,3 +21,10 @@ struct ExtractionResultAI: Equatable {
     @Guide(description: "All actionable tasks found in the input. Empty array if input is venting, observations, or past-tense prose.", .maximumCount(20))
     var tasks: [ExtractedTaskAI]
 }
+
+// Cloud providers (Claude / OpenAI / Gemini / Ollama, Phase 4) decode their
+// structured-output JSON straight into this same shape via JSONDecoder
+// (AI-SPEC §1.1: "the same @Generable shape from Phase 3, used here as
+// Codable"). Synthesized conformance must live in this file.
+extension ExtractedTaskAI: Codable {}
+extension ExtractionResultAI: Codable {}

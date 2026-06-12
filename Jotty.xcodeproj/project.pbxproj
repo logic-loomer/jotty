@@ -26,6 +26,7 @@
 		561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
+		5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */; };
 		5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */; };
 		64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */; };
 		659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FC8742B157EA7431075271 /* TodoTests.swift */; };
@@ -118,6 +119,7 @@
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		7336303002FC0750BF76F3EB /* RolloverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverService.swift; sourceTree = "<group>"; };
 		75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainAPIKeyStoreTests.swift; sourceTree = "<group>"; };
+		7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
 		77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProvider.swift; sourceTree = "<group>"; };
 		7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleFMProvider.swift; sourceTree = "<group>"; };
 		7BE63561E779672ABC2A4103 /* FixtureComparator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureComparator.swift; sourceTree = "<group>"; };
@@ -315,6 +317,7 @@
 				A4C805711B059EFD6C643117 /* RetryPolicy.swift */,
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
 				A4872F05770DD79F1C2FACE8 /* Ollama */,
+				FC8A50EE7200C892B75A9D1E /* Providers */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -357,6 +360,14 @@
 				0F2A3FDA3E2F92EF6C208F8D /* JottyTests */,
 				0ABBF7411B38585D30518F11 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		FC8A50EE7200C892B75A9D1E /* Providers */ = {
+			isa = PBXGroup;
+			children = (
+				7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */,
+			);
+			path = Providers;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -503,6 +514,7 @@
 				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
 				64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */,
 				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,
+				5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */,
 				011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
