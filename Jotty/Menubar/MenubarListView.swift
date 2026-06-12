@@ -74,7 +74,10 @@ final class MenubarListModel: ObservableObject {
             // expand/collapse (key present) is the user's choice and wins.
             // Gated on write success: a failed toggle is not an interaction.
             if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
-                setCollapsed(true, at: snapshot)
+                // Same animation as the manual header toggle.
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    setCollapsed(true, at: snapshot)
+                }
             }
         } catch {
             NSLog("[Jotty] toggle failed: \(error.localizedDescription)")
