@@ -11,7 +11,19 @@ import Foundation
 /// without re-running the fixtures.
 enum ExtractionPrompt {
 
+    /// The prompt as a single string (lines joined with `"\n"`). This is the
+    /// form the cloud/Ollama providers embed in their request bodies.
     static func text(now: Date, timezone: TimeZone) -> String {
+        lines(now: now, timezone: timezone).joined(separator: "\n")
+    }
+
+    /// The prompt as individual instruction lines. `AppleFMProvider` feeds
+    /// these to its `LanguageModelSession` instructions builder one element
+    /// per line — preserving the exact multi-segment Instructions structure
+    /// the Phase 3 fixture suite was tuned against (a single joined string
+    /// renders differently to the on-device model and regresses the
+    /// past-tense fixtures).
+    static func lines(now: Date, timezone: TimeZone) -> [String] {
         let nowISO = ISO8601DateFormatter().string(from: now)
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timezone
@@ -74,6 +86,6 @@ enum ExtractionPrompt {
             "Input: 'wrote the spec last week and it's been reviewed' → Tasks: empty."
         ]
 
-        return lines.joined(separator: "\n")
+        return lines
     }
 }

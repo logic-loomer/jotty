@@ -143,10 +143,15 @@ actor AppleFMProvider: AIProvider {
 
     private func makeSession(now: Date, timezone: TimeZone) -> LanguageModelSession {
         // The instructions text lives in ExtractionPrompt — the single shared
-        // copy consumed by every provider. A single string is a valid
-        // instructions builder element.
+        // copy consumed by every provider. Feed one builder element per line
+        // to preserve the exact multi-segment Instructions structure the
+        // Phase 3 fixture suite was tuned against (a single joined string
+        // renders differently to the on-device model and regresses the
+        // past-tense fixtures).
         LanguageModelSession {
-            ExtractionPrompt.text(now: now, timezone: timezone)
+            for line in ExtractionPrompt.lines(now: now, timezone: timezone) {
+                line
+            }
         }
     }
 }
