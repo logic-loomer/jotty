@@ -226,6 +226,56 @@ final class RetryPolicyTests: XCTestCase {
         )
     }
 
+    // MARK: - Test 7b: pathological Retry-After is clamped (MIN-07)
+
+    func testRetryAfterIsClampedToMax() async throws {
+        let recorder = SleepRecorder()
+        let counter = AttemptCounter()
+        let policy = makePolicy(recording: recorder)
+
+        // An absurdly large server value must not block the capture for
+        // minutes — it is clamped to the 60s ceiling.
+        let result = try await policy.execute(
+            retryAfterSeconds: { _ in 9_999.0 }
+        ) { () async throws -> String in
+            let attempt = await counter.next()
+            if attempt < 2 {
+                throw AIProviderError.underlying(message: "rate limited")
+            }
+            return "ok"
+        }
+
+        XCTAssertEqual(result, "ok")
+        let delays = await recorder.delays
+        XCTAssertEqual(delays.count, 1)
+        XCTAssertEqual(delays[0], 60_000_000_000,
+                       "Retry-After must be clamped to a 60s ceiling")
+    }
+
+    // MARK: - Test 7c: negative Retry-After clamps to zero (no UInt64 trap)
+
+    func testNegativeRetryAfterClampsToZero() async throws {
+        let recorder = SleepRecorder()
+        let counter = AttemptCounter()
+        let policy = makePolicy(recording: recorder)
+
+        // A negative value would trap on the UInt64 conversion; clamp to 0.
+        let result = try await policy.execute(
+            retryAfterSeconds: { _ in -5.0 }
+        ) { () async throws -> String in
+            let attempt = await counter.next()
+            if attempt < 2 {
+                throw AIProviderError.underlying(message: "rate limited")
+            }
+            return "ok"
+        }
+
+        XCTAssertEqual(result, "ok")
+        let delays = await recorder.delays
+        XCTAssertEqual(delays.count, 1)
+        XCTAssertEqual(delays[0], 0, "negative Retry-After must clamp to zero")
+    }
+
     // MARK: - Test 8: cancellation propagates through the sleep
 
     func testCancellationPropagatesDuringSleep() async {

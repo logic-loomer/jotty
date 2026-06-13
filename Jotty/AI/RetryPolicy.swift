@@ -55,8 +55,12 @@ actor RetryPolicy {
             if attempt > 0 {
                 let nanos: UInt64
                 if let lastError, let retryAfter = retryAfterSeconds?(lastError) {
-                    // Server-supplied Retry-After is authoritative — no jitter.
-                    nanos = UInt64(retryAfter * 1_000_000_000)
+                    // Server-supplied Retry-After is authoritative — no jitter
+                    // — but clamp it: a negative value would trap on the UInt64
+                    // conversion and an absurdly large value would block the
+                    // capture for minutes (MIN-07). Cap the honored delay at 60s.
+                    let clamped = max(0.0, min(retryAfter, 60.0))
+                    nanos = UInt64(clamped * 1_000_000_000)
                 } else {
                     let index = min(attempt - 1, config.baseDelaysMs.count - 1)
                     let baseMs = config.baseDelaysMs.isEmpty ? 0 : config.baseDelaysMs[index]
