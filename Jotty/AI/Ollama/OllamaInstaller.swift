@@ -93,11 +93,12 @@ final class OllamaInstaller: ObservableObject {
 
     static let shared = OllamaInstaller(deps: .live)
 
-    /// Expected Ollama Inc. Developer ID Team ID for codesign pinning
-    /// (AI-SPEC §3.1).
-    // TODO(phase4-ship): re-verify Ollama Inc Team ID before tagging
-    // v0.4-phase4 (plan 13 re-checks against a fresh release).
-    static let expectedOllamaTeamID: String? = "Y3CTD9V6X3"
+    /// Expected Developer ID Team ID for codesign pinning (AI-SPEC §3.1).
+    /// Verified against Ollama v0.30.8 on 2026-06-13: `Ollama.app` is signed by
+    /// "Developer ID Application: Infra Technologies, Inc (3MU9H2V9Y9)"
+    /// (bundle id com.electron.ollama). The AI-SPEC's provisional `Y3CTD9V6X3`
+    /// was wrong — see plan 04-13 SUMMARY for the codesign evidence.
+    static let expectedOllamaTeamID: String? = "3MU9H2V9Y9"
 
     @Published private(set) var state: OllamaInstallerState = .checking
 
