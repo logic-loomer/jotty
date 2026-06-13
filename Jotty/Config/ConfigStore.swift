@@ -2,6 +2,32 @@ import Foundation
 
 struct AppConfig: Codable, Equatable {
     var storageFolder: URL
+    /// Provider IDs: "apple-fm" | "ollama" | "claude" | "openai" | "gemini".
+    /// Non-secret — safe in config.json. API keys NEVER live here; they go
+    /// through KeychainAPIKeyStore exclusively.
+    var aiProviderID: String
+    /// Selected Ollama model tag (e.g. "qwen2.5:3b"). nil until the user picks one.
+    var ollamaModel: String?
+
+    init(storageFolder: URL,
+         aiProviderID: String = "apple-fm",
+         ollamaModel: String? = nil) {
+        self.storageFolder = storageFolder
+        self.aiProviderID = aiProviderID
+        self.ollamaModel = ollamaModel
+    }
+
+    /// Backward-compatible decode: config.json files written before Phase 4
+    /// contain only `storageFolder`. Missing provider fields default rather
+    /// than failing the whole decode (which would silently reset the user's
+    /// config to defaults via ConfigStore's fallback path).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        storageFolder = try container.decode(URL.self, forKey: .storageFolder)
+        aiProviderID = try container.decodeIfPresent(String.self, forKey: .aiProviderID)
+            ?? "apple-fm"
+        ollamaModel = try container.decodeIfPresent(String.self, forKey: .ollamaModel)
+    }
 
     static var defaultValue: AppConfig {
         let docs = FileManager.default

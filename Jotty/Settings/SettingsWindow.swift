@@ -27,7 +27,7 @@ struct SettingsWindowView: View {
         TabView {
             StorageTab(configStore: configStore)
                 .tabItem { Label("Storage", systemImage: "folder") }
-            AITab()
+            AITab(configStore: configStore)
                 .tabItem { Label("AI", systemImage: "brain") }
         }
     }
