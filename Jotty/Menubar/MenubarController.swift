@@ -12,14 +12,17 @@ final class MenubarController {
 
     init(store: Store,
          calendar: (any CalendarService)? = nil,
-         configStore: ConfigStore? = nil) {
+         configStore: ConfigStore? = nil,
+         claudeHandoff: (any ClaudeHandoff)? = nil) {
         // Model timezone must match the Store's so leftover partitioning and
         // collapse keys agree with the daily-file midnight boundary. `calendar`
         // (default nil) is threaded through so plan 08 injects the real EventKit
         // service from AppDelegate without further signature churn. `configStore`
-        // carries the remembered delete-event preference (SC3).
+        // carries the remembered delete-event preference (SC3). `claudeHandoff`
+        // (default nil) is the Send-to-Claude seam (SC1) injected from AppDelegate.
         self.listModel = MenubarListModel(store: store, timezone: store.timezone,
-                                          calendar: calendar, configStore: configStore)
+                                          calendar: calendar, configStore: configStore,
+                                          claudeHandoff: claudeHandoff)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "📝"

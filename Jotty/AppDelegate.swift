@@ -8,8 +8,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var captureController: CaptureWindowController?
 
     private var configStore: ConfigStore!
+    /// The user-writable keybindings store, SHARED with the Settings → Keybindings tab
+    /// so a rebind there is the same store the global hotkey re-reads (Pitfall 4).
     private var keybindings: KeybindingsStore!
     private var store: Store!
+    /// The single, app-lifetime launch-at-login service, SHARED with the Settings →
+    /// General toggle and the onboarding toggle so all three reflect/mutate one OS state.
+    private var launchAtLogin: (any LaunchAtLoginService)!
+    /// The Send-to-Claude handoff seam (SC1), injected into the menubar. Reads
+    /// `AppConfig.claudeAction` LIVE per send so an AI-tab Web/Code switch needs no
+    /// restart (mirrors the calendar/provider live-read idiom).
+    private var claudeHandoff: (any ClaudeHandoff)!
+    /// Retained so onboarding is presented exactly once and not deallocated mid-flow.
+    private var onboardingController: OnboardingWindowController?
     /// Apple FM is constructed once at launch (session reuse is the Phase 3
     /// behavior to preserve) and kept for prewarm + as the cloud/Ollama
     /// fallback provider. The ACTIVE provider is resolved per-capture in
@@ -34,7 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             configStore = try ConfigStore(path: ConfigStore.defaultPath)
-            keybindings = try KeybindingsStore.loadDefault()
+            // User-writable store (seeds from the bundled default on first load).
+            // SHARED with the Settings → Keybindings tab so a rebind there re-registers
+            // the global hotkey here (Pitfall 4); capture-window-local shortcuts read
+            // from this same user store, not the bundled default.
+            keybindings = try KeybindingsStore.loadUser()
         } catch {
             NSAlert(error: error).runModal()
             NSApp.terminate(nil)
@@ -43,6 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         store = Store(folder: configStore.config.storageFolder, timezone: .current)
         appleFM = AppleFMProvider()
+        launchAtLogin = SMAppLaunchAtLoginService()
+        // Live-read the action so an AI-tab Web/Code switch takes effect on the next
+        // handoff without re-injecting the service (mirrors the calendar id closure).
+        claudeHandoff = SystemClaudeHandoff(action: { [weak configStore] in
+            configStore?.config.claudeAction ?? .web
+        })
 
         // One calendar service for the whole app. The closure reads the chosen
         // calendar id live from config (not captured), and constructing the
@@ -68,21 +89,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (SC2), the SC3 lifecycle, and the SC4 drift-on-open hook all ride the
         // model's reloadCalendar(), which fires from reload() (popover open /
         // window close / midnight) whenever a service is wired (plan 06/07).
-        menubar = MenubarController(store: store, calendar: calendar, configStore: configStore)
+        menubar = MenubarController(store: store, calendar: calendar,
+                                    configStore: configStore, claudeHandoff: claudeHandoff)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
         scheduleMidnightRollover(rolloverState: rolloverState)
 
         hotkey = HotkeyManager()
-        if let combo = keybindings.combo(for: .globalToggleCapture) {
-            let success = hotkey.register(combo: combo) { [weak self] in self?.openCapture() }
-            if !success {
-                NSLog("[Jotty] Global hotkey registration failed — another app may already be using this key combo")
-            }
-        } else {
-            NSLog("[Jotty] No keybinding for .globalToggleCapture; skipping hotkey registration")
+        registerGlobalHotkey()
+
+        // First-launch onboarding (D-SC5): present the single welcome screen once,
+        // after all services are built so its Grant-Calendar routes through the SAME
+        // calendar.requestAccess() gate the menubar uses and its launch-at-login toggle
+        // shares the app-lifetime service. Skipping never blocks the app.
+        if !configStore.config.hasCompletedOnboarding {
+            presentOnboarding()
         }
+    }
+
+    /// (Re)registers the global capture hotkey from the CURRENT user keybinding for
+    /// `.globalToggleCapture`. `HotkeyManager.register` unregisters any prior hotkey
+    /// first, so calling this after a rebind swaps the combo live (Pitfall 4 — no
+    /// stale hotkey lingers). A nil binding or a registration failure logs, never crashes.
+    private func registerGlobalHotkey() {
+        guard let combo = keybindings.combo(for: .globalToggleCapture) else {
+            hotkey.unregister()
+            NSLog("[Jotty] No keybinding for .globalToggleCapture; skipping hotkey registration")
+            return
+        }
+        let success = hotkey.register(combo: combo) { [weak self] in self?.openCapture() }
+        if !success {
+            NSLog("[Jotty] Global hotkey registration failed — another app may already be using this key combo")
+        }
+    }
+
+    /// Presents the single-screen onboarding window once. The Grant-Calendar closure
+    /// routes through the SAME menubar `requestAccess()` gate (no parallel TCC prompt,
+    /// T-6-12) and the shared `launchAtLogin` service backs the toggle.
+    private func presentOnboarding() {
+        let controller = OnboardingWindowController(
+            configStore: configStore,
+            launchAtLogin: launchAtLogin,
+            requestCalendarAccess: { [weak self] in
+                // The SAME gate the menubar uses (promptIfUndetermined defaults true),
+                // so the OS shows a single TCC prompt.
+                await self?.menubar.listModel.reloadCalendar()
+            })
+        onboardingController = controller
+        controller.present()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -182,10 +237,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openSettings() {
         if settingsController == nil {
-            // Pass the live calendar service so the Settings → Calendar tab can
-            // list writableCalendars() for the default-calendar picker.
-            settingsController = SettingsWindowController(configStore: configStore,
-                                                         calendar: calendar)
+            // Inject the SHARED runtime services: the live calendar (Calendar tab
+            // picker), the app-lifetime launch-at-login service (General toggle), and
+            // the SAME user keybindings store the global hotkey reads (Keybindings tab),
+            // so a rebind there mutates the store this delegate re-registers from.
+            let controller = SettingsWindowController(configStore: configStore,
+                                                      calendar: calendar,
+                                                      launchAtLogin: launchAtLogin,
+                                                      keybindings: keybindings)
+            settingsController = controller
+            // Pitfall 4: when the Settings window closes, re-register the global hotkey
+            // from the (possibly rebound) user store so a globalToggleCapture change
+            // takes effect live — no app restart.
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: controller.window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.registerGlobalHotkey() }
+            }
         }
         settingsController?.show()
     }
