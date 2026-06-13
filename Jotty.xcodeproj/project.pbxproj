@@ -36,6 +36,7 @@
 		52C89360FC3DBEDFFA4741B5 /* CalendarURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81A5F01CD75D09D0DDBC6C3 /* CalendarURL.swift */; };
 		5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
+		5594C88B64D1A22FE8E2F940 /* ConflictDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */; };
 		561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
@@ -164,6 +165,7 @@
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
 		646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		648D58E2772B190DB7959D7A /* OllamaModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManager.swift; sourceTree = "<group>"; };
+		676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictDetectionTests.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		710A6F66A2A74516838B1E0E /* cross-provider-tolerances.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cross-provider-tolerances.json"; sourceTree = "<group>"; };
@@ -325,6 +327,7 @@
 			children = (
 				250A406D6AA7EB9CB08886A6 /* CalendarEventMapperTests.swift */,
 				27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */,
+				676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */,
 				9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */,
 			);
 			path = Calendar;
@@ -610,6 +613,7 @@
 				A555FA0BE4730FAB981CF708 /* ClaudeProviderTests.swift in Sources */,
 				E518CB95C20DB7611D5B7480 /* ConfigStoreProviderFieldTests.swift in Sources */,
 				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
+				5594C88B64D1A22FE8E2F940 /* ConflictDetectionTests.swift in Sources */,
 				67E329EEFDB75C4A0B4DD8A3 /* CrossProviderTests.swift in Sources */,
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
 				D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */,
