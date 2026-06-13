@@ -21,7 +21,7 @@ struct CalendarEvent: Equatable, Sendable, Identifiable {
 /// `writeOnly` and `restricted`/`denied` all collapse to `.denied` at the seam because
 /// Phase 5's read-back features need full access; anything short of full read+write is a
 /// degraded path for this app.
-enum CalendarAccess: Sendable {
+enum CalendarAccess: Sendable, Equatable {
     case authorized
     case denied
     case notDetermined

@@ -88,6 +88,7 @@
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
 		D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */; };
 		D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3FBDC26E512E1C6BE656FBF /* DurationGuardrailTests.swift */; };
+		D9EF353A56B432983FF479B3 /* FakeCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */; };
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
 		DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
@@ -174,6 +175,7 @@
 		8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailability.swift; sourceTree = "<group>"; };
 		8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManagerTests.swift; sourceTree = "<group>"; };
 		9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPrompt.swift; sourceTree = "<group>"; };
+		9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeCalendarService.swift; sourceTree = "<group>"; };
 		9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
 		A0FC8742B157EA7431075271 /* TodoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoTests.swift; sourceTree = "<group>"; };
 		A4C805711B059EFD6C643117 /* RetryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetryPolicy.swift; sourceTree = "<group>"; };
@@ -316,6 +318,7 @@
 			isa = PBXGroup;
 			children = (
 				27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */,
+				9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */,
 			);
 			path = Calendar;
 			sourceTree = "<group>";
@@ -602,6 +605,7 @@
 				D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */,
 				682CF1C7B61F0A2A68752E9D /* ExtractedTaskTests.swift in Sources */,
 				BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */,
+				D9EF353A56B432983FF479B3 /* FakeCalendarService.swift in Sources */,
 				E4447D28FA66F03D1BDC5339 /* FixtureComparator.swift in Sources */,
 				E3A30F2247865922A7DD2338 /* GeminiProviderTests.swift in Sources */,
 				FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */,
