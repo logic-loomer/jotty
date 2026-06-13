@@ -395,6 +395,12 @@ final class CaptureViewModel: ObservableObject {
             return
         }
 
+        // WR-01: accumulate write failures across the batch instead of letting each
+        // iteration overwrite the single `@Published` notice (last-writer-wins under-reports
+        // a mixed-outcome batch). Track a count + the first message; surface once at the end.
+        var failureCount = 0
+        var firstFailureMessage: String?
+
         for t in tasks {
             guard let tb = t.timeBlock else { continue }
 
@@ -421,9 +427,22 @@ final class CaptureViewModel: ObservableObject {
                     start: tb.start, end: tb.end)
                 writeCalEventID(eventID, forTaskID: todo.id, at: now)
             } catch {
-                // Write failure: task stays committed (disk wins), no cal_event; non-blocking notice.
-                calendarNotice = .writeFailed(message: (error as? CalendarError).map(Self.describe) ?? "\(error)")
+                // Write failure: task stays committed (disk wins), no cal_event. Accumulate
+                // rather than overwrite so a partially-failed batch is reported in full.
+                failureCount += 1
+                if firstFailureMessage == nil {
+                    firstFailureMessage = (error as? CalendarError).map(Self.describe) ?? "\(error)"
+                }
             }
+        }
+
+        // Surface the aggregate once: a single failure keeps its exact message; multiple
+        // failures report a count so no failure is silently dropped (WR-01).
+        if failureCount == 1, let message = firstFailureMessage {
+            calendarNotice = .writeFailed(message: message)
+        } else if failureCount > 1 {
+            calendarNotice = .writeFailed(
+                message: "\(failureCount) events couldn't be created")
         }
     }
 

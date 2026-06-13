@@ -168,7 +168,16 @@ final class CaptureViewModelTests: XCTestCase {
         calendar: FakeCalendarService?,
         now: Date
     ) async -> CaptureViewModel {
-        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [task], noteBody: "")))
+        await makeVMInReview(withTasks: [task], calendar: calendar, now: now)
+    }
+
+    /// Multi-task variant: lands several ExtractedTasks (all accepted) in review.
+    private func makeVMInReview(
+        withTasks tasks: [ExtractedTask],
+        calendar: FakeCalendarService?,
+        now: Date
+    ) async -> CaptureViewModel {
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: tasks, noteBody: "")))
         let vm = CaptureViewModel(store: store, draftURL: draftURL,
                                   provider: mock, calendar: calendar, clock: { now })
         vm.text = "anything (prose routed to AI)"
@@ -229,6 +238,45 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "calendar save failed"))
         // Capture is unblocked (returned to input, draft cleared).
         if case .input = vm.state {} else { XCTFail("commit must not leave us stuck in review") }
+    }
+
+    // WR-01: multiple write failures accumulate into one count, not last-writer-wins.
+    func testMultipleWriteFailuresReportAggregateCount() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let t1 = ExtractedTask(title: "task one",
+                               timeBlock: TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                                                    end: dateFor("2026-06-13T10:00:00+10:00")))
+        let t2 = ExtractedTask(title: "task two",
+                               timeBlock: TimeBlock(start: dateFor("2026-06-13T11:00:00+10:00"),
+                                                    end: dateFor("2026-06-13T12:00:00+10:00")))
+        let t3 = ExtractedTask(title: "task three",
+                               timeBlock: TimeBlock(start: dateFor("2026-06-13T13:00:00+10:00"),
+                                                    end: dateFor("2026-06-13T14:00:00+10:00")))
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "save failed")   // every createEvent fails
+        let vm = await makeVMInReview(withTasks: [t1, t2, t3], calendar: fake, now: now)
+        await vm.commitAndWait()
+
+        // All three still committed to disk (disk wins), none with a cal_event.
+        let doc = try store.readDoc(on: now)
+        for title in ["task one", "task two", "task three"] {
+            XCTAssertNil(try XCTUnwrap(doc.tasks.first { $0.text == title }).calEventID)
+        }
+        // The notice reports ALL failures, not just the last one.
+        XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "3 events couldn't be created"))
+    }
+
+    // WR-01: a single failure still keeps its exact underlying message (no regression).
+    func testSingleWriteFailureKeepsExactMessage() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                           end: dateFor("2026-06-13T10:00:00+10:00"))
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "calendar save failed")
+        let vm = await makeVMInReview(with: ExtractedTask(title: "solo", timeBlock: tb),
+                                      calendar: fake, now: now)
+        await vm.commitAndWait()
+        XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "calendar save failed"))
     }
 
     // Graceful degradation: access denied → commit proceeds, no createEvent, degraded notice.
