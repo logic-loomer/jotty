@@ -260,6 +260,75 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.todayTasks.map(\.id), ["t_afterDST"])
     }
 
+    // MARK: - Calendar section (SC2)
+
+    func testCalendarEventsPopulateWhenAuthorized() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+
+        let fake = FakeCalendarService()
+        fake.accessToReturn = .authorized
+        // Service already filters all-day + sorts by start (plan 03); feed two timed events.
+        let e1 = CalendarEvent(id: "ev1", title: "Standup",
+                               start: makeDate(2026, 6, 12, h: 9),
+                               end: makeDate(2026, 6, 12, h: 9, min: 15),
+                               calendarTitle: "Work")
+        let e2 = CalendarEvent(id: "ev2", title: "Lunch",
+                               start: makeDate(2026, 6, 12, h: 12),
+                               end: makeDate(2026, 6, 12, h: 13),
+                               calendarTitle: "Personal")
+        fake.cannedEvents = [e1, e2]
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.calendarEvents, [e1, e2])
+        XCTAssertFalse(model.calendarAccessDenied)
+        // Fetch range is today's [startOfDay, endOfDay) in the model's timezone.
+        XCTAssertTrue(fake.calls.contains(.eventsInRange))
+    }
+
+    func testCalendarDeniedEmptiesAndFlagsWithoutCrash() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+
+        let fake = FakeCalendarService()
+        fake.accessToReturn = .denied
+        fake.cannedEvents = [
+            CalendarEvent(id: "ev1", title: "Should not show",
+                          start: makeDate(2026, 6, 12, h: 9),
+                          end: makeDate(2026, 6, 12, h: 10), calendarTitle: nil)
+        ]
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.calendarEvents, [])
+        XCTAssertTrue(model.calendarAccessDenied)
+        // Denied path must NOT read events (no eventsInRange call).
+        XCTAssertFalse(fake.calls.contains(.eventsInRange))
+    }
+
+    func testNoCalendarServiceStaysEmptyAndBackCompat() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_new", text: "fresh", createdAt: today)
+        ], at: today)
+
+        // Default init (no calendar service injected).
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.calendarEvents, [])
+        XCTAssertFalse(model.calendarAccessDenied)
+        // Existing task partitioning still works (back-compat).
+        XCTAssertEqual(model.todayTasks.map(\.id), ["t_new"])
+    }
+
     // MARK: - Helpers
 
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int = 12, min: Int = 0) -> Date {
