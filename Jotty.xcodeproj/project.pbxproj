@@ -82,6 +82,7 @@
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
 		F1795581B4AF9AEA26BF24F4 /* RetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C805711B059EFD6C643117 /* RetryPolicy.swift */; };
 		F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */; };
+		F56EF043944DFD917ED549AB /* OllamaModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 648D58E2772B190DB7959D7A /* OllamaModelManager.swift */; };
 		FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -129,6 +130,7 @@
 		569E74D1B7E1C17DC75AA83E /* JSONSchemaBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONSchemaBuilderTests.swift; sourceTree = "<group>"; };
 		5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocTests.swift; sourceTree = "<group>"; };
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
+		648D58E2772B190DB7959D7A /* OllamaModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManager.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		7336303002FC0750BF76F3EB /* RolloverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverService.swift; sourceTree = "<group>"; };
@@ -362,6 +364,7 @@
 				2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */,
 				E3B8DDE953367F6C614E57C3 /* OllamaError.swift */,
 				EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */,
+				648D58E2772B190DB7959D7A /* OllamaModelManager.swift */,
 				30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */,
 				D6EB8F59B589E10E72601FAE /* Quarantine.swift */,
 			);
@@ -570,6 +573,7 @@
 				70202616D4F4B5A052D5F4AD /* OllamaBinaryLocator.swift in Sources */,
 				21A7F51F90F9E201E4DEF4E2 /* OllamaError.swift in Sources */,
 				561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */,
+				F56EF043944DFD917ED549AB /* OllamaModelManager.swift in Sources */,
 				429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */,
 				D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */,
 				C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */,
