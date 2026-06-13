@@ -160,7 +160,11 @@ final class CaptureViewModel: ObservableObject {
     /// updates to the new error and nothing else changes. No-op when no
     /// fallback is wired or nothing has failed.
     func retryWithAppleFM() async {
-        guard let fallback = fallbackProvider,
+        // Re-entry guard (MIN-04): a double-tap on "Use Apple FM instead" must
+        // not launch two overlapping extractions that both mutate
+        // isExtracting/state. No fallback wired or nothing failed → no-op.
+        guard !isExtracting,
+              let fallback = fallbackProvider,
               let failedInput = lastFailedInput else { return }
 
         isExtracting = true

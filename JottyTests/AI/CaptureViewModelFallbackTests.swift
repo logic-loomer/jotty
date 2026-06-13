@@ -113,6 +113,33 @@ final class CaptureViewModelFallbackTests: XCTestCase {
         XCTAssertEqual(vm.text, input, "input still preserved after double failure")
     }
 
+    // Test 3b — re-entry guard (MIN-04): retryWithAppleFM is a no-op while an
+    // extraction is already in flight (isExtracting == true), so a double-tap
+    // on "Use Apple FM instead" cannot launch a second overlapping run.
+    func testRetryWhileExtractingIsNoOp() async throws {
+        let input = "draft the release notes"
+        let primary = MockAIProvider(
+            mode: .throwError(.modelUnavailable(reason: "Invalid Claude API key.")))
+        let fallbackTask = ExtractedTask(title: "draft the release notes")
+        let fallback = MockAIProvider(
+            mode: .succeed(ExtractionResult(tasks: [fallbackTask], noteBody: input)))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL,
+                                  provider: primary,
+                                  fallbackProvider: fallback,
+                                  clock: { Date() })
+        vm.text = input
+        await vm.submitAndWait()
+        XCTAssertNotNil(vm.lastError)
+
+        // Simulate an in-flight extraction: the guard must short-circuit.
+        vm.isExtracting = true
+        await vm.retryWithAppleFM()
+
+        let fallbackCalls = await fallback.callCount
+        XCTAssertEqual(fallbackCalls, 0,
+                       "retry must not run the fallback while extracting")
+    }
+
     // Test 4 — no fallback wired (Apple FM already active): retry is a no-op
     // and fallbackAvailable drives the button's visibility.
     func testRetryWithoutFallbackProviderIsNoOp() async throws {
