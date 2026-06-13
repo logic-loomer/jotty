@@ -1,0 +1,64 @@
+# Cross-provider evaluation sweep (AI-SPEC §7.5).
+#
+# Runs the cloud legs of CrossProviderTests (Claude / OpenAI / Gemini) against
+# the 35-fixture suite with per-provider tolerances, enforcing the release-
+# blocker bar (dims 3/4/6 at 100%). API keys come from repo secrets and are
+# exported as env vars; the harness writes them into a TEST-scoped Keychain at
+# setUp, so the production Keychain is never touched.
+#
+# NOTE: the Apple FM and Ollama legs do NOT run here — GitHub-hosted macOS
+# runners have no Apple Intelligence and no Ollama daemon, so those tests skip.
+# Run them locally / on self-hosted runners. Cost ceiling per AI-SPEC §7.5 is
+# < $0.10 per cloud sweep (~$0.01-0.03 actual for 35 fixtures × 3 providers).
+#
+# This workflow is intentionally NOT triggered on push — only weekly + manual.
+
+name: eval-providers
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 0200 UTC (AI-SPEC §7.5).
+    - cron: "0 2 * * 0"
+
+jobs:
+  eval-cloud-providers:
+    name: Cloud provider eval sweep
+    runs-on: macos-15
+    env:
+      JOTTY_TEST_CLOUD_PROVIDERS: "1"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard — require at least one provider key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$GEMINI_API_KEY" ]; then
+            echo "No provider keys configured — skipping"
+            exit 0
+          fi
+          echo "At least one provider key present — proceeding with cloud sweep."
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run cross-provider eval (cloud legs)
+        run: |
+          xcodebuild test \
+            -scheme Jotty \
+            -only-testing:JottyTests/CrossProviderTests \
+            -destination 'platform=macOS'
+
+      - name: Upload eval-run reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-runs
+          path: ~/Library/Application Support/Jotty/debug/eval-runs/
+          if-no-files-found: warn
