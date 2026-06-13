@@ -41,15 +41,9 @@ enum CalendarDrift {
     /// beyond the 60s tolerance) with that event. `missing` lists tasks whose linked event id is
     /// absent from the store (deleted in Calendar) - these drive the SC3 recreate / SC4 awareness
     /// path rather than a field-sync prompt.
-    struct DriftResult: Equatable {
+    struct DriftResult {
         var drifted: [(task: Todo, event: CalendarEvent)]
         var missing: [Todo]
-
-        static func == (lhs: DriftResult, rhs: DriftResult) -> Bool {
-            lhs.missing == rhs.missing
-                && lhs.drifted.count == rhs.drifted.count
-                && zip(lhs.drifted, rhs.drifted).allSatisfy { $0.task == $1.task && $0.event == $1.event }
-        }
     }
 
     /// Tolerance (seconds) below which a start/end shift is NOT considered drift.
