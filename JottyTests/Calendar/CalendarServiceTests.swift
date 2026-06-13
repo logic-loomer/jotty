@@ -153,6 +153,29 @@ final class CalendarServiceTests: XCTestCase {
         XCTAssertEqual(fake.calls, [.updateEvent, .deleteEvent])
     }
 
+    func testFakeUpdateErrorOnlyAffectsUpdateNotCreate() async throws {
+        // SC3 edit-time recreate path needs update -> .eventNotFound while create succeeds.
+        let fake = FakeCalendarService()
+        fake.updateErrorToThrow = .eventNotFound
+
+        do {
+            try await fake.updateEvent(id: "gone", title: "x",
+                                       start: dateFor("2026-06-13T09:00:00+10:00"),
+                                       end: dateFor("2026-06-13T10:00:00+10:00"))
+            XCTFail("expected updateEvent to throw .eventNotFound")
+        } catch let error as CalendarError {
+            XCTAssertEqual(error, .eventNotFound)
+        }
+
+        // createEvent is unaffected by updateErrorToThrow: it still succeeds.
+        let newID = try await fake.createEvent(title: "x",
+                                               start: dateFor("2026-06-13T09:00:00+10:00"),
+                                               end: dateFor("2026-06-13T10:00:00+10:00"))
+        XCTAssertEqual(newID, "fake-event-1")
+        XCTAssertEqual(fake.updatedEventIDs, ["gone"])
+        XCTAssertEqual(fake.createdEvents.count, 1)
+    }
+
     @MainActor
     func testFakeThrowModePropagatesConfiguredError() async {
         let fake = FakeCalendarService()

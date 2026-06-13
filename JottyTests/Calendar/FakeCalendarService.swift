@@ -33,6 +33,10 @@ final class FakeCalendarService: CalendarService {
         var cannedEvents: [CalendarEvent] = []
         var writableCalendarsToReturn: [CalendarRef] = []
         var errorToThrow: CalendarError?
+        /// When set, ONLY `updateEvent` throws this (everything else succeeds). Drives
+        /// the SC3 edit-time recreate path: update -> .eventNotFound, then createEvent
+        /// must still succeed and return a fresh id.
+        var updateErrorToThrow: CalendarError?
 
         var createdEvents: [CreatedEvent] = []
         var updatedEventIDs: [String] = []
@@ -81,6 +85,12 @@ final class FakeCalendarService: CalendarService {
         get { state.withLock { $0.errorToThrow } }
         set { state.withLock { $0.errorToThrow = newValue } }
     }
+    /// When non-nil, ONLY `updateEvent` throws this (other methods unaffected). Set to
+    /// `.eventNotFound` to exercise the SC3 edit-time recreate-and-relink path.
+    var updateErrorToThrow: CalendarError? {
+        get { state.withLock { $0.updateErrorToThrow } }
+        set { state.withLock { $0.updateErrorToThrow = newValue } }
+    }
 
     // MARK: Recorded state (assertions for later plans)
 
@@ -123,6 +133,7 @@ final class FakeCalendarService: CalendarService {
         try state.withLock {
             $0.calls.append(.updateEvent)
             $0.updatedEventIDs.append(id)
+            if let error = $0.updateErrorToThrow { throw error }
             if let error = $0.errorToThrow { throw error }
         }
     }

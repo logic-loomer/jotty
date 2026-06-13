@@ -472,6 +472,163 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
     }
 
+    // MARK: - SC3: edit time updates the event (recreate if missing)
+
+    func testEditTimeUpdatesLinkedEventByIdAndPreservesCalEvent() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        let newBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 16),
+                                 end: makeDate(2026, 6, 12, h: 17))
+        model.editTime(task, to: newBlock)
+        await model.awaitCalendarRefresh()
+
+        // Event updated in place by id; not recreated.
+        XCTAssertEqual(fake.updatedEventIDs, ["evt-1"])
+        XCTAssertTrue(fake.createdEvents.isEmpty)
+        // Markdown time: token updated, cal_event unchanged.
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.timeBlock, newBlock)
+        XCTAssertEqual(stored.calEventID, "evt-1")
+    }
+
+    func testEditTimeRecreatesAndRewritesIdWhenEventMissing() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-gone")])
+        let fake = FakeCalendarService()
+        // updateEvent throws .eventNotFound; createEvent then succeeds -> "fake-event-1".
+        fake.updateErrorToThrow = .eventNotFound
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        let newBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 16),
+                                 end: makeDate(2026, 6, 12, h: 17))
+        model.editTime(task, to: newBlock)
+        await model.awaitCalendarRefresh()
+
+        // Tried update (got .eventNotFound), then recreated.
+        XCTAssertEqual(fake.updatedEventIDs, ["evt-gone"])
+        XCTAssertEqual(fake.createdEvents.count, 1)
+        // New id rewritten onto the markdown line (assert via readDoc).
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.calEventID, "fake-event-1")
+        XCTAssertEqual(stored.timeBlock, newBlock)
+    }
+
+    // MARK: - SC4: drift sync on open
+
+    func testDriftedLinkedTaskSurfacesPromptOnOpen() async throws {
+        // Task says "review 14:00-15:00 evt-1"; calendar event drifted (title + time).
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review (moved)",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        let prompt = try XCTUnwrap(model.driftPrompt, "drift on open must surface a prompt")
+        XCTAssertEqual(prompt.drifted.map(\.task.id), ["t_linked"])
+        XCTAssertEqual(prompt.drifted.map(\.event.id), ["evt-1"])
+    }
+
+    func testConfirmDriftSyncRewritesMarkdownCalendarWins() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let evStart = makeDate(2026, 6, 12, h: 16)
+        let evEnd = makeDate(2026, 6, 12, h: 17)
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review (moved)",
+                          start: evStart, end: evEnd, calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftSync()
+
+        // Calendar wins: task text + time block rewritten to match the event.
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.text, "review (moved)")
+        XCTAssertEqual(stored.timeBlock, TimeBlock(start: evStart, end: evEnd))
+        XCTAssertNil(model.driftPrompt, "prompt cleared after sync")
+    }
+
+    func testDismissDriftLeavesMarkdownUnchanged() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review (moved)",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.dismissDriftPrompt()
+
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.text, "review", "declining keeps the user's markdown")
+        XCTAssertNil(model.driftPrompt)
+    }
+
+    func testNoDriftNoPrompt() async throws {
+        // Event matches the task exactly -> no drift, no prompt.
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        XCTAssertNil(model.driftPrompt)
+    }
+
+    func testHistoricalLinkedTaskNotCheckedForDrift() async throws {
+        // A linked task that lives in YESTERDAY's file must never drive a drift prompt
+        // when Jotty opens today: reload() reads only today's file, so historical
+        // linked tasks are structurally out of scope (CONTEXT: only today+future).
+        let yesterday = makeDate(2026, 6, 11, h: 8)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        // Seed a linked task into YESTERDAY's file.
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_old", text: "old meeting", createdAt: yesterday,
+                 timeBlock: TimeBlock(start: makeDate(2026, 6, 11, h: 14),
+                                      end: makeDate(2026, 6, 11, h: 15)),
+                 calEventID: "evt-old")
+        ], at: yesterday)
+        let fake = FakeCalendarService()
+        // Even if a drifted event id matched, the historical task is out of scope.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-old", title: "old meeting (moved)",
+                          start: makeDate(2026, 6, 11, h: 16),
+                          end: makeDate(2026, 6, 11, h: 17), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        XCTAssertNil(model.driftPrompt, "historical linked tasks are not drift-checked")
+    }
+
     // MARK: - Helpers
 
     /// Seeds today's file with the given tasks and returns (store, today).
