@@ -20,6 +20,7 @@
 		27A18BC23BB19F258170C636 /* CaptureViewModelAIPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */; };
 		28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E549027F93BB23F8A8121 /* CaptureViewModelFallbackTests.swift */; };
 		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
+		2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */; };
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
 		3A7B97E8267549450599D9AE /* ProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */; };
@@ -191,6 +192,7 @@
 		D6EB8F59B589E10E72601FAE /* Quarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quarantine.swift; sourceTree = "<group>"; };
 		D7719D4B2AE14EC6B4A7E5A9 /* ClaudeProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProviderTests.swift; sourceTree = "<group>"; };
 		D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewListView.swift; sourceTree = "<group>"; };
+		D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaDownloader.swift; sourceTree = "<group>"; };
 		DBD348D2521FC3BD20CC2309 /* ConfigStoreProviderFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreProviderFieldTests.swift; sourceTree = "<group>"; };
 		E164C1254160F1C1D6633F02 /* OllamaBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBinaryLocatorTests.swift; sourceTree = "<group>"; };
 		E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubReleases.swift; sourceTree = "<group>"; };
@@ -400,6 +402,7 @@
 				E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */,
 				820791648E6853B1DA48C4FF /* InstalledModel.swift */,
 				2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */,
+				D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */,
 				E3B8DDE953367F6C614E57C3 /* OllamaError.swift */,
 				EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */,
 				648D58E2772B190DB7959D7A /* OllamaModelManager.swift */,
@@ -636,6 +639,7 @@
 				1211D18D25659470981B10CB /* MenubarController.swift in Sources */,
 				B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */,
 				70202616D4F4B5A052D5F4AD /* OllamaBinaryLocator.swift in Sources */,
+				2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */,
 				21A7F51F90F9E201E4DEF4E2 /* OllamaError.swift in Sources */,
 				561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */,
 				F56EF043944DFD917ED549AB /* OllamaModelManager.swift in Sources */,

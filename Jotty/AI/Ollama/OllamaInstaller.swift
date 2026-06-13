@@ -256,48 +256,29 @@ extension OllamaInstallerDeps {
         }
     }
 
-    /// Streaming download: write to `download.tmp`, report progress against
-    /// Content-Length, rename to a stable name on success (§3.1 layout).
+    /// Streaming download via URLSessionDownloadTask: the system writes the
+    /// body straight to a temp file (no per-byte Swift loop), reports
+    /// Content-Length progress through a KVO observation, and surfaces
+    /// cancellation promptly. The completed file is moved to `download.tmp`
+    /// then renamed to a stable name on success (§3.1 layout, §5.2 cancel).
     private static func liveDownload(
         from source: URL,
         to tmpURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
-        let (bytes, resp) = try await URLSession.shared.bytes(from: source)
-        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-            let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-            throw OllamaError.downloadFailed(underlying: "HTTP \(status)")
-        }
-        let expected = http.expectedContentLength
-
         let fm = FileManager.default
-        try? fm.removeItem(at: tmpURL)
-        fm.createFile(atPath: tmpURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: tmpURL)
-        defer { try? handle.close() }
+        let downloadedURL = try await OllamaDownloader.download(
+            from: source, progress: progress)
 
-        var buffer = Data()
-        buffer.reserveCapacity(1 << 16)
-        var received: Int64 = 0
-        var lastReported = 0.0
-        for try await byte in bytes {
-            buffer.append(byte)
-            received += 1
-            if buffer.count >= 1 << 16 {
-                try handle.write(contentsOf: buffer)
-                buffer.removeAll(keepingCapacity: true)
-                if expected > 0 {
-                    let fraction = min(1.0, Double(received) / Double(expected))
-                    // Throttle MainActor hops to whole-percent steps.
-                    if fraction - lastReported >= 0.01 {
-                        lastReported = fraction
-                        await progress(fraction)
-                    }
-                }
-            }
-        }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
+        // Move the system-managed temp file into our support dir, then rename
+        // to the stable name. The OS temp file is deleted when the task ends,
+        // so copy/move it out before this function returns.
+        try? fm.removeItem(at: tmpURL)
+        do {
+            try fm.moveItem(at: downloadedURL, to: tmpURL)
+        } catch {
+            // moveItem can fail across volumes — fall back to copy.
+            try fm.copyItem(at: downloadedURL, to: tmpURL)
         }
         await progress(1.0)
 
