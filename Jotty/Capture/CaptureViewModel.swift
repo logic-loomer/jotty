@@ -25,16 +25,31 @@ final class CaptureViewModel: ObservableObject {
     private let store: Store
     private let draftURL: URL
     private let provider: any AIProvider
+    /// Apple FM fallback for the failure toast (ROADMAP Phase 4 SC4).
+    /// nil when the active provider already IS Apple FM — the "Use Apple FM
+    /// instead" button hides via `fallbackAvailable`. Production call site
+    /// passes an AppleFMProvider in plan 11.
+    private let fallbackProvider: (any AIProvider)?
     private let clock: () -> Date
     private var autosaveTask: Task<Void, Never>?
     private var extractionTask: Task<Void, Never>?
 
+    /// The prose that was in-flight when the provider threw, stashed so
+    /// retryWithAppleFM() can re-run the SAME input through the fallback.
+    private var lastFailedInput: String?
+    private var lastFailedManualTasks: [ExtractedTask] = []
+
+    /// True iff a fallback provider is wired — drives the toast button.
+    var fallbackAvailable: Bool { fallbackProvider != nil }
+
     init(store: Store, draftURL: URL,
          provider: any AIProvider,
+         fallbackProvider: (any AIProvider)? = nil,
          clock: @escaping () -> Date = Date.init) {
         self.store = store
         self.draftURL = draftURL
         self.provider = provider
+        self.fallbackProvider = fallbackProvider
         self.clock = clock
 
         // Restore draft if present.
@@ -113,6 +128,9 @@ final class CaptureViewModel: ObservableObject {
                 await MainActor.run {
                     self.isExtracting = false
                     self.lastError = e
+                    // Stash the failed input so retryWithAppleFM can re-run it.
+                    self.lastFailedInput = remainingTextCopy
+                    self.lastFailedManualTasks = manualTasksCopy
                     // Degraded review: keep manual tasks, raw remaining text as note body.
                     self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
                 }
@@ -120,6 +138,8 @@ final class CaptureViewModel: ObservableObject {
                 await MainActor.run {
                     self.isExtracting = false
                     self.lastError = .underlying(message: error.localizedDescription)
+                    self.lastFailedInput = remainingTextCopy
+                    self.lastFailedManualTasks = manualTasksCopy
                     self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
                 }
             }
@@ -130,6 +150,39 @@ final class CaptureViewModel: ObservableObject {
     func submitAndWait() async {
         submit()
         if let t = extractionTask { _ = await t.value }
+    }
+
+    // MARK: - Apple FM fallback (plan 04-10, ROADMAP Phase 4 SC4)
+
+    /// Re-runs the last failed input through the injected fallback provider
+    /// (Apple FM in production). On success the Review state rebuilds with
+    /// the fallback's tasks and `lastError` clears; on failure `lastError`
+    /// updates to the new error and nothing else changes. No-op when no
+    /// fallback is wired or nothing has failed.
+    func retryWithAppleFM() async {
+        guard let fallback = fallbackProvider,
+              let failedInput = lastFailedInput else { return }
+
+        isExtracting = true
+        let now = clock()
+        let tz = TimeZone.current
+        do {
+            let result = failedInput.isEmpty
+                ? ExtractionResult(tasks: [], noteBody: "")
+                : try await fallback.extractTasks(from: failedInput, now: now, timezone: tz)
+            isExtracting = false
+            lastError = nil
+            enterReview(tasks: lastFailedManualTasks + result.tasks,
+                        noteBody: result.noteBody)
+            lastFailedInput = nil
+            lastFailedManualTasks = []
+        } catch let e as AIProviderError {
+            isExtracting = false
+            lastError = e
+        } catch {
+            isExtracting = false
+            lastError = .underlying(message: error.localizedDescription)
+        }
     }
 
     // MARK: - Manual path

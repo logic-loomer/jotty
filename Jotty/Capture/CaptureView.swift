@@ -10,22 +10,35 @@ struct CaptureView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
-            switch vm.state {
-            case .input:
-                inputView
-            case .review(let tasks, _, _):
-                ReviewListView(
-                    vm: vm,
-                    tasks: tasks,
-                    onCommit: {
-                        vm.commitFromReview()
-                        // commitFromReview sets state back to .input on success;
-                        // stays .review on disk error (with lastError set).
-                        if case .input = vm.state { onDismiss() }
-                    },
-                    onCancel: { vm.returnToInput() }
-                )
+        VStack(spacing: 0) {
+            // Provider-failure toast (plan 04-10, ROADMAP Phase 4 SC4).
+            // Shown in the Review state after a failed extraction (and in
+            // input if the user navigates back with the error still set).
+            if let error = vm.lastError {
+                ProviderErrorToast(
+                    error: error,
+                    fallbackAvailable: vm.fallbackAvailable,
+                    onFallback: { Task { await vm.retryWithAppleFM() } },
+                    onDismiss: { vm.lastError = nil })
+            }
+
+            Group {
+                switch vm.state {
+                case .input:
+                    inputView
+                case .review(let tasks, _, _):
+                    ReviewListView(
+                        vm: vm,
+                        tasks: tasks,
+                        onCommit: {
+                            vm.commitFromReview()
+                            // commitFromReview sets state back to .input on success;
+                            // stays .review on disk error (with lastError set).
+                            if case .input = vm.state { onDismiss() }
+                        },
+                        onCancel: { vm.returnToInput() }
+                    )
+                }
             }
         }
     }
@@ -61,6 +74,60 @@ struct CaptureView: View {
         }
         .onSubmitKeyCommand { onSubmitInput() }
         .onCancelKeyCommand { onDismiss() }
+    }
+}
+
+// MARK: - Provider-failure toast (plan 04-10)
+
+/// Inline banner shown when extraction failed: human-readable error copy,
+/// a one-tap "Use Apple FM instead" fallback (hidden when the active
+/// provider already IS Apple FM), and a dismiss control.
+private struct ProviderErrorToast: View {
+    let error: AIProviderError
+    let fallbackAvailable: Bool
+    let onFallback: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+            Text(message)
+                .font(.system(size: 11))
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            if fallbackAvailable {
+                Button("Use Apple FM instead") { onFallback() }
+                    .font(.system(size: 11))
+            }
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.yellow.opacity(0.12))
+    }
+
+    /// UI-safe copy: `modelUnavailable.reason` and `guardrail.message` are
+    /// human-readable per AIProvider's contract; `underlying.message` is
+    /// debug-shape and must NOT be shown verbatim.
+    private var message: String {
+        switch error {
+        case .modelUnavailable(let reason):
+            return reason
+        case .contextOverflow:
+            return "The capture was too long for the selected AI provider."
+        case .guardrail(let m):
+            return m ?? "The AI provider declined to process this capture."
+        case .underlying:
+            return "The AI provider failed to process this capture."
+        }
     }
 }
 
