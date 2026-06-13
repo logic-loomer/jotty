@@ -60,6 +60,40 @@ final class ConfigStoreProviderFieldTests: XCTestCase {
         XCTAssertEqual(store2.config.ollamaModel, "qwen2.5:3b")
     }
 
+    // Phase 5 plan 01 — calendar fields round-trip: a config with a chosen
+    // calendar identifier and a remembered delete preference persists + reloads.
+    func testCalendarFieldsRoundTrip() throws {
+        let store1 = try ConfigStore(path: tempURL)
+        try store1.update {
+            $0.calendarIdentifier = "cal-ABC-123"
+            $0.deleteCalendarEventWithTask = true
+        }
+
+        let store2 = try ConfigStore(path: tempURL)
+        XCTAssertEqual(store2.config.calendarIdentifier, "cal-ABC-123")
+        XCTAssertEqual(store2.config.deleteCalendarEventWithTask, true)
+    }
+
+    // Phase 5 plan 01 — back-compat: a config.json with ONLY storageFolder
+    // (no aiProviderID, no calendar fields) decodes with calendar fields nil.
+    func testLegacyConfigHasNilCalendarFields() throws {
+        let legacyJSON = """
+        {
+          "storageFolder" : "file:///tmp/LegacyJotty/"
+        }
+        """
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try legacyJSON.data(using: .utf8)!.write(to: tempURL)
+
+        let store = try ConfigStore(path: tempURL)
+        XCTAssertNil(store.config.calendarIdentifier,
+                     "missing calendarIdentifier must default to nil")
+        XCTAssertNil(store.config.deleteCalendarEventWithTask,
+                     "missing deleteCalendarEventWithTask must default to nil")
+    }
+
     // Test 3 — no key material in config: a key saved through
     // KeychainAPIKeyStore must never appear in the raw config.json bytes.
     func testAPIKeyNeverWrittenToConfigJSON() throws {
