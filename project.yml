@@ -28,6 +28,7 @@ targets:
         NSHumanReadableCopyright: ""
         NSMainStoryboardFile: ""
         NSPrincipalClass: NSApplication
+        NSCalendarsFullAccessUsageDescription: "Jotty creates calendar events for your time-blocked tasks and shows today's events in the menubar."
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.jotty.Jotty
       CODE_SIGN_STYLE: Automatic
