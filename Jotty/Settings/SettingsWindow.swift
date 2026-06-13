@@ -3,8 +3,9 @@ import SwiftUI
 
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(configStore: ConfigStore) {
-        let host = NSHostingController(rootView: SettingsWindowView(configStore: configStore))
+    init(configStore: ConfigStore, calendar: (any CalendarService)? = nil) {
+        let host = NSHostingController(
+            rootView: SettingsWindowView(configStore: configStore, calendar: calendar))
         let win = NSWindow(contentViewController: host)
         win.title = "Jotty — Settings"
         win.styleMask = [.titled, .closable]
@@ -22,6 +23,7 @@ final class SettingsWindowController: NSWindowController {
 
 struct SettingsWindowView: View {
     let configStore: ConfigStore
+    let calendar: (any CalendarService)?
 
     var body: some View {
         TabView {
@@ -29,6 +31,8 @@ struct SettingsWindowView: View {
                 .tabItem { Label("Storage", systemImage: "folder") }
             AITab(configStore: configStore)
                 .tabItem { Label("AI", systemImage: "brain") }
+            CalendarTab(configStore: configStore, calendar: calendar)
+                .tabItem { Label("Calendar", systemImage: "calendar") }
         }
     }
 }
