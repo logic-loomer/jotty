@@ -10,6 +10,7 @@
 		011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAAFD291515674072BD84FC /* CodesignVerifier.swift */; };
 		06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0766755BD786B00550210084 /* DiskSpace.swift */; };
 		0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B026F43211BD2F9BB519C180 /* AppDelegate.swift */; };
+		1143FCA70958F285D810FE6C /* SystemClaudeHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC72E43E14620B4805DE626 /* SystemClaudeHandoff.swift */; };
 		11B763B580EADE4B89F4756E /* default-keybindings.json in Resources */ = {isa = PBXBuildFile; fileRef = 6DE9FB54B158EC494838B935 /* default-keybindings.json */; };
 		1211D18D25659470981B10CB /* MenubarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AC3F72A417E829574D72E6 /* MenubarController.swift */; };
 		12914BA284FA48BF21F59CBE /* MarkdownDocTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */; };
@@ -188,6 +189,7 @@
 		648D58E2772B190DB7959D7A /* OllamaModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManager.swift; sourceTree = "<group>"; };
 		676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictDetectionTests.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		6DC72E43E14620B4805DE626 /* SystemClaudeHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemClaudeHandoff.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
 		710A6F66A2A74516838B1E0E /* cross-provider-tolerances.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cross-provider-tolerances.json"; sourceTree = "<group>"; };
 		7336303002FC0750BF76F3EB /* RolloverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverService.swift; sourceTree = "<group>"; };
@@ -396,6 +398,7 @@
 			children = (
 				B957401C0292FB714615B37E /* ClaudeHandoff.swift */,
 				A769CD384B54035052E79D20 /* ClaudePrompt.swift */,
+				6DC72E43E14620B4805DE626 /* SystemClaudeHandoff.swift */,
 			);
 			path = Claude;
 			sourceTree = "<group>";
@@ -787,6 +790,7 @@
 				DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */,
 				91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */,
 				396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */,
+				1143FCA70958F285D810FE6C /* SystemClaudeHandoff.swift in Sources */,
 				98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */,
 				18BAC487B1E51BF1AB0FB1D0 /* Todo.swift in Sources */,
 			);
