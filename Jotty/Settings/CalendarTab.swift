@@ -58,6 +58,33 @@ struct CalendarTab: View {
         _deletePreference = State(initialValue: DeletePreference(configStore.config.deleteCalendarEventWithTask))
     }
 
+    /// Persists a calendar selection, guarding against a SwiftUI Picker auto-reset (WR-07).
+    ///
+    /// When `writableCalendars` loads and the stored id is no longer in the list (the chosen
+    /// calendar was removed from the account), the Picker has no matching tag and SwiftUI can
+    /// silently reset `selectedCalendarID` to `nil` ("System default"), firing `.onChange`
+    /// and overwriting the user's stored preference with `nil` — a silent loss the user never
+    /// confirmed. We only persist when:
+    ///   - the calendar list has finished loading (no write during the async load), AND
+    ///   - the new value actually differs from what is already stored, AND
+    ///   - it is NOT the missing-calendar auto-reset case (new value `nil` while a real
+    ///     stored id is simply absent from the freshly-loaded list — keep the stored id).
+    private func persistSelectedCalendar(_ newValue: String?) {
+        guard didLoadCalendars else { return }
+        let stored = configStore.config.calendarIdentifier
+        guard newValue != stored else { return }
+
+        if newValue == nil, let stored, !stored.isEmpty,
+           !writableCalendars.contains(where: { $0.id == stored }) {
+            // Auto-reset to "System default" because the stored calendar isn't in the loaded
+            // list. Keep the stored id rather than coercing to nil; restore the binding.
+            selectedCalendarID = stored
+            return
+        }
+
+        try? configStore.update { $0.calendarIdentifier = newValue }
+    }
+
     var body: some View {
         Form {
             Section(header: Text("Target calendar")) {
@@ -70,7 +97,7 @@ struct CalendarTab: View {
                 .pickerStyle(.menu)
                 .disabled(calendar == nil || (didLoadCalendars && writableCalendars.isEmpty))
                 .onChange(of: selectedCalendarID) { _, newValue in
-                    try? configStore.update { $0.calendarIdentifier = newValue }
+                    persistSelectedCalendar(newValue)
                 }
 
                 if calendar == nil {
