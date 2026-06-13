@@ -1,14 +1,15 @@
 import XCTest
 @testable import Jotty
 
-/// Prompt-free, EventKit-free tests for the pure pieces of the calendar boundary:
+/// Prompt-free, framework-free tests for the pure pieces of the calendar boundary:
 /// the overlap predicate, the all-day filter, and the value-construction path of the
-/// mapper. EventKit (`EKEvent`/`EKEventStore`) never appears here, so no TCC prompt can
-/// fire and the suite never touches the real calendar (threat T-5-03 / RESEARCH Pitfall 2).
+/// mapper. The platform calendar framework and its event-store type never appear here,
+/// so no TCC prompt can fire and the suite never touches the real calendar
+/// (threat T-5-03 / RESEARCH Pitfall 2).
 ///
-/// The live `EKEvent -> CalendarEvent` path is covered by the human checkpoints in later
-/// plans; here we exercise the same logic through `makeEvent(...)`, which takes the exact
-/// primitive fields the EKEvent overload forwards.
+/// The live platform-event -> CalendarEvent path is covered by the human checkpoints in
+/// later plans; here we exercise the same logic through `makeEvent(...)`, which takes the
+/// exact primitive fields the platform-event overload forwards.
 final class CalendarEventMapperTests: XCTestCase {
 
     private func dateFor(_ iso: String) -> Date {

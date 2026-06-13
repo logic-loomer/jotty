@@ -18,8 +18,12 @@ enum CalendarEventMapper {
         end: Date,
         calendarTitle: String?
     ) -> CalendarEvent {
-        // TODO(RED): implement in GREEN.
-        fatalError("unimplemented")
+        CalendarEvent(
+            id: id,
+            title: title ?? "(untitled)",
+            start: start,
+            end: end,
+            calendarTitle: calendarTitle)
     }
 
     /// Maps a single `EKEvent` to the app-facing value, defaulting a nil title.
@@ -36,8 +40,7 @@ enum CalendarEventMapper {
     /// touching endpoints (`a.end == b.start`) and disjoint ranges return false. Pure Date
     /// math (RESEARCH Pitfall 4 - compare absolute instants, never wall-clock strings).
     static func overlaps(start: Date, end: Date, otherStart: Date, otherEnd: Date) -> Bool {
-        // TODO(RED): implement in GREEN.
-        fatalError("unimplemented")
+        start < otherEnd && end > otherStart
     }
 
     /// The `eventsInRange` transform: drop all-day rows, map the rest to `CalendarEvent`,
@@ -47,7 +50,9 @@ enum CalendarEventMapper {
         isAllDay: (Row) -> Bool,
         map: (Row) -> CalendarEvent
     ) -> [CalendarEvent] {
-        // TODO(RED): implement in GREEN.
-        fatalError("unimplemented")
+        rows
+            .filter { !isAllDay($0) }
+            .map(map)
+            .sorted { $0.start < $1.start }
     }
 }

@@ -87,6 +87,7 @@
 		D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */; };
 		D58243CB3057E984F2ED441E /* CalendarServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
+		D75CC104070B34EA222873A9 /* EventKitCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00929A9F50EF33DD0F7D086E /* EventKitCalendarService.swift */; };
 		D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */; };
 		D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3FBDC26E512E1C6BE656FBF /* DurationGuardrailTests.swift */; };
 		D9EF353A56B432983FF479B3 /* FakeCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */; };
@@ -118,6 +119,7 @@
 
 /* Begin PBXFileReference section */
 		006FA2D88232464A90253AFC /* ConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreTests.swift; sourceTree = "<group>"; };
+		00929A9F50EF33DD0F7D086E /* EventKitCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventKitCalendarService.swift; sourceTree = "<group>"; };
 		0766755BD786B00550210084 /* DiskSpace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpace.swift; sourceTree = "<group>"; };
 		08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStoreTests.swift; sourceTree = "<group>"; };
 		0BCE7D5AC91D983DE35836C5 /* CrossProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossProviderTests.swift; sourceTree = "<group>"; };
@@ -468,6 +470,7 @@
 				5212E65936B5489A73151E30 /* CalendarEventMapper.swift */,
 				1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */,
 				E81A5F01CD75D09D0DDBC6C3 /* CalendarURL.swift */,
+				00929A9F50EF33DD0F7D086E /* EventKitCalendarService.swift */,
 			);
 			path = Calendar;
 			sourceTree = "<group>";
@@ -661,6 +664,7 @@
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
 				AF9616D6B8C9325C4CC1B91C /* DurationGuardrail.swift in Sources */,
+				D75CC104070B34EA222873A9 /* EventKitCalendarService.swift in Sources */,
 				5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */,
 				B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */,
 				458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */,
