@@ -45,6 +45,7 @@
 		70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */; };
 		76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC759DA0F19FAD410B08429D /* Action.swift */; };
 		78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDA0A15DCF13E839E64C340 /* DailyFile.swift */; };
+		8143A8E0BBB908899A089519 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */; };
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
 		86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */; };
 		8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */; };
@@ -134,6 +135,7 @@
 		569E74D1B7E1C17DC75AA83E /* JSONSchemaBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONSchemaBuilderTests.swift; sourceTree = "<group>"; };
 		5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocTests.swift; sourceTree = "<group>"; };
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
+		646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		648D58E2772B190DB7959D7A /* OllamaModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManager.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
@@ -412,6 +414,7 @@
 			children = (
 				7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */,
 				34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */,
+				646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */,
 				F776385CB322A3DDE510F823 /* OpenAIProvider.swift */,
 			);
 			path = Providers;
@@ -594,6 +597,7 @@
 				21A7F51F90F9E201E4DEF4E2 /* OllamaError.swift in Sources */,
 				561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */,
 				F56EF043944DFD917ED549AB /* OllamaModelManager.swift in Sources */,
+				8143A8E0BBB908899A089519 /* OllamaProvider.swift in Sources */,
 				429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */,
 				D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */,
 				C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */,
