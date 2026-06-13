@@ -2,7 +2,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** Phase 4 shipped. Five AI providers (Apple FM, Ollama, Claude, OpenAI, Gemini) behind one protocol, API keys in the macOS Keychain, no-restart provider switching. Capture → Review → Commit flow. Phase 5 (calendar integration) incoming.
+**Status:** Phase 5 shipped. Time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events read into the menubar, conflict and drift handling, and a configurable default calendar. Builds on Phase 4: five AI providers (Apple FM, Ollama, Claude, OpenAI, Gemini) behind one protocol, API keys in the macOS Keychain, no-restart provider switching. Capture → Review → Commit flow. Phase 6 (Send-to-Claude, launch-at-login, full Settings) closes v1.
 
 ## Build from source
 
@@ -200,6 +200,48 @@ scorecard to `~/Library/Application Support/Jotty/debug/eval-runs/<timestamp>/`.
 The CI eval keys are the **only** place an API key reaches Jotty via an
 environment variable; the running app always reads keys from the Keychain.
 
+## Calendar integration (Phase 5)
+
+Time-blocked tasks can become real macOS Calendar events, and today's events read
+back into the menubar. Calendar access is never requested at launch; the first
+calendar-touching action triggers the macOS full-access prompt, and denying it just
+turns the calendar features off (Jotty keeps working as a plain task tool).
+
+**Time-blocked tasks create events.** When you commit a task that carries a time
+block (e.g. "standup 9-9:30am"), Jotty creates one event on your default calendar.
+The task's markdown line gains a `cal_event:<id>` token linking the task to the
+event, alongside the existing `time:` block. The default calendar is the system
+default for new events, and you can override it in **Settings → Calendar** (a picker
+of your writable calendars). Calendar writes are best-effort: a failure logs a
+non-blocking notice but never rolls back the markdown commit, because disk is the
+source of truth.
+
+**Pre-commit overlap warning.** Before writing a new time-blocked event, Jotty
+checks for events that overlap that window. If one is found, the commit shows
+"⚠️ overlaps with 'Standup' — commit anyway?" so you can confirm or cancel before
+anything is written.
+
+**Read-only Calendar section in the menubar.** Today's timed events appear in a
+read-only "Calendar" section in the menubar popover (below your tasks), sorted by
+start time with `·` bullets. Clicking a row opens Calendar.app at that date.
+
+**Two-way link and lifecycle.** Toggling a task done leaves its event untouched (a
+done task is still a real commitment). Deleting a task that has a `cal_event` asks
+once whether to also delete the calendar event, and remembers your choice (you can
+reset it to "Ask each time" in Settings → Calendar). Editing a task's time updates
+the linked event in place.
+
+**Drift sync.** If you edit a linked event directly in Calendar.app, Jotty detects
+the change the next time it comes to the foreground and prompts to sync the markdown
+line (Calendar wins).
+
+The `cal_event:<id>` token sits in the task line alongside the other metadata tokens
+(`done:`, `due:`, `rolled_to:`, `time:`); those lines live in the per-day markdown
+files described under [Storage](#storage) and [Capture syntax](#capture-syntax-phase-2).
+All calendar work goes through a `CalendarService` seam, so the test suite runs
+against a fake store and never touches your real calendar or triggers a permission
+prompt.
+
 ## Testing
 
 ```bash
@@ -212,7 +254,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 - **Phase 2:** menubar list, daily rollover (shipped)
 - **Phase 3:** AI task extraction (Apple Foundation Models default) (shipped)
 - **Phase 4:** Cloud AI providers (Ollama, Claude, OpenAI, Gemini) (shipped)
-- **Phase 5:** Calendar integration (read + write)
+- **Phase 5:** Calendar integration (read + write) (shipped)
 - **Phase 6:** Send-to-Claude, launch-at-login, full settings UI
 - **Phase 7:** Unified inbox (calendar + tasks + notes)
 - **Phase 8:** Calendar power-UX (add to calendar, smart scheduling)
