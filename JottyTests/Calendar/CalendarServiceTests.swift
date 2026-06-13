@@ -72,6 +72,14 @@ final class CalendarServiceTests: XCTestCase {
         XCTAssertEqual((url as NSURL?)?.resourceSpecifier, secsString)
     }
 
+    func testCalshowURLReturnsNilForNonFiniteDate() {
+        // IN-03: a corrupted/non-finite Date must yield nil, never a "calshow:nan"/"inf" URL.
+        let nan = Date(timeIntervalSinceReferenceDate: .nan)
+        XCTAssertNil(CalendarURL.show(for: nan))
+        let inf = Date(timeIntervalSinceReferenceDate: .infinity)
+        XCTAssertNil(CalendarURL.show(for: inf))
+    }
+
     // MARK: - FakeCalendarService self-tests (Wave 0 scaffold)
 
     @MainActor

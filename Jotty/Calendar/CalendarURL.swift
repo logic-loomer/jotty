@@ -8,8 +8,11 @@ import Foundation
 /// caller's job (plan 05-06), so it stays free of AppKit and is unit-testable in isolation.
 enum CalendarURL {
     /// Builds `calshow:<start.timeIntervalSinceReferenceDate>` for the given start instant.
-    /// Returns `nil` only if URL construction fails (it won't for a finite Date).
+    /// Returns `nil` for a non-finite Date (NaN/inf from a corrupted parse would otherwise
+    /// interpolate "nan"/"inf" into the URL, IN-03) or if URL construction fails.
     static func show(for start: Date) -> URL? {
-        URL(string: "calshow:\(start.timeIntervalSinceReferenceDate)")
+        let interval = start.timeIntervalSinceReferenceDate
+        guard interval.isFinite else { return nil }
+        return URL(string: "calshow:\(interval)")
     }
 }
