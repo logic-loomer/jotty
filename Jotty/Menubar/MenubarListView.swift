@@ -8,19 +8,35 @@ final class MenubarListModel: ObservableObject {
     @Published private(set) var todayTasks: [Todo] = []
     @Published private(set) var leftoversCollapsed: Bool = false
 
+    /// Today's timed calendar events for the read-only menubar section (SC2).
+    /// Empty when no service is injected or access is denied; the service already
+    /// filters all-day events and sorts by start (plan 03).
+    @Published private(set) var calendarEvents: [CalendarEvent] = []
+    /// True when calendar access is denied/restricted; the view degrades to a
+    /// one-line affordance instead of rows (graceful degradation, never crashes).
+    @Published private(set) var calendarAccessDenied: Bool = false
+
     let store: Store
     private let timezone: TimeZone
     private let defaults: UserDefaults
     private let now: () -> Date
+    /// Optional calendar seam; nil = pure task tool (no calendar section). Plan 08
+    /// injects the real EventKit-backed service from AppDelegate.
+    private let calendar: (any CalendarService)?
+    /// In-flight calendar refresh, so tests (and reload callers) can await it
+    /// deterministically without coupling to the synchronous task path.
+    private var calendarTask: Task<Void, Never>?
 
     init(store: Store,
          timezone: TimeZone = .current,
          defaults: UserDefaults = .standard,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         calendar: (any CalendarService)? = nil) {
         self.store = store
         self.timezone = timezone
         self.defaults = defaults
         self.now = now
+        self.calendar = calendar
         reload()
     }
 
@@ -54,6 +70,71 @@ final class MenubarListModel: ObservableObject {
         f.dateFormat = "EEE MMM d"
         f.timeZone = timezone
         dateLabel = f.string(from: snapshot)
+
+        // Calendar refresh rides on every reload trigger (popover open, window
+        // close, midnight Timer) so the read section + future drift hooks stay
+        // fresh. The task path above stays synchronous; calendar is async/best-effort.
+        if calendar != nil {
+            calendarTask = Task { [weak self] in
+                await self?.reloadCalendar()
+            }
+        }
+    }
+
+    /// Lazy access gate + today's-events fetch for the read-only Calendar section (SC2).
+    /// Authorized -> fetch today's [startOfDay, endOfDay) events; denied -> empty + flag;
+    /// notDetermined -> prompt once, then branch. Any thrown error degrades to empty + logs
+    /// (never crashes). No-op when no service is injected.
+    func reloadCalendar() async {
+        guard let calendar else {
+            calendarEvents = []
+            calendarAccessDenied = false
+            return
+        }
+
+        // Lazy access gate (RESEARCH): authorized -> fetch; denied -> degrade;
+        // notDetermined -> request once then branch on the result.
+        let granted: Bool
+        switch calendar.access() {
+        case .authorized:
+            granted = true
+        case .denied:
+            granted = false
+        case .notDetermined:
+            granted = await calendar.requestAccess() == .authorized
+        }
+
+        guard granted else {
+            calendarEvents = []
+            calendarAccessDenied = true
+            return
+        }
+        calendarAccessDenied = false
+
+        // Today's range in the model's timezone (matches task partitioning).
+        let snapshot = now()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: snapshot)
+        guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else {
+            calendarEvents = []
+            return
+        }
+
+        do {
+            // Service filters all-day + sorts by start (plan 03).
+            calendarEvents = try await calendar.eventsInRange(start: todayStart, end: todayEnd)
+        } catch {
+            // Best-effort: a read failure degrades to no rows, never crashes capture/UI.
+            NSLog("[Jotty] calendar read failed: \(error.localizedDescription)")
+            calendarEvents = []
+        }
+    }
+
+    /// Awaits the in-flight calendar refresh spawned by the most recent `reload()`.
+    /// Test hook (mirrors `CaptureViewModel.awaitCalendarWork`); production fires-and-forgets.
+    func awaitCalendarRefresh() async {
+        if let t = calendarTask { _ = await t.value }
     }
 
     func setCollapsed(_ collapsed: Bool, at date: Date? = nil) {
