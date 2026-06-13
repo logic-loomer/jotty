@@ -15,14 +15,6 @@ import XCTest
 ///    so `;`, `$()`, backticks, `&&` are inert (no word-splitting / injection)
 final class ClaudePromptTests: XCTestCase {
 
-    func testClaudePromptContractPendingPlan06_02() {
-        // GREEN in plan 06-02 — replace this marker with the guarded assertions.
-        XCTFail("RED: ClaudePrompt not implemented yet (owned by plan 06-02)")
-    }
-
-    #if false
-    // GREEN in plan 06-02: delete the #if false guard once ClaudePrompt exists.
-
     func testWrapsTaskTextWithTemplate() {
         XCTAssertEqual(ClaudePrompt.wrapped("write tests"),
                        "Help me with this task: write tests")
@@ -58,5 +50,4 @@ final class ClaudePromptTests: XCTestCase {
         let argv = ClaudePrompt.codeArgv(for: dangerous)
         XCTAssertEqual(argv, [dangerous])
     }
-    #endif
 }
