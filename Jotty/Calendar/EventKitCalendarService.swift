@@ -62,7 +62,13 @@ final class EventKitCalendarService: CalendarService {
         } catch {
             throw CalendarError.underlying(message: error.localizedDescription)
         }
-        return event.eventIdentifier
+        // `eventIdentifier` is an IUO (`String!`); on some macOS versions it can still be nil
+        // immediately after a successful save (before the store commits). Guard rather than
+        // return nil into the non-optional `-> String` and trap (CR-01).
+        guard let identifier = event.eventIdentifier else {
+            throw CalendarError.underlying(message: "Calendar event saved without an identifier")
+        }
+        return identifier
     }
 
     func updateEvent(id: String, title: String, start: Date, end: Date) async throws {

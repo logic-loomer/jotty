@@ -1,4 +1,5 @@
 import XCTest
+import EventKit
 @testable import Jotty
 
 /// Prompt-free, framework-free tests for the pure pieces of the calendar boundary:
@@ -83,12 +84,69 @@ final class CalendarEventMapperTests: XCTestCase {
         XCTAssertEqual(event.id, "evt-2")
     }
 
+    // MARK: - CR-01: tolerant mapping (nil identifier / nil calendar must not crash)
+
+    /// A nil identifier yields nil (the row is skipped) instead of trapping. Pure path,
+    /// no EventKit — exercises the exact branch the EKEvent overload forwards into.
+    func testMapFieldsReturnsNilForNilIdentifier() {
+        let start = dateFor("2026-06-13T09:00:00+10:00")
+        let end = dateFor("2026-06-13T10:00:00+10:00")
+        XCTAssertNil(CalendarEventMapper.mapFields(
+            identifier: nil, title: "Orphaned occurrence",
+            start: start, end: end, calendarTitle: "Work"))
+    }
+
+    /// A present identifier with a nil calendar title still maps (calendar absence degrades
+    /// to nil calendarTitle, never a crash).
+    func testMapFieldsMapsWhenIdentifierPresentEvenIfCalendarTitleNil() {
+        let start = dateFor("2026-06-13T09:00:00+10:00")
+        let end = dateFor("2026-06-13T10:00:00+10:00")
+        let mapped = CalendarEventMapper.mapFields(
+            identifier: "evt-3", title: "Standup",
+            start: start, end: end, calendarTitle: nil)
+        XCTAssertEqual(mapped?.id, "evt-3")
+        XCTAssertEqual(mapped?.title, "Standup")
+        XCTAssertNil(mapped?.calendarTitle)
+    }
+
+    /// CR-01 regression on a REAL `EKEvent`: an unsaved event has a nil `eventIdentifier`
+    /// (and, here, a nil `calendar`). Constructing/inspecting an unsaved event against an
+    /// in-memory `EKEventStore` needs NO TCC permission, so this fires no prompt. The mapper
+    /// must return nil (skip) rather than force-unwrap and crash the read path.
+    func testMapReturnsNilForUnsavedEventWithNilIdentifierNoCrash() {
+        let store = EKEventStore()
+        let event = EKEvent(eventStore: store)
+        event.title = "Unsaved (no identifier yet)"
+        event.startDate = dateFor("2026-06-13T09:00:00+10:00")
+        event.endDate = dateFor("2026-06-13T10:00:00+10:00")
+        // Unsaved EKEvent: eventIdentifier is nil and calendar is nil. Must not trap.
+        XCTAssertNil(CalendarEventMapper.map(event))
+    }
+
+    /// `transform` drops un-mappable (nil-identifier) rows via compactMap instead of crashing,
+    /// keeping the mappable ones sorted by start.
+    func testTransformSkipsRowsWithNilIdentifier() {
+        let rows = [
+            Row(id: nil, title: "Orphan", start: dateFor("2026-06-13T08:00:00+10:00"),
+                end: dateFor("2026-06-13T09:00:00+10:00"), calendarTitle: "Work", isAllDay: false),
+            Row(id: "ok", title: "Real", start: dateFor("2026-06-13T10:00:00+10:00"),
+                end: dateFor("2026-06-13T11:00:00+10:00"), calendarTitle: "Work", isAllDay: false),
+        ]
+        let mapped = CalendarEventMapper.transform(
+            rows,
+            isAllDay: \.isAllDay,
+            map: { CalendarEventMapper.mapFields(identifier: $0.id, title: $0.title,
+                                                 start: $0.start, end: $0.end,
+                                                 calendarTitle: $0.calendarTitle) })
+        XCTAssertEqual(mapped.map(\.id), ["ok"])
+    }
+
     // MARK: - all-day filter + sort (the eventsInRange transform, EventKit-free)
 
     /// Minimal stand-in carrying just the fields the eventsInRange transform reads,
     /// so the filter+map+sort can be exercised without constructing an EKEvent.
     private struct Row {
-        let id: String
+        let id: String?
         let title: String?
         let start: Date
         let end: Date
@@ -109,7 +167,7 @@ final class CalendarEventMapperTests: XCTestCase {
         let mapped = CalendarEventMapper.transform(
             rows,
             isAllDay: \.isAllDay,
-            map: { CalendarEventMapper.makeEvent(id: $0.id, title: $0.title,
+            map: { CalendarEventMapper.mapFields(identifier: $0.id, title: $0.title,
                                                  start: $0.start, end: $0.end,
                                                  calendarTitle: $0.calendarTitle) })
 
