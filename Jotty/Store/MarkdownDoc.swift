@@ -62,6 +62,15 @@ struct MarkdownDoc: Equatable {
             if let sn = task.sourceNote {
                 meta += " source_note:\(sn)"
             }
+            if let tb = task.timeBlock {
+                meta += " time:\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
+            }
+            if let cal = task.calEventID,
+               // T-5-01: a whitespace-bearing id would split into a bogus token and
+               // corrupt the space-split metadata line — skip rather than corrupt.
+               !cal.contains(where: { $0.isWhitespace }) {
+                meta += " cal_event:\(cal)"
+            }
             out += "- [\(state)] \(task.text) <!-- \(meta) -->\n"
         }
 
@@ -115,6 +124,8 @@ struct MarkdownDoc: Equatable {
             var dueDate: Date? = nil
             var rolledTo: Date? = nil
             var sourceNote: String? = nil
+            var timeBlock: TimeBlock? = nil
+            var calEventID: String? = nil
 
             let tokens = metaBlob.split(separator: " ", omittingEmptySubsequences: true)
             for token in tokens {
@@ -135,6 +146,18 @@ struct MarkdownDoc: Equatable {
                     rolledTo = dateOnlyFmt.date(from: value)
                 case "source_note":
                     sourceNote = value
+                case "time":
+                    // value is "HH:mm-HH:mm"; build absolute Dates on parsedDate.
+                    let halves = value.split(separator: "-", maxSplits: 1)
+                    if halves.count == 2,
+                       let startDate = absoluteTime(String(halves[0]),
+                                                    on: parsedDate, calendar: calendar),
+                       let endDate = absoluteTime(String(halves[1]),
+                                                  on: parsedDate, calendar: calendar) {
+                        timeBlock = TimeBlock(start: startDate, end: endDate)
+                    }
+                case "cal_event":
+                    calEventID = value
                 default:
                     break
                 }
@@ -144,7 +167,8 @@ struct MarkdownDoc: Equatable {
 
             let todo = Todo(id: id, text: taskText, createdAt: createdAt,
                             done: done, completedAt: completedAt,
-                            dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote)
+                            dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote,
+                            timeBlock: timeBlock, calEventID: calEventID)
             doc.tasks.append(todo)
         }
 
@@ -164,5 +188,19 @@ struct MarkdownDoc: Equatable {
             doc.notes.append(Note(id: id, time: time, text: body))
         }
         return doc
+    }
+
+    /// Builds an absolute Date for an "HH:mm" wall-clock time on the given day,
+    /// using the timezone-pinned gregorian calendar (matches note-time parsing).
+    private static func absoluteTime(_ hhmm: String, on day: Date,
+                                     calendar: Calendar) -> Date? {
+        let parts = hhmm.split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) else {
+            return nil
+        }
+        var comps = calendar.dateComponents([.year, .month, .day], from: day)
+        comps.hour = h
+        comps.minute = m
+        return calendar.date(from: comps)
     }
 }
