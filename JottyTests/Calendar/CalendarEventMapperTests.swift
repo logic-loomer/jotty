@@ -141,6 +141,28 @@ final class CalendarEventMapperTests: XCTestCase {
         XCTAssertEqual(mapped.map(\.id), ["ok"])
     }
 
+    // MARK: - WR-05: Jotty-marker guard (recycled-id protection)
+
+    /// An event Jotty created carries the notes sentinel and is recognized as ours.
+    func testIsJottyEventTrueWhenMarkerPresent() {
+        let store = EKEventStore()
+        let event = EKEvent(eventStore: store)
+        event.notes = EventKitCalendarService.jottyMarker
+        XCTAssertTrue(EventKitCalendarService.isJottyEvent(event))
+    }
+
+    /// A stranger's event (no marker, or nil notes) is NOT recognized — update/delete treat
+    /// it as not-found so a recycled identifier can't clobber it.
+    func testIsJottyEventFalseForForeignOrNilNotes() {
+        let store = EKEventStore()
+        let foreign = EKEvent(eventStore: store)
+        foreign.notes = "Someone else's meeting"
+        XCTAssertFalse(EventKitCalendarService.isJottyEvent(foreign))
+
+        let blank = EKEvent(eventStore: store)
+        XCTAssertFalse(EventKitCalendarService.isJottyEvent(blank), "nil notes is not a Jotty event")
+    }
+
     // MARK: - all-day filter + sort (the eventsInRange transform, EventKit-free)
 
     /// Minimal stand-in carrying just the fields the eventsInRange transform reads,

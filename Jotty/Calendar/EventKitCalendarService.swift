@@ -50,12 +50,17 @@ final class EventKitCalendarService: CalendarService {
 
     // MARK: Writes
 
+    /// Notes sentinel stamped on every Jotty-created event, checked on update/delete so a
+    /// recycled EventKit identifier can never clobber a stranger's event (WR-05).
+    /// `nonisolated` so the nonisolated marker guard + tests can read it without an actor hop.
+    nonisolated static let jottyMarker = "Created by Jotty"
+
     func createEvent(title: String, start: Date, end: Date) async throws -> String {
         let event = EKEvent(eventStore: store)
         event.title = title
         event.startDate = start
         event.endDate = end
-        event.notes = "Created by Jotty"
+        event.notes = Self.jottyMarker
         event.calendar = targetCalendar()
         do {
             try store.save(event, span: .thisEvent)
@@ -73,7 +78,10 @@ final class EventKitCalendarService: CalendarService {
 
     func updateEvent(id: String, title: String, start: Date, end: Date) async throws {
         // nil => the event was deleted in Calendar; caller recreates + rewrites the id (SC3).
-        guard let event = store.event(withIdentifier: id) else {
+        // A matched event that is NOT Jotty-created means the id was recycled onto a
+        // stranger's event after a delete+sync; treat it as not-found (recreate) rather than
+        // overwriting someone else's calendar entry (WR-05).
+        guard let event = store.event(withIdentifier: id), Self.isJottyEvent(event) else {
             throw CalendarError.eventNotFound
         }
         event.title = title
@@ -87,7 +95,10 @@ final class EventKitCalendarService: CalendarService {
     }
 
     func deleteEvent(id: String) async throws {
-        guard let event = store.event(withIdentifier: id) else {
+        // Same recycled-id guard as updateEvent (WR-05): only remove events Jotty created.
+        // A non-Jotty match is treated as not-found so a recycled id can't delete a
+        // stranger's event.
+        guard let event = store.event(withIdentifier: id), Self.isJottyEvent(event) else {
             throw CalendarError.eventNotFound
         }
         do {
@@ -124,6 +135,14 @@ final class EventKitCalendarService: CalendarService {
     }
 
     // MARK: Helpers
+
+    /// True when the event carries Jotty's notes sentinel — the defensive check that keeps
+    /// update/delete from mutating a stranger's event behind a recycled identifier (WR-05).
+    /// Internal + nonisolated (not private) so the marker guard can be unit-tested on an
+    /// unsaved `EKEvent` without a live store / TCC prompt or an actor hop.
+    nonisolated static func isJottyEvent(_ event: EKEvent) -> Bool {
+        event.notes?.contains(jottyMarker) == true
+    }
 
     /// Resolves the configured calendar id live, falling back to the store's default.
     private func targetCalendar() -> EKCalendar? {
