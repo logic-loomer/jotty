@@ -17,6 +17,26 @@ final class MenubarListModel: ObservableObject {
     /// one-line affordance instead of rows (graceful degradation, never crashes).
     @Published private(set) var calendarAccessDenied: Bool = false
 
+    /// One-time "Also delete the calendar event?" prompt (SC3). Set only when a
+    /// linked task is deleted and `deleteCalendarEventWithTask` is still nil
+    /// (unanswered); the task is already removed from markdown by then.
+    @Published var deletePrompt: DeletePrompt?
+    /// Open-time drift prompt (SC4): the linked tasks whose calendar event changed
+    /// externally, offered for a calendar-wins sync. Set by `reloadCalendar`.
+    @Published var driftPrompt: DriftPrompt?
+
+    /// Carries the task awaiting a delete-event decision.
+    struct DeletePrompt: Identifiable {
+        let id = UUID()
+        let task: Todo
+    }
+
+    /// Carries the drifted (task, event) pairs awaiting a calendar-wins sync decision.
+    struct DriftPrompt: Identifiable {
+        let id = UUID()
+        let drifted: [(task: Todo, event: CalendarEvent)]
+    }
+
     let store: Store
     /// Exposed so the view can build a timezone-pinned HH:mm formatter that matches
     /// the model's date partitioning (the calendar section renders event start times).
@@ -26,20 +46,28 @@ final class MenubarListModel: ObservableObject {
     /// Optional calendar seam; nil = pure task tool (no calendar section). Plan 08
     /// injects the real EventKit-backed service from AppDelegate.
     private let calendar: (any CalendarService)?
+    /// Optional config store for the remembered delete-event preference (SC3).
+    /// nil-defaulted so existing tests/callers construct the model without it; when
+    /// nil, a linked delete falls back to NOT touching the calendar (safe default).
+    private let configStore: ConfigStore?
     /// In-flight calendar refresh, so tests (and reload callers) can await it
     /// deterministically without coupling to the synchronous task path.
     private var calendarTask: Task<Void, Never>?
+    /// In-flight delete-event best-effort work, awaited by tests.
+    private var deleteTask: Task<Void, Never>?
 
     init(store: Store,
          timezone: TimeZone = .current,
          defaults: UserDefaults = .standard,
          now: @escaping () -> Date = Date.init,
-         calendar: (any CalendarService)? = nil) {
+         calendar: (any CalendarService)? = nil,
+         configStore: ConfigStore? = nil) {
         self.store = store
         self.timezone = timezone
         self.defaults = defaults
         self.now = now
         self.calendar = calendar
+        self.configStore = configStore
         reload()
     }
 
@@ -131,6 +159,27 @@ final class MenubarListModel: ObservableObject {
             // Best-effort: a read failure degrades to no rows, never crashes capture/UI.
             NSLog("[Jotty] calendar read failed: \(error.localizedDescription)")
             calendarEvents = []
+            return
+        }
+
+        // SC4: open-time drift awareness. Compare today+future linked tasks against
+        // the fetched events; if any drifted (title/time changed externally), surface
+        // a one-time calendar-wins sync prompt. Missing events are NOT recreated here
+        // (that is the edit-time path); SC4 is read-only awareness + sync-on-confirm.
+        let linked = todayAndFutureLinkedTasks(reference: todayStart, calendar: cal)
+        let result = CalendarDrift.driftedTasks(linked, against: calendarEvents)
+        if !result.drifted.isEmpty {
+            driftPrompt = DriftPrompt(drifted: result.drifted)
+        }
+    }
+
+    /// Linked tasks (calEventID + timeBlock) scheduled today or later — historical
+    /// tasks are skipped per CONTEXT (drift checking stays lightweight).
+    private func todayAndFutureLinkedTasks(reference todayStart: Date,
+                                           calendar cal: Calendar) -> [Todo] {
+        tasks.filter { task in
+            guard task.calEventID != nil, let tb = task.timeBlock else { return false }
+            return tb.start >= todayStart
         }
     }
 
@@ -167,6 +216,164 @@ final class MenubarListModel: ObservableObject {
             NSLog("[Jotty] toggle failed: \(error.localizedDescription)")
         }
         reload()
+    }
+
+    // MARK: - Delete (SC3)
+
+    /// Deletes a task. The markdown line is removed immediately (disk is the source
+    /// of truth, T-5-09 — a calendar failure never blocks the local delete). If the
+    /// task had a linked calendar event, the remembered `deleteCalendarEventWithTask`
+    /// preference decides: nil -> surface a one-time prompt; true -> delete the event
+    /// best-effort; false -> leave the event. The remembered choice is acted on
+    /// silently thereafter.
+    func delete(_ task: Todo) {
+        let snapshot = now()
+        do {
+            try store.deleteTodo(id: task.id, on: snapshot)
+        } catch {
+            NSLog("[Jotty] delete failed: \(error.localizedDescription)")
+        }
+
+        if let eventID = task.calEventID {
+            switch configStore?.config.deleteCalendarEventWithTask {
+            case .some(true):
+                bestEffortDeleteEvent(id: eventID)
+            case .some(false):
+                break // remembered: leave the event.
+            case .none:
+                // Unanswered (nil pref, or no config store) -> ask once.
+                deletePrompt = DeletePrompt(task: task)
+            }
+        }
+        reload()
+    }
+
+    /// Resolves the one-time delete-event prompt: persists the answer (so the next
+    /// linked delete acts silently) and, on "yes", deletes the linked event
+    /// best-effort. The task was already removed from markdown by `delete(_:)`.
+    func resolveDeletePrompt(deleteEvent: Bool) {
+        guard let prompt = deletePrompt else { return }
+        deletePrompt = nil
+        try? configStore?.update { $0.deleteCalendarEventWithTask = deleteEvent }
+        if deleteEvent, let eventID = prompt.task.calEventID {
+            bestEffortDeleteEvent(id: eventID)
+        }
+    }
+
+    /// Awaits the in-flight best-effort delete-event work (test hook).
+    func awaitDeleteWork() async {
+        if let t = deleteTask { _ = await t.value }
+    }
+
+    /// Fires the calendar delete on a detached task; a failure logs but never
+    /// rolls back the already-completed markdown delete (best-effort, T-5-09).
+    private func bestEffortDeleteEvent(id eventID: String) {
+        guard let calendar else { return }
+        deleteTask = Task { [weak self] in
+            do {
+                try await calendar.deleteEvent(id: eventID)
+            } catch {
+                await MainActor.run {
+                    NSLog("[Jotty] calendar deleteEvent failed: \(error.localizedDescription)")
+                }
+                _ = self
+            }
+        }
+    }
+
+    // MARK: - Edit time (SC3)
+
+    /// Changes a task's time block. The markdown `time:` token is updated immediately
+    /// (disk first, T-5-09); if the task is linked to a calendar event, the event is
+    /// updated in place by id. When the event is gone (.eventNotFound), it is
+    /// recreated and the new id rewritten onto the task line (recreate-and-relink per
+    /// CONTEXT/RESEARCH). Other calendar errors are logged, never blocking.
+    func editTime(_ task: Todo, to newBlock: TimeBlock) {
+        let snapshot = now()
+        do {
+            try store.updateTodoTime(id: task.id, timeBlock: newBlock, on: snapshot)
+        } catch {
+            NSLog("[Jotty] editTime failed: \(error.localizedDescription)")
+        }
+
+        if let calendar, let eventID = task.calEventID {
+            let title = CalendarDrift.sanitize(title: task.text)
+            calendarTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await calendar.updateEvent(id: eventID, title: title,
+                                                   start: newBlock.start, end: newBlock.end)
+                } catch CalendarError.eventNotFound {
+                    // Event deleted in Calendar: recreate + rewrite the new id (SC3).
+                    await self.recreateAndRelink(task: task, title: title, block: newBlock,
+                                                 on: snapshot, calendar: calendar)
+                } catch {
+                    await MainActor.run {
+                        NSLog("[Jotty] calendar updateEvent failed: \(error.localizedDescription)")
+                    }
+                }
+                await self.reloadOnMain()
+            }
+        } else {
+            reload()
+        }
+    }
+
+    /// Recreates a missing linked event and rewrites the new id onto the task line.
+    private func recreateAndRelink(task: Todo, title: String, block: TimeBlock,
+                                   on date: Date, calendar: any CalendarService) async {
+        do {
+            let newID = try await calendar.createEvent(title: title,
+                                                       start: block.start, end: block.end)
+            await MainActor.run {
+                do {
+                    var doc = try self.store.readDoc(on: date)
+                    if let idx = doc.tasks.firstIndex(where: { $0.id == task.id }) {
+                        doc.tasks[idx].timeBlock = block
+                        doc.tasks[idx].calEventID = newID
+                        try self.store.replaceTasks(doc.tasks, on: date)
+                    }
+                } catch {
+                    NSLog("[Jotty] recreate-relink rewrite failed: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            await MainActor.run {
+                NSLog("[Jotty] calendar createEvent (recreate) failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Drift sync (SC4)
+
+    /// Confirms the open-time drift prompt: calendar wins. Each drifted task's text
+    /// and time block are rewritten to match its calendar event, persisted via
+    /// replaceTasks (T-5-10 — user-confirmed, scoped to the drifted linked tasks).
+    func confirmDriftSync() {
+        guard let prompt = driftPrompt else { return }
+        driftPrompt = nil
+        let snapshot = now()
+        do {
+            var doc = try store.readDoc(on: snapshot)
+            for pair in prompt.drifted {
+                guard let idx = doc.tasks.firstIndex(where: { $0.id == pair.task.id }) else { continue }
+                doc.tasks[idx].text = pair.event.title
+                doc.tasks[idx].timeBlock = TimeBlock(start: pair.event.start, end: pair.event.end)
+            }
+            try store.replaceTasks(doc.tasks, on: snapshot)
+        } catch {
+            NSLog("[Jotty] drift sync failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    /// Dismisses the drift prompt, leaving the markdown unchanged ("Keep mine").
+    func dismissDriftPrompt() {
+        driftPrompt = nil
+    }
+
+    private func reloadOnMain() async {
+        await MainActor.run { self.reload() }
     }
 
     var doneCount: Int { tasks.filter(\.done).count }
@@ -248,6 +455,7 @@ struct MenubarListView: View {
                                     .buttonStyle(.plain)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 3)
+                                    .contextMenu { taskRowMenu(task) }
                                 }
                             }
 
@@ -269,6 +477,7 @@ struct MenubarListView: View {
                             .buttonStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
+                            .contextMenu { taskRowMenu(task) }
                         }
                     }
                     .padding(.vertical, 6)
@@ -298,6 +507,55 @@ struct MenubarListView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 300)
+        // SC3: one-time "Also delete the calendar event?" prompt. The task is
+        // already removed from markdown; this only governs the linked event.
+        .alert("Also delete the calendar event?",
+               isPresented: Binding(
+                   get: { model.deletePrompt != nil },
+                   set: { if !$0 { model.deletePrompt = nil } })) {
+            Button("Delete event", role: .destructive) {
+                model.resolveDeletePrompt(deleteEvent: true)
+            }
+            Button("Keep event", role: .cancel) {
+                model.resolveDeletePrompt(deleteEvent: false)
+            }
+        } message: {
+            Text("Your choice is remembered for future deletions.")
+        }
+        // SC4: open-time drift sync prompt (calendar wins on confirm).
+        .alert("Sync from Calendar?",
+               isPresented: Binding(
+                   get: { model.driftPrompt != nil },
+                   set: { if !$0 { model.driftPrompt = nil } })) {
+            Button("Sync") { model.confirmDriftSync() }
+            Button("Keep mine", role: .cancel) { model.dismissDriftPrompt() }
+        } message: {
+            Text(driftMessage)
+        }
+    }
+
+    /// Per-row context menu (SC3 affordances): delete, and edit-time for linked tasks.
+    @ViewBuilder
+    private func taskRowMenu(_ task: Todo) -> some View {
+        Button("Delete", role: .destructive) { model.delete(task) }
+        if task.calEventID != nil, let tb = task.timeBlock {
+            // Edit-time affordance: nudge the linked event +30m as a discoverable
+            // demonstration of the edit-time path (the precise picker UI is Phase 8).
+            Button("Move +30 min") {
+                let newBlock = TimeBlock(start: tb.start.addingTimeInterval(1800),
+                                         end: tb.end.addingTimeInterval(1800))
+                model.editTime(task, to: newBlock)
+            }
+        }
+    }
+
+    /// Human-readable summary of the drifted tasks for the SC4 prompt.
+    private var driftMessage: String {
+        let titles = model.driftPrompt?.drifted.map { $0.event.title } ?? []
+        if titles.count == 1 {
+            return "“\(titles[0])” changed in Calendar. Sync the task to match?"
+        }
+        return "\(titles.count) tasks changed in Calendar. Sync them to match?"
     }
 
     // MARK: - Calendar section (SC2)

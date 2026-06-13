@@ -33,6 +33,28 @@ final class Store {
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Removes the task with `id` from the day's markdown (SC3). No-op when the id
+    /// is absent. Disk is the source of truth; the matching calendar event (if any)
+    /// is handled best-effort by the caller, never here.
+    func deleteTodo(id: String, on date: Date) throws {
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var doc = readOrCreate(at: url, on: date)
+        guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
+        doc.tasks.remove(at: idx)
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Sets the task's `timeBlock` and re-serializes (SC3 edit-time). No-op when the
+    /// id is absent. The `cal_event:` link is preserved; the linked event is updated
+    /// best-effort by the caller, never here.
+    func updateTodoTime(id: String, timeBlock: TimeBlock, on date: Date) throws {
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var doc = readOrCreate(at: url, on: date)
+        guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
+        doc.tasks[idx].timeBlock = timeBlock
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
     func replaceTasks(_ tasks: [Todo], on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
         var doc = readOrCreate(at: url, on: date)
