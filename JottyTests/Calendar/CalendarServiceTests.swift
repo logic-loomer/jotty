@@ -62,13 +62,13 @@ final class CalendarServiceTests: XCTestCase {
         XCTAssertEqual(url?.absoluteString, expected)
     }
 
-    func testCalshowURLPathEqualsTimeIntervalString() {
-        // For an opaque (no //) URL, the part after the scheme is the resourceSpecifier / path.
+    func testCalshowURLPayloadEqualsTimeIntervalString() {
+        // For an opaque (no //) URL, the part after "calshow:" is the timeInterval payload.
         let start = dateFor("2026-06-13T15:00:00+10:00")
         let secsString = "\(start.timeIntervalSinceReferenceDate)"
         let url = CalendarURL.show(for: start)
         XCTAssertEqual(url?.absoluteString, "calshow:\(secsString)")
-        // resourceSpecifier carries the payload for scheme-only opaque URLs.
-        XCTAssertEqual(url?.resourceSpecifier, secsString)
+        // NSURL.resourceSpecifier carries the payload for scheme-only opaque URLs.
+        XCTAssertEqual((url as NSURL?)?.resourceSpecifier, secsString)
     }
 }
