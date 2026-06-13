@@ -59,7 +59,11 @@ enum OllamaError: LocalizedError, Equatable {
         } else if let urlError = error as? URLError {
             self = .downloadFailed(underlying: urlError.localizedDescription)
         } else {
-            self = .downloadFailed(underlying: String(describing: error))
+            // String(describing:) of a Swift error can leak internal type /
+            // case detail (and, for some Foundation errors, file paths) into
+            // the Settings failure row. Prefer the user-facing localized
+            // description (MIN-05).
+            self = .downloadFailed(underlying: error.localizedDescription)
         }
     }
 }
