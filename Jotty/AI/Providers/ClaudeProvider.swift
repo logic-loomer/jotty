@@ -63,7 +63,18 @@ actor ClaudeProvider: AIProvider {
         let (data, statusCode) = try await retry.execute(
             retryAfterSeconds: { _ in retryAfter.value }
         ) {
-            let (data, response) = try await session.data(for: request)
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch let error as URLError {
+                // No Anthropic/URLSession-private error escapes this actor
+                // (file header contract): remap a raw URLError to a fixed,
+                // detail-free message. .underlying stays retryable so transient
+                // network failures still back off and retry (mirrors Gemini).
+                throw AIProviderError.underlying(
+                    message: "Network error (URLError \(error.code.rawValue))")
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw AIProviderError.underlying(message: "Non-HTTP response")
             }
