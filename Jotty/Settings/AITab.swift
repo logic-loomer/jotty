@@ -26,10 +26,12 @@ struct AITab: View {
 
     @State private var availability: AIAvailability = .unavailable(reason: "checking…")
     @State private var selectedProvider: String
+    @State private var claudeAction: ClaudeAction
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
         _selectedProvider = State(initialValue: configStore.config.aiProviderID)
+        _claudeAction = State(initialValue: configStore.config.claudeAction)
     }
 
     var body: some View {
@@ -50,6 +52,21 @@ struct AITab: View {
                 .onChange(of: selectedProvider) { _, newValue in
                     try? configStore.update { $0.aiProviderID = newValue }
                 }
+            }
+
+            Section(header: Text("Send to Claude")) {
+                // Mode chosen here drives AppConfig.claudeAction, read live by the
+                // SystemClaudeHandoff on the next Send-to-Claude (D-SC1).
+                Picker("Claude action", selection: $claudeAction) {
+                    Text("Open in Claude (Web)").tag(ClaudeAction.web)
+                    Text("Run in Claude Code").tag(ClaudeAction.code)
+                }
+                .pickerStyle(.inline)
+                .onChange(of: claudeAction) { _, newValue in
+                    try? configStore.update { $0.claudeAction = newValue }
+                }
+                Text("\"Send to Claude\" opens the selected task in claude.ai, or hands it to the local Claude Code CLI.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
 
             Section(header: Text("On-device")) {

@@ -1,0 +1,103 @@
+// Jotty/Settings/KeybindingsTab.swift
+// Settings → Keybindings (plan 06-04 Task 2): rebind every Action via a
+// record-combo control, warn on conflicts inline, and reset to defaults (D-SC3).
+//
+// Lists every Action.allCases with a human label + its current combo + a
+// RecordComboField to rebind (setCombo on capture, persisted by the store).
+// Conflicts are computed reactively from store.allBindings() via conflicts(in:)
+// and shown as an inline warning row PER conflict (combo + the conflicting action
+// labels) so the user sees the clash before leaving the tab. "Reset to defaults"
+// calls store.reset().
+//
+// NOTE: a change to globalToggleCapture must trigger HotkeyManager re-register —
+// that wiring is plan 06-05 (RESEARCH Pitfall 4). This tab only persists the new
+// combo via the store; the global hotkey re-registration is out of scope here.
+
+import SwiftUI
+
+struct KeybindingsTab: View {
+    let store: KeybindingsStore
+
+    /// Local mirror of the store's bindings so the view re-renders on each rebind
+    /// / reset (KeybindingsStore is a reference type with no Combine publisher).
+    @State private var bindings: [Action: KeyCombo]
+    @State private var resetConfirm = false
+
+    init(store: KeybindingsStore) {
+        self.store = store
+        _bindings = State(initialValue: store.allBindings())
+    }
+
+    /// Display order + human labels for the bound actions.
+    private static let labels: [(action: Action, label: String)] = [
+        (.globalToggleCapture, "Open capture window"),
+        (.captureSubmit,       "Submit capture"),
+        (.captureCancel,       "Cancel capture"),
+        (.sendToClaude,        "Send to Claude"),
+    ]
+
+    private var currentConflicts: [KeybindingConflict] {
+        conflicts(in: bindings)
+    }
+
+    var body: some View {
+        Form {
+            Section(header: Text("Shortcuts")) {
+                ForEach(Self.labels, id: \.action) { entry in
+                    HStack {
+                        Text(entry.label)
+                        Spacer()
+                        RecordComboField(current: bindings[entry.action]) { combo in
+                            rebind(entry.action, to: combo)
+                        }
+                        .frame(width: 120, height: 24)
+                    }
+                }
+            }
+
+            if !currentConflicts.isEmpty {
+                Section(header: Text("Conflicts")) {
+                    ForEach(currentConflicts, id: \.combo) { conflict in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                            Text("\(conflict.combo.displayString) is bound to \(conflictActionLabels(conflict)). Each shortcut should be unique.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Button("Reset to defaults") { resetConfirm = true }
+                Text("Click a shortcut, then press a new key combination to rebind it.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 560, height: 640)
+        .alert("Reset all shortcuts to their defaults?", isPresented: $resetConfirm) {
+            Button("Reset", role: .destructive) { resetToDefaults() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func conflictActionLabels(_ conflict: KeybindingConflict) -> String {
+        let names = conflict.actions.map { action in
+            Self.labels.first { $0.action == action }?.label ?? action.rawValue
+        }
+        return names.joined(separator: " and ")
+    }
+
+    private func rebind(_ action: Action, to combo: KeyCombo) {
+        try? store.setCombo(combo, for: action)
+        bindings = store.allBindings()
+    }
+
+    private func resetToDefaults() {
+        try? store.reset()
+        bindings = store.allBindings()
+    }
+}
