@@ -62,6 +62,7 @@
 		887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */; };
 		8A34C8537557EC76E3F9124F /* AITab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E634DF0277FDFDD57D695E /* AITab.swift */; };
 		8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAAC2F1545290B13892D4C9 /* StubURLProtocol.swift */; };
+		8AADC54766A06985B82814B2 /* DriftDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2445FCD973A4E9EF9E319F23 /* DriftDetectionTests.swift */; };
 		900971A7D8834FCBCF0AD1A1 /* ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F555F6B7796CD5B3E27FCB2 /* ProviderFactory.swift */; };
 		91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0F6484D307F784AA064A13 /* StorageTab.swift */; };
 		972E4CBA4ACC52809336CC35 /* OllamaBinaryLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E164C1254160F1C1D6633F02 /* OllamaBinaryLocatorTests.swift */; };
@@ -131,6 +132,7 @@
 		1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		23C090ADF66A94D4A73E9BD8 /* CalendarDrift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDrift.swift; sourceTree = "<group>"; };
+		2445FCD973A4E9EF9E319F23 /* DriftDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriftDetectionTests.swift; sourceTree = "<group>"; };
 		2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBinaryLocator.swift; sourceTree = "<group>"; };
 		250A406D6AA7EB9CB08886A6 /* CalendarEventMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventMapperTests.swift; sourceTree = "<group>"; };
 		27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarServiceTests.swift; sourceTree = "<group>"; };
@@ -330,6 +332,7 @@
 				250A406D6AA7EB9CB08886A6 /* CalendarEventMapperTests.swift */,
 				27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */,
 				676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */,
+				2445FCD973A4E9EF9E319F23 /* DriftDetectionTests.swift */,
 				9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */,
 			);
 			path = Calendar;
@@ -619,6 +622,7 @@
 				5594C88B64D1A22FE8E2F940 /* ConflictDetectionTests.swift in Sources */,
 				67E329EEFDB75C4A0B4DD8A3 /* CrossProviderTests.swift in Sources */,
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
+				8AADC54766A06985B82814B2 /* DriftDetectionTests.swift in Sources */,
 				D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */,
 				682CF1C7B61F0A2A68752E9D /* ExtractedTaskTests.swift in Sources */,
 				BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */,
