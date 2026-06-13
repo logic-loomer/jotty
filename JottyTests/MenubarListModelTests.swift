@@ -771,6 +771,122 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.driftPrompt, "historical linked tasks are not drift-checked")
     }
 
+    // MARK: - SC4: move to tomorrow (row affordance)
+
+    func testMoveToTomorrowRemovesFromTodayAndReloads() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_move", text: "ship it", createdAt: today),
+            Todo(id: "t_stay", text: "stays", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_move" })
+        model.moveToTomorrow(task)
+
+        // Left today's list (reloaded) and is gone from today's file on disk.
+        XCTAssertFalse(model.todayTasks.contains { $0.id == "t_move" }, "moved task leaves today's list")
+        XCTAssertTrue(model.todayTasks.contains { $0.id == "t_stay" })
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_move" })
+        // Landed on tomorrow's file.
+        let tomorrow = makeDate(2026, 6, 13, h: 8)
+        XCTAssertTrue(try store.readDoc(on: tomorrow).tasks.contains { $0.id == "t_move" })
+    }
+
+    // MARK: - SC4: inline rename (row affordance)
+
+    func testRenameCallsStoreAndReflectsNewText() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_rename", text: "old text", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_rename" })
+        model.rename(task, to: "new text")
+
+        // Store rewrote the text in place (id preserved); the reload reflects it.
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_rename" })
+        XCTAssertEqual(stored.text, "new text")
+        XCTAssertEqual(model.todayTasks.first { $0.id == "t_rename" }?.text, "new text")
+    }
+
+    func testRenameEmptyAfterTrimRevertsToOriginal() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_rename", text: "keep me", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_rename" })
+        model.rename(task, to: "   ")   // empty-after-trim → Store rejects (no write)
+
+        // Disk unchanged; the reload reverts the UI to the persisted text.
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_rename" })
+        XCTAssertEqual(stored.text, "keep me", "empty rename is rejected, original preserved")
+        XCTAssertEqual(model.todayTasks.first { $0.id == "t_rename" }?.text, "keep me")
+    }
+
+    // MARK: - SC1: Send to Claude (row affordance)
+
+    func testSendToClaudeRoutesWrappedPromptThroughHandoff() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_claude", text: "draft the email", createdAt: today)
+        ], at: today)
+
+        let fake = FakeClaudeHandoff()   // binaryAvailable = true by default
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, claudeHandoff: fake)
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_claude" })
+        model.sendToClaude(task)
+
+        // Routes the WRAPPED prompt (template applied once at the call site).
+        XCTAssertEqual(fake.sendCallCount, 1)
+        XCTAssertEqual(fake.lastPrompt, ClaudePrompt.wrapped("draft the email"))
+        XCTAssertNil(model.claudeNotice, "binary present → no notice")
+    }
+
+    func testSendToClaudeNoBinarySetsNotice() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_claude", text: "draft the email", createdAt: today)
+        ], at: today)
+
+        let fake = FakeClaudeHandoff()
+        fake.binaryAvailable = false   // Code mode, no binary → send returns false
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, claudeHandoff: fake)
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_claude" })
+        model.sendToClaude(task)
+
+        XCTAssertEqual(fake.sendCallCount, 1)
+        XCTAssertNotNil(model.claudeNotice, "no binary → one-line notice")
+    }
+
+    func testSendToClaudeNoHandoffIsNoOp() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_claude", text: "draft the email", createdAt: today)
+        ], at: today)
+
+        // No handoff injected (back-compat construction).
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_claude" })
+        model.sendToClaude(task)   // must not crash, no notice
+        XCTAssertNil(model.claudeNotice)
+    }
+
     // MARK: - Helpers
 
     /// Seeds today's file with the given tasks and returns (store, today).

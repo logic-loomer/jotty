@@ -65,6 +65,15 @@ final class MenubarListModel: ObservableObject {
     /// nil-defaulted so existing tests/callers construct the model without it; when
     /// nil, a linked delete falls back to NOT touching the calendar (safe default).
     private let configStore: ConfigStore?
+    /// Optional Send-to-Claude seam (SC1). nil-defaulted like calendar/configStore so
+    /// existing tests/callers construct the model without it; when nil, the "Send to
+    /// Claude" menu item is a no-op (AppDelegate injects the real SystemClaudeHandoff).
+    private let claudeHandoff: (any ClaudeHandoff)?
+
+    /// One-line, transient notice shown when Code-mode Send-to-Claude finds no `claude`
+    /// binary (D-SC1 graceful degrade): points the user to Web mode. Cleared by the view
+    /// after a brief display. nil = nothing to show.
+    @Published var claudeNotice: String?
     /// In-flight calendar refresh spawned by `reload()`, so tests (and reload callers) can
     /// await it deterministically. Kept distinct from `editTask` (WR-03) so an edit and a
     /// concurrent refresh never overwrite each other's handle and drop in-flight work.
@@ -82,15 +91,22 @@ final class MenubarListModel: ObservableObject {
          defaults: UserDefaults = .standard,
          now: @escaping () -> Date = Date.init,
          calendar: (any CalendarService)? = nil,
-         configStore: ConfigStore? = nil) {
+         configStore: ConfigStore? = nil,
+         claudeHandoff: (any ClaudeHandoff)? = nil) {
         self.store = store
         self.timezone = timezone
         self.defaults = defaults
         self.now = now
         self.calendar = calendar
         self.configStore = configStore
+        self.claudeHandoff = claudeHandoff
         reload()
     }
+
+    /// Day-partition key for a task: its `createdAt` day in the model's timezone.
+    /// Used by the row affordances (rename / move / open day file) so they always
+    /// address the file the task actually lives in.
+    private func dayOf(_ task: Todo) -> Date { task.createdAt }
 
     /// `clearMissingLinks` is forwarded to the spawned calendar refresh: it is true on a
     /// genuine open-time reload (popover open, foreground, midnight) so a deleted event's
@@ -477,6 +493,57 @@ final class MenubarListModel: ObservableObject {
         await MainActor.run { self.reload(clearMissingLinks: clearMissingLinks) }
     }
 
+    // MARK: - Row affordances (SC1 / SC4)
+
+    /// Moves the task to tomorrow's file (SC4). Disk is the source of truth: the
+    /// store removes it from today and lands it on tomorrow (re-partitioned createdAt),
+    /// then we reload so it leaves today's list. A linked calendar event is left
+    /// untouched here (the time block keeps its wall-clock slot on the new day; a
+    /// later edit re-syncs the event). A failure logs, never crashes.
+    func moveToTomorrow(_ task: Todo) {
+        do {
+            try store.moveTodoToTomorrow(id: task.id, on: dayOf(task))
+        } catch {
+            NSLog("[Jotty] moveToTomorrow failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    /// Opens the markdown day file the task lives in (SC4). Read-only reveal in the
+    /// user's default .md handler; never mutates state. No-op only when the file path
+    /// cannot be resolved (it always can — DailyFile derives a deterministic path).
+    func openDayFile(_ task: Todo) {
+        let url = DailyFile.url(in: store.folder, on: dayOf(task), timezone: store.timezone)
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Hands the task off to Claude (SC1). Wraps the task text in the prompt template
+    /// once (`ClaudePrompt.wrapped`) — the handoff takes the FINAL prompt — and routes
+    /// it through the injected seam. When Code mode reports no `claude` binary
+    /// (`send` returns false), surface a one-line notice pointing to Web mode
+    /// (D-SC1 graceful degrade). No-op when no handoff is injected.
+    func sendToClaude(_ task: Todo) {
+        guard let claudeHandoff else { return }
+        let prompt = ClaudePrompt.wrapped(task.text)
+        let delivered = claudeHandoff.send(prompt: prompt)
+        if !delivered {
+            claudeNotice = "Claude Code isn’t available — switch to Web mode in Settings → AI."
+        }
+    }
+
+    /// Commits an inline rename (SC4). The store rewrites only the task's text,
+    /// preserving id + every metadata token, and rejects an empty-after-trim rename
+    /// (no write — the caller reverts the UI). Disk stays the source of truth; we
+    /// reload so the list reflects the new text. A failure logs, never crashes.
+    func rename(_ task: Todo, to text: String) {
+        do {
+            try store.renameTodo(id: task.id, text: text, on: dayOf(task))
+        } catch {
+            NSLog("[Jotty] rename failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
     var doneCount: Int { tasks.filter(\.done).count }
 
     private func collapseKey(for date: Date) -> String {
@@ -497,6 +564,21 @@ struct MenubarListView: View {
 
     /// The "+30 min" nudge interval used by the discoverable edit-time affordance (IN-04).
     private static let nudgeSeconds: TimeInterval = 30 * 60
+
+    // MARK: - Inline rename state (SC4)
+
+    /// The id of the task currently being renamed inline, or nil when no row is in
+    /// edit mode. Click a title to enter edit mode; commit (Return/blur) or cancel
+    /// (Esc) clears it. Tracked by id (not the Todo) so a mid-edit reload that
+    /// re-fetches the task does not drop the editor.
+    @State private var editingTaskID: String?
+    /// The in-progress draft text for the row being renamed. Seeded with the task's
+    /// current text on entry; committed via `model.rename` or discarded on cancel.
+    @State private var renameDraft: String = ""
+    /// Drives first-responder focus for the inline rename field inside the NSPopover
+    /// (RESEARCH Pitfall 2: set true on appear, with a DispatchQueue.main.async nudge,
+    /// so the field actually gets the caret and keystrokes).
+    @FocusState private var renameFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -546,17 +628,16 @@ struct MenubarListView: View {
 
                             if !model.leftoversCollapsed {
                                 ForEach(model.leftovers, id: \.id) { task in
-                                    Button(action: { model.toggle(task) }) {
-                                        HStack(spacing: 8) {
-                                            // Leftovers are filtered by !done, so the box is always empty.
+                                    HStack(spacing: 8) {
+                                        // Leftovers are filtered by !done, so the box is always empty.
+                                        Button(action: { model.toggle(task) }) {
                                             Image(systemName: "square")
-                                            Text(task.text)
-                                                .foregroundStyle(.secondary)
-                                            Spacer()
+                                                .contentShape(Rectangle())
                                         }
-                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
+                                        rowTitle(task, isLeftover: true)
+                                        Spacer()
                                     }
-                                    .buttonStyle(.plain)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 3)
                                     .contextMenu { taskRowMenu(task) }
@@ -568,17 +649,15 @@ struct MenubarListView: View {
                         }
 
                         ForEach(model.todayTasks, id: \.id) { task in
-                            Button(action: { model.toggle(task) }) {
-                                HStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                Button(action: { model.toggle(task) }) {
                                     Image(systemName: task.done ? "checkmark.square" : "square")
-                                    Text(task.text)
-                                        .strikethrough(task.done)
-                                        .foregroundStyle(task.done ? .secondary : .primary)
-                                    Spacer()
+                                        .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
+                                .buttonStyle(.plain)
+                                rowTitle(task, isLeftover: false)
+                                Spacer()
                             }
-                            .buttonStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
                             .contextMenu { taskRowMenu(task) }
@@ -640,13 +719,30 @@ struct MenubarListView: View {
         } message: {
             Text(driftMessage)
         }
+        // SC1 graceful degrade: Code-mode Send-to-Claude with no `claude` binary
+        // surfaces a one-line notice pointing to Web mode (D-SC1).
+        .alert("Send to Claude",
+               isPresented: Binding(
+                   get: { model.claudeNotice != nil },
+                   set: { if !$0 { model.claudeNotice = nil } })) {
+            Button("OK", role: .cancel) { model.claudeNotice = nil }
+        } message: {
+            Text(model.claudeNotice ?? "")
+        }
     }
 
-    /// Per-row context menu (SC3 affordances): delete, and edit-time for linked tasks.
+    /// Per-row context menu (SC1 + SC3 + SC4): the full four-item set —
+    /// Delete · Move to tomorrow · Open day file · Send to Claude — plus the
+    /// Phase-5 edit-time "Move +30 min" affordance for linked tasks (kept so SC3
+    /// edit-time does not regress).
     @ViewBuilder
     private func taskRowMenu(_ task: Todo) -> some View {
         Button("Delete", role: .destructive) { model.delete(task) }
+        Button("Move to tomorrow") { model.moveToTomorrow(task) }
+        Button("Open day file") { model.openDayFile(task) }
+        Button("Send to Claude") { model.sendToClaude(task) }
         if task.calEventID != nil, let tb = task.timeBlock {
+            Divider()
             // Edit-time affordance: nudge the linked event +30m as a discoverable
             // demonstration of the edit-time path (the precise picker UI is Phase 8).
             Button("Move +30 min") {
@@ -655,6 +751,66 @@ struct MenubarListView: View {
                 model.editTime(task, to: newBlock)
             }
         }
+    }
+
+    // MARK: - Inline rename (SC4)
+
+    /// The task title: a tappable `Text` normally, an editable `TextField` while this
+    /// row is in rename mode. Click the title to enter edit mode; commit on Return
+    /// (`onSubmit`) AND on focus loss (`renameFieldFocused` flips false), Esc cancels
+    /// (revert, no write). Empty-after-trim commit reverts (the Store rejects it).
+    @ViewBuilder
+    private func rowTitle(_ task: Todo, isLeftover: Bool) -> some View {
+        if editingTaskID == task.id {
+            TextField("", text: $renameDraft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($renameFieldFocused)
+                .onAppear {
+                    renameDraft = task.text
+                    // RESEARCH Pitfall 2: nudge first-responder on the next runloop so
+                    // the field reliably gets the caret inside the NSPopover.
+                    DispatchQueue.main.async { renameFieldFocused = true }
+                }
+                .onSubmit { commitRename(task) }
+                .onExitCommand { cancelRename() }   // Esc → cancel, no write
+                .onChange(of: renameFieldFocused) { _, focused in
+                    // Blur commits (mirrors Return); guard on still-editing this row so a
+                    // post-commit focus flip does not double-fire.
+                    if !focused, editingTaskID == task.id { commitRename(task) }
+                }
+        } else {
+            Text(task.text)
+                .strikethrough(task.done)
+                .foregroundStyle(rowTextStyle(task, isLeftover: isLeftover))
+                .contentShape(Rectangle())
+                .onTapGesture { beginRename(task) }
+        }
+    }
+
+    private func rowTextStyle(_ task: Todo, isLeftover: Bool) -> HierarchicalShapeStyle {
+        if isLeftover { return .secondary }
+        return task.done ? .secondary : .primary
+    }
+
+    private func beginRename(_ task: Todo) {
+        renameDraft = task.text
+        editingTaskID = task.id
+    }
+
+    /// Commits the draft via the model (Store rejects empty-after-trim → the reload
+    /// reverts the UI to the persisted text), then exits edit mode.
+    private func commitRename(_ task: Todo) {
+        let draft = renameDraft
+        editingTaskID = nil
+        renameFieldFocused = false
+        model.rename(task, to: draft)
+    }
+
+    /// Cancels edit mode without writing (Esc): disk stays the source of truth.
+    private func cancelRename() {
+        editingTaskID = nil
+        renameFieldFocused = false
     }
 
     /// Human-readable summary of the drifted tasks for the SC4 prompt.
