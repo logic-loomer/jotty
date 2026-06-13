@@ -22,6 +22,7 @@
 		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
+		3A7B97E8267549450599D9AE /* ProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */; };
 		3E41425FB0D8104549F26DB9 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */; };
 		429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776385CB322A3DDE510F823 /* OpenAIProvider.swift */; };
 		443E7FD46EF75B1DF4379030 /* OllamaModelManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */; };
@@ -173,6 +174,7 @@
 		C8DC934F8F6E3BDE39C8F4B6 /* GeminiProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProviderTests.swift; sourceTree = "<group>"; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
+		CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderFactoryTests.swift; sourceTree = "<group>"; };
 		CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapperTests.swift; sourceTree = "<group>"; };
 		CDAAFD291515674072BD84FC /* CodesignVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodesignVerifier.swift; sourceTree = "<group>"; };
 		D4094049BA724125B54C206D /* OllamaInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaInstallerTests.swift; sourceTree = "<group>"; };
@@ -271,6 +273,7 @@
 				F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */,
 				2B29B0272ECA39FE89E7A3DB /* OllamaTypesTests.swift */,
 				349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */,
+				CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */,
 				B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */,
 				7EAAC2F1545290B13892D4C9 /* StubURLProtocol.swift */,
 			);
@@ -567,6 +570,7 @@
 				3E41425FB0D8104549F26DB9 /* OllamaProviderTests.swift in Sources */,
 				1B7DA313992E86CAE56A5EC1 /* OllamaTypesTests.swift in Sources */,
 				490F738FB25B281F2307DC24 /* OpenAIProviderTests.swift in Sources */,
+				3A7B97E8267549450599D9AE /* ProviderFactoryTests.swift in Sources */,
 				A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */,
 				562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
