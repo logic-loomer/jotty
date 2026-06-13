@@ -22,6 +22,19 @@ struct CaptureView: View {
                     onDismiss: { vm.lastError = nil })
             }
 
+            // SC5: overlap confirm raised by the best-effort calendar pass.
+            if let conflict = vm.pendingConflict {
+                ConflictConfirmBar(
+                    title: conflict.conflictTitle,
+                    onCommitAnyway: { vm.resolveConflict(commitAnyway: true) },
+                    onCancel: { vm.resolveConflict(commitAnyway: false) })
+            }
+
+            // Non-blocking degraded-calendar notice (denied access / write failure).
+            if let notice = vm.calendarNotice {
+                CalendarNoticeBar(notice: notice, onDismiss: { vm.calendarNotice = nil })
+            }
+
             Group {
                 switch vm.state {
                 case .input:
@@ -127,6 +140,73 @@ private struct ProviderErrorToast: View {
             return m ?? "The AI provider declined to process this capture."
         case .underlying:
             return "The AI provider failed to process this capture."
+        }
+    }
+}
+
+// MARK: - Conflict confirm bar (Phase 5 SC5)
+
+/// Inline "⚠️ overlaps with '<title>' — commit anyway?" affordance. Confirm commits both the
+/// task and the event; cancel leaves the time-blocked task uncommitted (CONTEXT). The exact copy
+/// matches the locked CONTEXT wording.
+private struct ConflictConfirmBar: View {
+    let title: String
+    let onCommitAnyway: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("⚠️ overlaps with '\(title)' — commit anyway?")
+                .font(.system(size: 11))
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            Button("Commit anyway") { onCommitAnyway() }
+                .font(.system(size: 11))
+            Button("Cancel") { onCancel() }
+                .font(.system(size: 11))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.14))
+    }
+}
+
+// MARK: - Calendar notice bar (Phase 5 graceful degradation)
+
+/// One-line non-blocking notice when the best-effort calendar work degraded (denied access or a
+/// write failure). The task is already committed to disk; this only informs the user.
+private struct CalendarNoticeBar: View {
+    let notice: CalendarNotice
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.system(size: 11))
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.10))
+    }
+
+    private var message: String {
+        switch notice {
+        case .accessDenied:
+            return "Calendar access not granted — enable in System Settings. Task saved without an event."
+        case .writeFailed:
+            return "Couldn't add the calendar event. Task saved; you can add it manually."
         }
     }
 }
