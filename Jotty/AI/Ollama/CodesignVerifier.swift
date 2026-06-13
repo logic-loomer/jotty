@@ -38,7 +38,15 @@ enum CodesignVerifier {
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             inspect.waitUntilExit()
             let output = String(data: data, encoding: .utf8) ?? ""
-            guard output.contains("TeamIdentifier=\(required)") else {
+            // Exact-field match, not a substring: a substring `.contains`
+            // would also accept a Team ID with extra trailing characters
+            // (prefix collision). codesign -dvv prints `TeamIdentifier=<id>`
+            // on its own line, so compare the whole line for equality.
+            let ok = output
+                .split(separator: "\n")
+                .contains { $0.trimmingCharacters(in: .whitespaces)
+                    == "TeamIdentifier=\(required)" }
+            guard ok else {
                 throw OllamaError.signatureInvalid
             }
         }
