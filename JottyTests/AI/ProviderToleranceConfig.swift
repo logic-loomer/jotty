@@ -21,6 +21,11 @@ struct ProviderTolerance: Equatable {
     /// Whether the duration→time-block guardrail (AI-SPEC §6 / G1) should be
     /// applied before scoring this provider's output.
     let applyDurationGuardrail: Bool
+
+    /// Phase 3 baseline (Apple FM). Mirrors `ProviderToleranceConfig.baseline`
+    /// so call sites can write `tolerance: .baseline` against a
+    /// `ProviderTolerance` parameter.
+    static var baseline: ProviderTolerance { ProviderToleranceConfig.baseline }
 }
 
 enum ProviderToleranceConfigError: Error, CustomStringConvertible, Equatable {

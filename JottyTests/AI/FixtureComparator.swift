@@ -32,18 +32,35 @@ enum FixtureComparator {
     ///   (a) substring match after normalization, OR
     ///   (b) Jaccard of content-word sets ≥ 0.6 (tolerates stop-word differences)
     /// AND length-ratio check: actual length within [0.6 × expected, 1.6 × expected].
+    ///
+    /// Phase 3 two-arg form — preserved by delegating to the tolerance-aware
+    /// overload with the Phase 3 baseline thresholds (AI-SPEC §7.3). Existing
+    /// call sites are unchanged.
     static func compareTitle(actual: String, expected: String) -> String? {
+        compareTitle(actual: actual, expected: expected,
+                     tolerance: ProviderToleranceConfig.baseline)
+    }
+
+    /// Same algorithm + stop-word list as the Phase 3 comparator; only the
+    /// numeric thresholds (Jaccard floor + length-ratio window) come from
+    /// `tolerance` (AI-SPEC §7.3).
+    static func compareTitle(actual: String, expected: String,
+                             tolerance: ProviderTolerance) -> String? {
         let na = normalize(actual)
         let ne = normalize(expected)
 
-        // Length-ratio gate (relaxed to [0.6, 1.6] per spec).
-        let minLen = Int(Double(ne.count) * 0.6)
-        let maxLen = Int(Double(ne.count) * 1.6)
+        let lo = tolerance.titleLengthRatio.lowerBound
+        let hi = tolerance.titleLengthRatio.upperBound
+        let jaccardMin = tolerance.titleJaccardMin
+
+        // Length-ratio gate.
+        let minLen = Int(Double(ne.count) * lo)
+        let maxLen = Int(Double(ne.count) * hi)
         if na.count > maxLen {
-            return "title too long: actual '\(na)' (\(na.count) chars) > 1.6× expected '\(ne)' (\(ne.count) chars, max \(maxLen))"
+            return "title too long: actual '\(na)' (\(na.count) chars) > \(hi)× expected '\(ne)' (\(ne.count) chars, max \(maxLen))"
         }
         if na.count < minLen && !ne.isEmpty {
-            return "title too short: actual '\(na)' (\(na.count) chars) < 0.6× expected '\(ne)' (\(ne.count) chars, min \(minLen))"
+            return "title too short: actual '\(na)' (\(na.count) chars) < \(lo)× expected '\(ne)' (\(ne.count) chars, min \(minLen))"
         }
 
         // Substring match (original check).
@@ -58,9 +75,9 @@ enum FixtureComparator {
 
         // Jaccard fallback.
         let jaccard = jaccardSimilarity(aWords, eWords)
-        if jaccard >= 0.6 { return nil }
+        if jaccard >= jaccardMin { return nil }
 
-        return "title mismatch: actual '\(na)' vs expected '\(ne)' (Jaccard=\(String(format: "%.2f", jaccard)) < 0.6, no substring match after stop-word removal)"
+        return "title mismatch: actual '\(na)' vs expected '\(ne)' (Jaccard=\(String(format: "%.2f", jaccard)) < \(jaccardMin), no substring match after stop-word removal)"
     }
 
     /// Both nil → pass; one nil one set → fail; both set → compare yyyy-MM-dd in `tz`.
