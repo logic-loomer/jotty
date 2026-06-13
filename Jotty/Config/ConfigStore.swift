@@ -8,13 +8,23 @@ struct AppConfig: Codable, Equatable {
     var aiProviderID: String
     /// Selected Ollama model tag (e.g. "qwen2.5:3b"). nil until the user picks one.
     var ollamaModel: String?
+    /// Chosen writable calendar identifier (EKCalendar). nil = use the default
+    /// calendar for new events. Non-secret local pref, same class as aiProviderID.
+    var calendarIdentifier: String?
+    /// Remembered "delete the linked calendar event when its task is deleted"
+    /// preference. nil = ask the user; true/false = remembered choice.
+    var deleteCalendarEventWithTask: Bool?
 
     init(storageFolder: URL,
          aiProviderID: String = "apple-fm",
-         ollamaModel: String? = nil) {
+         ollamaModel: String? = nil,
+         calendarIdentifier: String? = nil,
+         deleteCalendarEventWithTask: Bool? = nil) {
         self.storageFolder = storageFolder
         self.aiProviderID = aiProviderID
         self.ollamaModel = ollamaModel
+        self.calendarIdentifier = calendarIdentifier
+        self.deleteCalendarEventWithTask = deleteCalendarEventWithTask
     }
 
     /// Backward-compatible decode: config.json files written before Phase 4
@@ -27,6 +37,10 @@ struct AppConfig: Codable, Equatable {
         aiProviderID = try container.decodeIfPresent(String.self, forKey: .aiProviderID)
             ?? "apple-fm"
         ollamaModel = try container.decodeIfPresent(String.self, forKey: .ollamaModel)
+        calendarIdentifier = try container.decodeIfPresent(
+            String.self, forKey: .calendarIdentifier)
+        deleteCalendarEventWithTask = try container.decodeIfPresent(
+            Bool.self, forKey: .deleteCalendarEventWithTask)
     }
 
     static var defaultValue: AppConfig {
