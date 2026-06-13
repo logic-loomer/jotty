@@ -1,0 +1,60 @@
+{
+  "$schema_note": "Per-provider tolerance overrides for the 35-fixture suite. Consumed by JottyTests/AI/ProviderToleranceConfig.swift and the FixtureComparator (greedy bipartite + Jaccard) introduced in Phase 3 §5.",
+  "baseline": {
+    "source": "Phase 3 AI-SPEC §5 (Apple FM)",
+    "title_jaccard_min": 0.6,
+    "title_length_ratio": [0.6, 1.6],
+    "title_stop_words": ["a", "an", "the", "to", "for", "of", "and", "or", "with", "on", "at", "in", "by"],
+    "rationale": "Apple FM tends to keep titles concise. 0.6 Jaccard tolerates synonym/word-order drift while still catching topic-shift hallucinations. Length ratio guards against stop-word inflation."
+  },
+  "providers": {
+    "apple-fm": {
+      "title_jaccard_min": 0.6,
+      "title_length_ratio": [0.6, 1.6],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Phase 3 baseline. Do not loosen."
+    },
+    "ollama-qwen2.5-3b": {
+      "title_jaccard_min": 0.55,
+      "title_length_ratio": [0.55, 1.7],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "3B model; slightly more verbose titles. Hallucinates duration→timeBlock — guardrail required."
+    },
+    "ollama-llama3.2-3b": {
+      "title_jaccard_min": 0.55,
+      "title_length_ratio": [0.55, 1.7],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Similar profile to qwen2.5:3b."
+    },
+    "ollama-phi3.5-3.8b": {
+      "title_jaccard_min": 0.55,
+      "title_length_ratio": [0.55, 1.7],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Tends to over-summarise; widen length lower bound."
+    },
+    "claude-haiku-4-5": {
+      "title_jaccard_min": 0.5,
+      "title_length_ratio": [0.5, 1.8],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Cloud model; verbose titles with action verbs. Wider tolerance — release-blocker dims (3,4,6) still must pass."
+    },
+    "gpt-4o-mini": {
+      "title_jaccard_min": 0.5,
+      "title_length_ratio": [0.5, 1.8],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Strict structured outputs; titles can be expansive. Same tolerance as Claude."
+    },
+    "gemini-2.5-flash": {
+      "title_jaccard_min": 0.5,
+      "title_length_ratio": [0.5, 1.8],
+      "duration_guardrail": "applyDurationGuardrail",
+      "notes": "Aggressive expansion of bullet text into titles. Looser bound; safety filter may emit guardrail refusals on edge fixtures — track separately."
+    }
+  },
+  "release_blocker_dimensions": {
+    "dim_3_date_restraint": "100% pass — no spurious dueOn dates",
+    "dim_4_time_block_discipline": "100% pass — no duration→timeBlock hallucination",
+    "dim_6_hallucination_rate": "100% pass — no fabricated tasks not present in source text",
+    "non_blockers": ["dim_1", "dim_2", "dim_5", "dim_7", "dim_8"]
+  }
+}
