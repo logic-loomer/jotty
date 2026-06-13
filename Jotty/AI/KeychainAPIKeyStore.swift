@@ -73,7 +73,12 @@ struct KeychainAPIKeyStore: Sendable {
         case errSecItemNotFound:
             var addQuery = baseQuery(account: account)
             addQuery[kSecValueData as String] = data
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            // Most restrictive practical accessibility for a per-machine API
+            // secret (AI-SPEC privacy-default, §1.x): ThisDeviceOnly keeps the
+            // key out of device backups and bound to this Mac. All reads happen
+            // at capture time with the user present, so there is no headless /
+            // background extraction need that would require AfterFirstUnlock.
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse!
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
