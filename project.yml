@@ -21,8 +21,8 @@ targets:
       properties:
         CFBundleName: Jotty
         CFBundleDisplayName: Jotty
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "2"
         LSUIElement: true
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: ""

@@ -2,7 +2,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** Phase 5 shipped. Time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events read into the menubar, conflict and drift handling, and a configurable default calendar. Builds on Phase 4: five AI providers (Apple FM, Ollama, Claude, OpenAI, Gemini) behind one protocol, API keys in the macOS Keychain, no-restart provider switching. Capture → Review → Commit flow. Phase 6 (Send-to-Claude, launch-at-login, full Settings) closes v1.
+**Status:** v1.0 shipped. Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full six-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, and a documented privacy audit confirming the zero-network default. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
 
 ## Build from source
 
@@ -32,8 +32,11 @@ xattr -d com.apple.quarantine /Applications/Jotty.app
 | Open capture popup (global) | ⌘N |
 | Submit captured note | ⌘↩ |
 | Cancel capture (autosaves draft) | ⎋ |
+| Send task to Claude | ⌘K |
 
-Edit `~/Library/Application Support/Jotty/keybindings.json` to rebind. UI for rebinding lands in Phase 6.
+Rebind any action in **Settings → Keybindings** (record a new combo, with conflict
+warnings and reset-to-defaults), or edit
+`~/Library/Application Support/Jotty/keybindings.json` directly.
 
 ## Storage
 
@@ -242,6 +245,80 @@ All calendar work goes through a `CalendarService` seam, so the test suite runs
 against a fake store and never touches your real calendar or triggers a permission
 prompt.
 
+## Send to Claude (Phase 6)
+
+Right-click any task in the menubar and pick **Send to Claude** to hand the task off
+to Claude as a prompt. The prompt is the task text wrapped in a small template
+("Help me with this task: ..."). There are two modes, chosen in
+**Settings → AI → Claude action**:
+
+- **Web** (default) opens `https://claude.ai/new?q=<prompt>` in your browser with the
+  prompt prefilled.
+- **Claude Code** runs `claude "<prompt>"` via the local Claude Code CLI. The prompt
+  is passed as a single argument (never interpolated into a shell command string), so
+  task text with quotes or shell metacharacters is safe. If no `claude` binary is on
+  your PATH, Jotty shows a one-line notice pointing you back to Web mode instead of
+  failing silently.
+
+Send to Claude also has a default keybinding (**⌘K**), rebindable in
+**Settings → Keybindings**.
+
+**Web prefill caveat:** the `claude.ai/new?q=` prefill behaviour can change on
+Anthropic's side. If you pick Web mode and land on an empty chat, the `q=` prefill
+may have been deprecated; use Claude Code mode, or open the desktop deep link
+`claude://claude.ai/new?q=<prompt>` if you have the Claude desktop app installed. The
+web endpoint lives behind a single constant so it can be swapped in one place.
+
+## Launch at login (Phase 6)
+
+Jotty can start automatically when you log in, so it is always in the menubar without
+opening it manually. Toggle **Settings → General → "Launch Jotty at login"** (or opt
+in from the first-launch onboarding screen). This uses `SMAppService.mainApp` — the
+modern API, not the deprecated `SMLoginItemSetEnabled` / LaunchAgent plist. The
+status line reflects the real OS state (`enabled`, `requires approval`, or
+`not registered`); if macOS needs you to approve the item, the toggle points you to
+**System Settings → General → Login Items**.
+
+## Settings (Phase 6)
+
+The Settings window has six tabs:
+
+| Tab | What it controls |
+|---|---|
+| **General** | Launch-at-login toggle, replay the welcome screen |
+| **Storage** | Notes folder |
+| **AI** | Provider picker, API keys (Keychain), endpoint transparency, Claude action mode |
+| **Calendar** | Default calendar, delete-linked-event preference |
+| **Keybindings** | Rebind any action, conflict warnings, reset to defaults |
+| **Advanced** | Reveal `config.json` in Finder, reset to defaults, privacy + endpoint summary |
+
+The **Keybindings** tab lists every action with its current key combo, lets you
+record a new combo for any of them, warns inline when two actions share a combo
+before you leave the tab, and has a **Reset to defaults** button. Rebinding the
+global capture hotkey re-registers it live (no restart). Reset writes only
+`config.json` defaults — it does not touch your Keychain API keys or
+`keybindings.json`.
+
+## First-launch onboarding (Phase 6)
+
+On first launch Jotty shows a single welcome screen: a one-line value statement, a
+**Grant Calendar access** button (the same lazy full-access request, no duplicate
+prompt), a **Launch Jotty at login** toggle, a 30-second walkthrough link, and a
+**Get started** button. It is shown once; you can replay it any time from
+**Settings → General**. Skipping or closing it never blocks the app, and permissions
+stay lazy.
+
+## Privacy audit (Phase 6)
+
+The default config (Apple Foundation Models + local markdown) makes zero outbound
+network requests. This is enforced two ways: an automated unit test
+(`PrivacyDefaultTests` — default provider is `apple-fm`, no HTTP client on the default
+path) that runs on every build, and a documented manual packet-capture procedure
+(tcpdump / Little Snitch during a full capture → extract → commit → rollover cycle)
+that is the release-time human confirmation. The full procedure and the per-provider
+endpoint table are in **[docs/privacy-audit.md](docs/privacy-audit.md)**.
+**Settings → Advanced** shows the same zero-network summary plus the endpoint table.
+
 ## Testing
 
 ```bash
@@ -255,7 +332,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 - **Phase 3:** AI task extraction (Apple Foundation Models default) (shipped)
 - **Phase 4:** Cloud AI providers (Ollama, Claude, OpenAI, Gemini) (shipped)
 - **Phase 5:** Calendar integration (read + write) (shipped)
-- **Phase 6:** Send-to-Claude, launch-at-login, full settings UI
+- **Phase 6:** Send-to-Claude, launch-at-login, full settings UI, onboarding, privacy audit — **v1.0 shipped**
 - **Phase 7:** Unified inbox (calendar + tasks + notes)
 - **Phase 8:** Calendar power-UX (add to calendar, smart scheduling)
 - **Phase 9:** Command bar (global search, quick actions)
