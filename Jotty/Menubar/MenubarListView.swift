@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -17,7 +18,9 @@ final class MenubarListModel: ObservableObject {
     @Published private(set) var calendarAccessDenied: Bool = false
 
     let store: Store
-    private let timezone: TimeZone
+    /// Exposed so the view can build a timezone-pinned HH:mm formatter that matches
+    /// the model's date partitioning (the calendar section renders event start times).
+    let timezone: TimeZone
     private let defaults: UserDefaults
     private let now: () -> Date
     /// Optional calendar seam; nil = pure task tool (no calendar section). Plan 08
@@ -273,6 +276,10 @@ struct MenubarListView: View {
                 .frame(maxHeight: 300)
             }
 
+            // Read-only Calendar section (SC2): today's timed events as `·` rows,
+            // a degraded one-liner on denial, nothing when authorized-but-empty.
+            calendarSection
+
             Divider()
 
             // Footer
@@ -291,5 +298,77 @@ struct MenubarListView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 300)
+    }
+
+    // MARK: - Calendar section (SC2)
+
+    /// Timezone-pinned HH:mm formatter for event start times; matches the model's
+    /// date partitioning so a row's time reads in the same zone as the rest of the view.
+    private var timeFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        f.timeZone = model.timezone
+        return f
+    }
+
+    @ViewBuilder
+    private var calendarSection: some View {
+        if model.calendarAccessDenied {
+            Divider()
+            // Graceful degradation: a single non-crashing line, no rows.
+            HStack(spacing: 6) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 9, weight: .semibold))
+                Text("Calendar access not granted — enable in System Settings")
+                    .font(.system(size: 11))
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        } else if !model.calendarEvents.isEmpty {
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Calendar")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 1)
+
+                ForEach(model.calendarEvents) { event in
+                    Button(action: { openInCalendar(event) }) {
+                        HStack(spacing: 8) {
+                            // `·` bullet — read-only, visually distinct from task checkboxes.
+                            Text("·")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Text(timeFormatter.string(from: event.start))
+                                .font(.system(size: 12).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Text(event.title)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 3)
+                }
+            }
+            .padding(.bottom, 6)
+        }
+        // Authorized-but-empty: render nothing (keep the popover tidy).
+    }
+
+    /// Opens Calendar.app at the event's date via `calshow:` (date-level, not
+    /// per-event — there is no public per-event deep link on macOS, RESEARCH Pitfall 5).
+    private func openInCalendar(_ event: CalendarEvent) {
+        if let url = CalendarURL.show(for: event.start) {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
