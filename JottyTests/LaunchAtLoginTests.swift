@@ -48,4 +48,26 @@ final class LaunchAtLoginTests: XCTestCase {
         fake.errorToThrow = Boom()
         XCTAssertThrowsError(try fake.enable())
     }
+
+    /// The seam must round-trip every one of the four LaunchAtLoginStatus cases —
+    /// the same set SMAppLaunchAtLoginService maps from SMAppService.mainApp.status
+    /// (.enabled / .requiresApproval / .notRegistered / .notFound). GeneralTab keys
+    /// its toggle + approval hint off these exact cases.
+    func testStatusMappingCoversAllFourCases() {
+        let fake = FakeLaunchAtLoginService()
+        for expected: LaunchAtLoginStatus in [.enabled, .requiresApproval, .notRegistered, .notFound] {
+            fake.nextStatus = expected
+            XCTAssertEqual(fake.status(), expected)
+        }
+    }
+
+    /// disable() is throw-tolerant too: a thrown unregister() (dev-signing) must
+    /// surface, mirroring enable(), so GeneralTab can show its inline notice.
+    func testDisableSurfacesThrownError() throws {
+        let fake = FakeLaunchAtLoginService()
+        try fake.enable()
+        struct Boom: Error {}
+        fake.errorToThrow = Boom()
+        XCTAssertThrowsError(try fake.disable())
+    }
 }
