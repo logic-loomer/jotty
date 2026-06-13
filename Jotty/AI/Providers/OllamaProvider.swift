@@ -65,6 +65,11 @@ actor OllamaProvider: AIProvider {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Bound the wait: the daemon URL is overridable via the initializer /
+        // OLLAMA_HOST, so a hung or slow remote daemon must not leave capture
+        // spinning at the URLSession default. 120s is generous for a local 3B
+        // model; a timeout surfaces as .modelUnavailable so the toast appears.
+        request.timeoutInterval = 120
 
         let data: Data
         do {
@@ -75,6 +80,9 @@ actor OllamaProvider: AIProvider {
             data = received
         } catch let error as AIProviderError {
             throw error
+        } catch let error as URLError where error.code == .timedOut {
+            throw AIProviderError.modelUnavailable(
+                reason: "Ollama timed out. The daemon may be slow or unreachable.")
         } catch {
             throw AIProviderError.underlying(message: error.localizedDescription)
         }
