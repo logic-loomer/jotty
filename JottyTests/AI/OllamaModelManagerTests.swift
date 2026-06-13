@@ -261,6 +261,42 @@ final class OllamaModelManagerTests: XCTestCase {
                        "joiner receives events from registration onward")
     }
 
+    // MARK: Test 4b — truncated stream (no success line) throws
+
+    func testPullTruncatedStreamThrowsPullFailed() async throws {
+        // Daemon closes the NDJSON stream after some progress lines but
+        // WITHOUT a {"status":"success"} line (daemon crash mid-pull,
+        // network drop on a remote OLLAMA_HOST, proxy truncation). The pull
+        // must throw, not silently complete as an installed model (MAJ-01).
+        StreamingStubURLProtocol.initialLines = [#"{"status":"pulling manifest"}"#]
+        let manager = makeManager(session: StreamingStubURLProtocol.makeSession())
+        let recorder = ProgressRecorder()
+
+        let pullTask = Task {
+            try await manager.pull(model: "qwen2.5:3b") { recorder.append($0) }
+        }
+        // Stream is live once the first callback lands.
+        try await waitUntil { recorder.count >= 1 }
+
+        // Feed one more progress line, then finish WITHOUT a success line.
+        StreamingStubURLProtocol.feed(line: #"{"status":"pulling x","total":10,"completed":5}"#)
+        try await waitUntil { recorder.count >= 2 }
+        StreamingStubURLProtocol.finish()
+
+        do {
+            try await pullTask.value
+            XCTFail("Expected OllamaError.pullFailed on truncated stream")
+        } catch let error as OllamaError {
+            XCTAssertEqual(error, .pullFailed(status: -1),
+                           "incomplete stream must surface as a failed pull")
+        } catch {
+            XCTFail("Expected OllamaError.pullFailed, got \(error)")
+        }
+
+        XCTAssertFalse(recorder.statuses.contains("success"),
+                       "truncated stream never reported success")
+    }
+
     // MARK: Test 5 — list
 
     func testListDecodesTagsResponse() async throws {

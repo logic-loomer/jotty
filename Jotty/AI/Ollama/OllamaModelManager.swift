@@ -150,6 +150,7 @@ actor OllamaModelManager {
                     status: (resp as? HTTPURLResponse)?.statusCode ?? -1)
             }
 
+            var sawSuccess = false
             for try await line in bytes.lines {    // \n framing per NDJSON
                 try Task.checkCancellation()
                 guard let data = line.data(using: .utf8) else { continue }
@@ -160,11 +161,16 @@ actor OllamaModelManager {
                 await MainActor.run {
                     for callback in callbacks { callback(update) }
                 }
-                if update.status == "success" { return }
+                if update.status == "success" { sawSuccess = true; break }
             }
             // Stream ended without a success line: treat as cancellation if
-            // we were cancelled, otherwise a failed pull.
+            // we were cancelled (cancellation wins), otherwise a failed pull.
+            // A clean-but-incomplete stream (daemon crash mid-pull, network
+            // drop on a remote OLLAMA_HOST, proxy truncation) must NOT be
+            // reported as a completed install — throw so the caller surfaces
+            // the partial download as an error (AI-SPEC §3.4).
             try Task.checkCancellation()
+            guard sawSuccess else { throw OllamaError.pullFailed(status: -1) }
         } catch let error as OllamaError {
             throw error
         } catch is CancellationError {
