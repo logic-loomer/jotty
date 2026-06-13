@@ -10,12 +10,16 @@ final class MenubarController {
     private let popover = NSPopover()
     let listModel: MenubarListModel
 
-    init(store: Store, calendar: (any CalendarService)? = nil) {
+    init(store: Store,
+         calendar: (any CalendarService)? = nil,
+         configStore: ConfigStore? = nil) {
         // Model timezone must match the Store's so leftover partitioning and
         // collapse keys agree with the daily-file midnight boundary. `calendar`
         // (default nil) is threaded through so plan 08 injects the real EventKit
-        // service from AppDelegate without further signature churn.
-        self.listModel = MenubarListModel(store: store, timezone: store.timezone, calendar: calendar)
+        // service from AppDelegate without further signature churn. `configStore`
+        // carries the remembered delete-event preference (SC3).
+        self.listModel = MenubarListModel(store: store, timezone: store.timezone,
+                                          calendar: calendar, configStore: configStore)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "📝"

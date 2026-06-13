@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
         }
 
-        menubar = MenubarController(store: store)
+        menubar = MenubarController(store: store, configStore: configStore)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
