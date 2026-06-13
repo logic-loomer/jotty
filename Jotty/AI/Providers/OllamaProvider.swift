@@ -20,7 +20,11 @@ import Foundation
 
 actor OllamaProvider: AIProvider {
 
-    private let model: String
+    /// Selected model tag (e.g. "qwen2.5:3b"). Non-private so ProviderFactory
+    /// tests can assert the default-vs-explicit model seam (plan 04-11).
+    /// `nonisolated` because it is an immutable `let` — safe to read from any
+    /// context without actor hopping.
+    nonisolated let model: String
     private let baseURL: URL
     private let session: URLSession
 

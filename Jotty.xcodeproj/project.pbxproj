@@ -55,6 +55,7 @@
 		887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */; };
 		8A34C8537557EC76E3F9124F /* AITab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E634DF0277FDFDD57D695E /* AITab.swift */; };
 		8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAAC2F1545290B13892D4C9 /* StubURLProtocol.swift */; };
+		900971A7D8834FCBCF0AD1A1 /* ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F555F6B7796CD5B3E27FCB2 /* ProviderFactory.swift */; };
 		91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0F6484D307F784AA064A13 /* StorageTab.swift */; };
 		972E4CBA4ACC52809336CC35 /* OllamaBinaryLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E164C1254160F1C1D6633F02 /* OllamaBinaryLocatorTests.swift */; };
 		98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */; };
@@ -124,6 +125,7 @@
 		3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTask.swift; sourceTree = "<group>"; };
 		3CDA0A15DCF13E839E64C340 /* DailyFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFile.swift; sourceTree = "<group>"; };
 		3DF97B79250F715F0DC65677 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3F555F6B7796CD5B3E27FCB2 /* ProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderFactory.swift; sourceTree = "<group>"; };
 		3F9CEADED4FCCB1D3EF8B4B6 /* DurationGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationGuardrail.swift; sourceTree = "<group>"; };
 		3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelTests.swift; sourceTree = "<group>"; };
 		41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeBlock.swift; sourceTree = "<group>"; };
@@ -360,6 +362,7 @@
 				11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */,
 				BE5BB2D1CE2E9503B3140245 /* JSONSchemaBuilder.swift */,
 				A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */,
+				3F555F6B7796CD5B3E27FCB2 /* ProviderFactory.swift */,
 				A4C805711B059EFD6C643117 /* RetryPolicy.swift */,
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
 				BCD99D5C01C9DD7DEE30BB71 /* Guardrails */,
@@ -623,6 +626,7 @@
 				8143A8E0BBB908899A089519 /* OllamaProvider.swift in Sources */,
 				4C1DB8E26E1198F13FCFB086 /* OllamaSettingsSection.swift in Sources */,
 				429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */,
+				900971A7D8834FCBCF0AD1A1 /* ProviderFactory.swift in Sources */,
 				D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */,
 				C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */,
 				F1795581B4AF9AEA26BF24F4 /* RetryPolicy.swift in Sources */,
