@@ -64,6 +64,7 @@
 		C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */; };
 		C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6EB8F59B589E10E72601FAE /* Quarantine.swift */; };
 		C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */; };
+		D2A3A7C12C3C6198C6476A30 /* GeminiProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */; };
 		D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */; };
 		D6993FDFA92E2B08F7B3F52C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3DF97B79250F715F0DC65677 /* Assets.xcassets */; };
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
@@ -100,6 +101,7 @@
 		28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelAIPathTests.swift; sourceTree = "<group>"; };
 		32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPromptTests.swift; sourceTree = "<group>"; };
 		349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderTests.swift; sourceTree = "<group>"; };
+		34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProvider.swift; sourceTree = "<group>"; };
 		365D40E78DF10E20BB8B1EFE /* ExtractedTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskTests.swift; sourceTree = "<group>"; };
 		3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTask.swift; sourceTree = "<group>"; };
 		3CDA0A15DCF13E839E64C340 /* DailyFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFile.swift; sourceTree = "<group>"; };
@@ -374,6 +376,7 @@
 			isa = PBXGroup;
 			children = (
 				7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */,
+				34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */,
 				F776385CB322A3DDE510F823 /* OpenAIProvider.swift */,
 			);
 			path = Providers;
@@ -533,6 +536,7 @@
 				B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */,
 				458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */,
 				32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */,
+				D2A3A7C12C3C6198C6476A30 /* GeminiProvider.swift in Sources */,
 				4D92D119A5DF67335C2570AB /* GitHubReleases.swift in Sources */,
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
