@@ -2,12 +2,12 @@ import Foundation
 
 /// A calendar event as seen by the app, view models, and tests.
 ///
-/// This is the only event type that crosses the `CalendarService` seam — EventKit's
-/// `EKEvent` never leaves the real implementation (plan 05-03). Being `Sendable` lets it
+/// This is the only event type that crosses the `CalendarService` seam; the real
+/// EventKit value never leaves the real implementation (plan 05-03). Being `Sendable` lets it
 /// flow freely across Swift 6 isolation boundaries; being `Identifiable` (by `id`) makes it
 /// drop straight into SwiftUI lists for the menubar calendar section.
 struct CalendarEvent: Equatable, Sendable, Identifiable {
-    /// Stable calendar identifier (`EKEvent.eventIdentifier`) — the link written to markdown.
+    /// Stable calendar identifier (the EventKit event identifier), the link written to markdown.
     let id: String
     var title: String
     var start: Date
@@ -19,7 +19,7 @@ struct CalendarEvent: Equatable, Sendable, Identifiable {
 /// Current calendar permission state, mirrored from the OS TCC grant.
 ///
 /// `writeOnly` and `restricted`/`denied` all collapse to `.denied` at the seam because
-/// Phase 5's read-back features need full access — anything short of full read+write is a
+/// Phase 5's read-back features need full access; anything short of full read+write is a
 /// degraded path for this app.
 enum CalendarAccess: Sendable {
     case authorized
@@ -31,7 +31,7 @@ enum CalendarAccess: Sendable {
 enum CalendarError: Error, Equatable {
     /// Full calendar access has not been granted.
     case accessDenied
-    /// A linked event id no longer exists in the store — caller should recreate (SC3).
+    /// A linked event id no longer exists in the store; caller should recreate (SC3).
     case eventNotFound
     /// Any other failure, carrying the underlying description.
     case underlying(message: String)
@@ -39,8 +39,8 @@ enum CalendarError: Error, Equatable {
 
 /// The single seam through which the app and tests touch the calendar.
 ///
-/// The real implementation (plan 05-03) owns one long-lived `EKEventStore`; tests inject
-/// `FakeCalendarService`, so the suite never constructs `EKEventStore` and never triggers a
+/// The real implementation (plan 05-03) owns one long-lived EventKit store; tests inject
+/// `FakeCalendarService`, so the suite never constructs an EventKit store and never triggers a
 /// TCC prompt. The protocol is `Sendable` so it can be injected as a dependency under Swift 6.
 protocol CalendarService: Sendable {
     /// Cheap, synchronous permission status read (does not prompt).
