@@ -82,6 +82,24 @@ actor RetryPolicy {
     }
 }
 
+/// Carries the most recent `Retry-After` header value from inside a provider's
+/// retried op (a `@Sendable` closure) out to RetryPolicy's `retryAfterSeconds`
+/// callback. Accesses are sequential — RetryPolicy runs attempts one at a time
+/// — but the NSLock keeps the type honest under Sendable checking. Shared by
+/// the providers that surface Retry-After (Claude, OpenAI) so the single copy
+/// cannot drift (MIN-06).
+final class RetryAfterBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Double?
+
+    init() {}
+
+    var value: Double? {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); defer { lock.unlock() }; stored = newValue }
+    }
+}
+
 extension AIProviderError {
     /// Per AI-SPEC §8.3:
     ///   - `.modelUnavailable`, `.underlying` → retryable (transient)

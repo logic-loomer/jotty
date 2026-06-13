@@ -189,17 +189,3 @@ actor ClaudeProvider: AIProvider {
         return ExtractionResult(tasks: tasks, noteBody: originalText)
     }
 }
-
-/// Carries the most recent Retry-After header value from inside the retried
-/// op (a `@Sendable` closure) out to RetryPolicy's `retryAfterSeconds`
-/// callback. Accesses are sequential — RetryPolicy runs attempts one at a
-/// time — but the lock keeps the type honest under Sendable checking.
-private final class RetryAfterBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Double?
-
-    var value: Double? {
-        get { lock.lock(); defer { lock.unlock() }; return stored }
-        set { lock.lock(); defer { lock.unlock() }; stored = newValue }
-    }
-}
