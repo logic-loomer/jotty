@@ -15,6 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fallback provider. The ACTIVE provider is resolved per-capture in
     /// `openCapture()` via ProviderFactory so a Settings switch needs no restart.
     private var appleFM: AppleFMProvider!
+    /// The single, app-lifetime calendar service. Constructed once at launch
+    /// (one long-lived event store lives inside it) and injected into the
+    /// capture-commit path, the menubar read/lifecycle/drift hooks, and the
+    /// Settings → Calendar picker. Its `calendarID` closure reads
+    /// AppConfig.calendarIdentifier LIVE, so a Settings change takes effect with
+    /// no re-wiring. Construction does NOT request access (CONTEXT: lazy on the
+    /// first calendar action — the access gate fires inside the read/commit paths).
+    private var calendar: EventKitCalendarService!
 
     private var midnightTimer: Timer?
 
@@ -36,6 +44,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = Store(folder: configStore.config.storageFolder, timezone: .current)
         appleFM = AppleFMProvider()
 
+        // One calendar service for the whole app. The closure reads the chosen
+        // calendar id live from config (not captured), and constructing the
+        // service does NOT prompt for access — the lazy gate inside the read/
+        // commit paths requests full access only on the first calendar action.
+        calendar = EventKitCalendarService(
+            calendarID: { [weak configStore] in configStore?.config.calendarIdentifier })
+
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Jotty")
@@ -49,7 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
         }
 
-        menubar = MenubarController(store: store, configStore: configStore)
+        // Inject the real calendar service into the menubar: the read section
+        // (SC2), the SC3 lifecycle, and the SC4 drift-on-open hook all ride the
+        // model's reloadCalendar(), which fires from reload() (popover open /
+        // window close / midnight) whenever a service is wired (plan 06/07).
+        menubar = MenubarController(store: store, calendar: calendar, configStore: configStore)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
@@ -64,6 +83,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             NSLog("[Jotty] No keybinding for .globalToggleCapture; skipping hotkey registration")
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Drift-on-open (SC4): when Jotty comes to the foreground, refresh the
+        // menubar calendar section so the open-time drift check runs on today+
+        // future linked tasks (CONTEXT). Best-effort and off the main path —
+        // reloadCalendar() is a no-op when no service is wired and degrades
+        // silently on denied access, so it never blocks activation. The menubar
+        // may not exist yet during the very first activation at launch (guard).
+        guard let menubar else { return }
+        Task { await menubar.listModel.reloadCalendar() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -122,7 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let vm = CaptureViewModel(store: store, draftURL: draftURL,
                                   provider: provider,
-                                  fallbackProvider: fallback)
+                                  fallbackProvider: fallback,
+                                  calendar: calendar)
         let controller = CaptureWindowController(vm: vm)
         captureController = controller
         controller.showCenteredOnActiveDisplay()
@@ -148,7 +179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openSettings() {
         if settingsController == nil {
-            settingsController = SettingsWindowController(configStore: configStore)
+            // Pass the live calendar service so the Settings → Calendar tab can
+            // list writableCalendars() for the default-calendar picker.
+            settingsController = SettingsWindowController(configStore: configStore,
+                                                         calendar: calendar)
         }
         settingsController?.show()
     }
