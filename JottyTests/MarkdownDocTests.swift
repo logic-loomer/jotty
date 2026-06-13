@@ -102,4 +102,129 @@ final class MarkdownDocTests: XCTestCase {
         f.timeZone = TimeZone(identifier: "Australia/Sydney")
         return f.string(from: d)
     }
+
+    // Phase 5 plan 01: time:HH:MM-HH:MM serializes and re-parses to the same
+    // wall-clock start/end on the doc's date.
+    func testTimeBlockRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        let tb = TimeBlock(start: timeFor("2026-05-08T08:00:00+10:00"),
+                           end: timeFor("2026-05-08T09:30:00+10:00"))
+        doc.appendTodo(Todo(id: "t_001", text: "deep work", createdAt: now,
+                            timeBlock: tb))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("time:08:00-09:30"),
+                      "serialized line should carry time:08:00-09:30")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let parsedTB = try XCTUnwrap(parsed.tasks[0].timeBlock)
+        XCTAssertEqual(parsedTB.start.timeIntervalSince1970,
+                       tb.start.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(parsedTB.end.timeIntervalSince1970,
+                       tb.end.timeIntervalSince1970, accuracy: 1.0)
+    }
+
+    // Phase 5 plan 01: cal_event:<id> serializes and re-parses to the identical id.
+    func testCalEventRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_001", text: "linked", createdAt: now,
+                            calEventID: "ABC123:DEF456"))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("cal_event:ABC123:DEF456"),
+                      "serialized line should carry cal_event:ABC123:DEF456")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].calEventID, "ABC123:DEF456")
+    }
+
+    // Phase 5 plan 01: done + due + rolled_to + source_note + time + cal_event
+    // all together round-trip with no token clobbering another.
+    func testAllTokensRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        let tb = TimeBlock(start: timeFor("2026-05-08T08:00:00+10:00"),
+                           end: timeFor("2026-05-08T09:30:00+10:00"))
+        doc.appendTodo(Todo(id: "t_777", text: "everything", createdAt: now,
+                            done: true,
+                            completedAt: timeFor("2026-05-08T10:00:00+10:00"),
+                            dueDate: dateFor("2026-05-09"),
+                            rolledTo: dateFor("2026-05-10"),
+                            sourceNote: "n_042",
+                            timeBlock: tb,
+                            calEventID: "EVT:9001"))
+
+        let serialized = doc.serialize(timezone: tz)
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let t = parsed.tasks[0]
+        XCTAssertEqual(t.id, "t_777")
+        XCTAssertEqual(t.text, "everything")
+        XCTAssertTrue(t.done)
+        XCTAssertNotNil(t.completedAt)
+        XCTAssertEqual(t.dueDate.flatMap(dateOnlyString), "2026-05-09")
+        XCTAssertEqual(t.rolledTo.flatMap(dateOnlyString), "2026-05-10")
+        XCTAssertEqual(t.sourceNote, "n_042")
+        let allTB = try XCTUnwrap(t.timeBlock)
+        XCTAssertEqual(allTB.start.timeIntervalSince1970,
+                       tb.start.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(allTB.end.timeIntervalSince1970,
+                       tb.end.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(t.calEventID, "EVT:9001")
+    }
+
+    // Phase 5 plan 01: a legacy task line WITHOUT time:/cal_event: still parses
+    // (new fields nil) — back-compat with pre-Phase-5 files. Includes a
+    // createdAt-based line to protect Phase 2.5 leftover detection.
+    func testLegacyTaskLineParsesWithNilCalendarFields() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let legacy = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] old task <!-- id:t_legacy created:2026-05-08T07:30:00+10:00 due:2026-05-09 rolled_to:2026-05-10 source_note:n_001 -->
+
+        ## Notes
+
+        """
+        let parsed = try MarkdownDoc.parse(legacy, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let t = parsed.tasks[0]
+        XCTAssertEqual(t.id, "t_legacy")
+        XCTAssertNil(t.timeBlock, "legacy line has no time: -> timeBlock nil")
+        XCTAssertNil(t.calEventID, "legacy line has no cal_event: -> calEventID nil")
+        // Phase 2.5 createdAt-based detection still resolves the original created date.
+        XCTAssertEqual(t.createdAt.timeIntervalSince1970,
+                       timeFor("2026-05-08T07:30:00+10:00").timeIntervalSince1970,
+                       accuracy: 1.0)
+        XCTAssertEqual(t.dueDate.flatMap(dateOnlyString), "2026-05-09")
+        XCTAssertEqual(t.rolledTo.flatMap(dateOnlyString), "2026-05-10")
+        XCTAssertEqual(t.sourceNote, "n_001")
+    }
+
+    // Phase 5 plan 01 / T-5-01: a calEventID containing whitespace must NOT be
+    // written as a token (would split into a bogus token and corrupt the line).
+    func testCalEventWithWhitespaceIsNotSerialized() {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_001", text: "spaced id", createdAt: now,
+                            calEventID: "BAD ID 123"))
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertFalse(serialized.contains("cal_event:"),
+                       "a whitespace-bearing event id must be skipped, not corrupt the line")
+        // The line must still be well-formed and re-parse.
+        XCTAssertNoThrow(try MarkdownDoc.parse(serialized, timezone: tz))
+    }
 }
