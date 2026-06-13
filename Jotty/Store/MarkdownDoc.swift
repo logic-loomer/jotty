@@ -71,7 +71,15 @@ struct MarkdownDoc: Equatable {
                !cal.contains(where: { $0.isWhitespace }) {
                 meta += " cal_event:\(cal)"
             }
-            out += "- [\(state)] \(task.text) <!-- \(meta) -->\n"
+            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`; a `text` containing
+            // `<!--`/`-->` would shift the comment boundary and corrupt the round-trip
+            // (calendar-sourced titles can now reach `task.text` via SC4 sync). Neutralize the
+            // comment delimiters so parsing stays stable. Sanitize-on-create/sync handles
+            // markdown; this guards the structural delimiters specifically.
+            let safeText = task.text
+                .replacingOccurrences(of: "<!--", with: "<!-")
+                .replacingOccurrences(of: "-->", with: "->")
+            out += "- [\(state)] \(safeText) <!-- \(meta) -->\n"
         }
 
         out += "\n## Notes\n\n"

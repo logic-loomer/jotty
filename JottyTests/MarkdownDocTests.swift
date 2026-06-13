@@ -96,6 +96,26 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(parsed.tasks[2].dueDate.flatMap(dateOnlyString), "2026-05-09")
     }
 
+    // IN-01: task text containing the comment delimiters must not corrupt the round-trip.
+    func testTaskTextWithCommentDelimitersDoesNotCorruptRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        // A calendar-sourced title (via SC4 sync) could carry these delimiters.
+        doc.appendTodo(Todo(id: "t_x", text: "plan <!-- secret --> review", createdAt: now))
+
+        let serialized = doc.serialize(timezone: tz)
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+
+        // The metadata still parses cleanly (id survives, exactly one task).
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let task = try XCTUnwrap(parsed.tasks.first)
+        XCTAssertEqual(task.id, "t_x", "metadata boundary must not be shifted by delimiters in text")
+        // Delimiters were neutralized in the text, so they cannot break the parser.
+        XCTAssertFalse(task.text.contains("<!--"), "comment-open delimiter must be neutralized")
+        XCTAssertFalse(task.text.contains("-->"), "comment-close delimiter must be neutralized")
+    }
+
     private func dateOnlyString(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
