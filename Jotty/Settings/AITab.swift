@@ -90,6 +90,9 @@ struct AITab: View {
                 }
             }
 
+            // Ollama runtime management (install / daemon / models) — AI-SPEC §5.
+            OllamaSettingsSection(configStore: configStore)
+
             Section(header: Text("Cloud")) {
                 CloudProviderKeyRow(
                     title: "Claude",
