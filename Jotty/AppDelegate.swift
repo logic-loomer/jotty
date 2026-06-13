@@ -93,7 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // silently on denied access, so it never blocks activation. The menubar
         // may not exist yet during the very first activation at launch (guard).
         guard let menubar else { return }
-        Task { await menubar.listModel.reloadCalendar() }
+        // WR-06: foreground activation refreshes the section but must NOT prompt for access
+        // when the grant is still notDetermined — otherwise every activation re-issues the
+        // TCC dialog. The one-time prompt is driven by explicit user actions (popover open).
+        Task { await menubar.listModel.reloadCalendar(promptIfUndetermined: false) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

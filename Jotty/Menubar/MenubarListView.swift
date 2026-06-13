@@ -24,6 +24,21 @@ final class MenubarListModel: ObservableObject {
     /// Open-time drift prompt (SC4): the linked tasks whose calendar event changed
     /// externally, offered for a calendar-wins sync. Set by `reloadCalendar`.
     @Published var driftPrompt: DriftPrompt?
+    /// Linked tasks whose calendar event was deleted in Calendar.app (detected at open time,
+    /// CR-02). Surfaced — not silently dropped — so the user is offered a calendar-wins
+    /// cleanup: clearing the now-dead `cal_event:` link degrades the task to an unlinked
+    /// time-blocked task instead of leaving it pointing at a dead (and recyclable, WR-05) id
+    /// forever. Set by `reloadCalendar`; cleared on confirm/dismiss and reset each reload.
+    @Published var missingLinkPrompt: MissingLinkPrompt?
+
+    /// Convenience count for the one-line affordance copy.
+    var missingLinkCount: Int { missingLinkPrompt?.tasks.count ?? 0 }
+
+    /// Carries the linked tasks whose calendar event was deleted, awaiting a clear decision.
+    struct MissingLinkPrompt: Identifiable {
+        let id = UUID()
+        let tasks: [Todo]
+    }
 
     /// Carries the task awaiting a delete-event decision.
     struct DeletePrompt: Identifiable {
@@ -50,9 +65,15 @@ final class MenubarListModel: ObservableObject {
     /// nil-defaulted so existing tests/callers construct the model without it; when
     /// nil, a linked delete falls back to NOT touching the calendar (safe default).
     private let configStore: ConfigStore?
-    /// In-flight calendar refresh, so tests (and reload callers) can await it
-    /// deterministically without coupling to the synchronous task path.
-    private var calendarTask: Task<Void, Never>?
+    /// In-flight calendar refresh spawned by `reload()`, so tests (and reload callers) can
+    /// await it deterministically. Kept distinct from `editTask` (WR-03) so an edit and a
+    /// concurrent refresh never overwrite each other's handle and drop in-flight work.
+    private var refreshTask: Task<Void, Never>?
+    /// In-flight edit-time update/recreate work spawned by `editTime()`. Distinct from
+    /// `refreshTask`: `editTime` ends by triggering a `reload()` (which sets `refreshTask`),
+    /// so sharing one handle would let the reload clobber the edit handle before a test
+    /// could observe it (WR-03).
+    private var editTask: Task<Void, Never>?
     /// In-flight delete-event best-effort work, awaited by tests.
     private var deleteTask: Task<Void, Never>?
 
@@ -71,7 +92,11 @@ final class MenubarListModel: ObservableObject {
         reload()
     }
 
-    func reload() {
+    /// `clearMissingLinks` is forwarded to the spawned calendar refresh: it is true on a
+    /// genuine open-time reload (popover open, foreground, midnight) so a deleted event's
+    /// dead link self-heals (CR-02), but false when reload runs as the tail of an edit-time
+    /// create/update, so the self-heal never races the just-written id (see `reloadCalendar`).
+    func reload(clearMissingLinks: Bool = true) {
         // Single snapshot: grouping, collapse key, and dateLabel must all
         // derive from the same instant (midnight Timer reloads an open popover).
         let snapshot = now()
@@ -106,17 +131,26 @@ final class MenubarListModel: ObservableObject {
         // close, midnight Timer) so the read section + future drift hooks stay
         // fresh. The task path above stays synchronous; calendar is async/best-effort.
         if calendar != nil {
-            calendarTask = Task { [weak self] in
-                await self?.reloadCalendar()
+            refreshTask = Task { [weak self] in
+                await self?.reloadCalendar(clearMissingLinks: clearMissingLinks)
             }
         }
     }
 
     /// Lazy access gate + today's-events fetch for the read-only Calendar section (SC2).
     /// Authorized -> fetch today's [startOfDay, endOfDay) events; denied -> empty + flag;
-    /// notDetermined -> prompt once, then branch. Any thrown error degrades to empty + logs
-    /// (never crashes). No-op when no service is injected.
-    func reloadCalendar() async {
+    /// notDetermined -> prompt once (only when `promptIfUndetermined` is true), then branch.
+    /// Any thrown error degrades to empty + logs (never crashes). No-op when no service is
+    /// injected.
+    ///
+    /// `promptIfUndetermined` defaults to true so explicit user actions (popover open, edit)
+    /// can drive the one-time access prompt. `applicationDidBecomeActive` passes `false`
+    /// (WR-06): foreground activation must NOT re-issue the TCC prompt on every activation
+    /// while the grant is still `notDetermined` — a denied result is already terminal
+    /// (`access()` maps `.denied`/`.restricted` to `.denied`, so the `notDetermined` branch is
+    /// never re-entered once the user has answered).
+    func reloadCalendar(promptIfUndetermined: Bool = true,
+                        clearMissingLinks: Bool = true) async {
         guard let calendar else {
             calendarEvents = []
             calendarAccessDenied = false
@@ -124,7 +158,7 @@ final class MenubarListModel: ObservableObject {
         }
 
         // Lazy access gate (RESEARCH): authorized -> fetch; denied -> degrade;
-        // notDetermined -> request once then branch on the result.
+        // notDetermined -> request once (only when allowed) then branch on the result.
         let granted: Bool
         switch calendar.access() {
         case .authorized:
@@ -132,6 +166,13 @@ final class MenubarListModel: ObservableObject {
         case .denied:
             granted = false
         case .notDetermined:
+            // Foreground activation must not prompt (WR-06): if not allowed to prompt, leave
+            // the section empty WITHOUT flagging denial, so a later user action can still ask.
+            guard promptIfUndetermined else {
+                calendarEvents = []
+                calendarAccessDenied = false
+                return
+            }
             granted = await calendar.requestAccess() == .authorized
         }
 
@@ -162,31 +203,82 @@ final class MenubarListModel: ObservableObject {
             return
         }
 
-        // SC4: open-time drift awareness. Compare today+future linked tasks against
-        // the fetched events; if any drifted (title/time changed externally), surface
-        // a one-time calendar-wins sync prompt. Missing events are NOT recreated here
-        // (that is the edit-time path); SC4 is read-only awareness + sync-on-confirm.
-        let linked = todayAndFutureLinkedTasks(reference: todayStart, calendar: cal)
+        // SC4: open-time drift awareness. Compare today's linked tasks against the fetched
+        // events. Drifted (title/time changed externally) -> a one-time calendar-wins sync
+        // prompt. Missing (event deleted in Calendar) -> the dead `cal_event:` link is
+        // cleared so the task degrades cleanly to an unlinked time-blocked task, and the
+        // count is surfaced (CR-02 — calendar wins; a deleted event must not leave a task
+        // pointing at a dead/recyclable id forever).
+        //
+        // `linked` is scoped to the SAME window the read fetched (`[todayStart, todayEnd)`),
+        // not "today+future": storage is one file per day and `reload()` only loads today's
+        // file, so a future-day task could never appear in `calendarEvents` and would be
+        // mis-classified as missing (WR-02).
+        let linked = todayLinkedTasks(from: todayStart, to: todayEnd)
         let result = CalendarDrift.driftedTasks(linked, against: calendarEvents)
         if !result.drifted.isEmpty {
             driftPrompt = DriftPrompt(drifted: result.drifted)
         }
-    }
-
-    /// Linked tasks (calEventID + timeBlock) scheduled today or later — historical
-    /// tasks are skipped per CONTEXT (drift checking stays lightweight).
-    private func todayAndFutureLinkedTasks(reference todayStart: Date,
-                                           calendar cal: Calendar) -> [Todo] {
-        tasks.filter { task in
-            guard task.calEventID != nil, let tb = task.timeBlock else { return false }
-            return tb.start >= todayStart
+        // Surface (do NOT silently drop, CR-02) tasks whose linked event was deleted in
+        // Calendar, offering a calendar-wins cleanup. Only on a genuine open-time refresh: a
+        // reload that FOLLOWS an edit-time create/update would otherwise race the just-written
+        // id against a not-yet-refreshed fetch and mis-classify it as missing, so the edit
+        // path passes `clearMissingLinks: false` (CR-02 must not fight the SC3 edit flow).
+        if clearMissingLinks {
+            missingLinkPrompt = result.missing.isEmpty
+                ? nil
+                : MissingLinkPrompt(tasks: result.missing)
         }
     }
 
-    /// Awaits the in-flight calendar refresh spawned by the most recent `reload()`.
-    /// Test hook (mirrors `CaptureViewModel.awaitCalendarWork`); production fires-and-forgets.
+    /// Linked tasks (calEventID + timeBlock) whose block falls inside the fetched window
+    /// `[start, end)`. Scope matches the today-only read + one-file-per-day storage (WR-02);
+    /// historical and future-day tasks are structurally out of scope.
+    private func todayLinkedTasks(from start: Date, to end: Date) -> [Todo] {
+        tasks.filter { task in
+            guard task.calEventID != nil, let tb = task.timeBlock else { return false }
+            return tb.start >= start && tb.start < end
+        }
+    }
+
+    /// Confirms the missing-link prompt (CR-02): clears the now-dead `cal_event:` link from
+    /// each surfaced task. Calendar wins — the task keeps its time block but is unlinked, so a
+    /// later edit re-creates a fresh event rather than risking an update against a recycled
+    /// EventKit identifier (WR-05). Best-effort + idempotent: a disk failure logs, never crashes.
+    func confirmClearMissingLinks() {
+        guard let prompt = missingLinkPrompt else { return }
+        missingLinkPrompt = nil
+        let snapshot = now()
+        do {
+            var doc = try store.readDoc(on: snapshot)
+            let missingIDs = Set(prompt.tasks.map(\.id))
+            var cleared = false
+            for idx in doc.tasks.indices where missingIDs.contains(doc.tasks[idx].id)
+                && doc.tasks[idx].calEventID != nil {
+                doc.tasks[idx].calEventID = nil
+                cleared = true
+            }
+            if cleared {
+                try store.replaceTasks(doc.tasks, on: snapshot)
+            }
+        } catch {
+            NSLog("[Jotty] clearing dead calendar links failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    /// Dismisses the missing-link prompt, leaving the (dead) links in place ("Keep").
+    func dismissMissingLinkPrompt() {
+        missingLinkPrompt = nil
+    }
+
+    /// Awaits all in-flight calendar work (edit-time update/recreate, then the refresh it
+    /// triggers) spawned by the most recent `editTime()`/`reload()`. Test hook (mirrors
+    /// `CaptureViewModel.awaitCalendarWork`); production fires-and-forgets. Awaiting the edit
+    /// task FIRST then the refresh task it spawns makes test sequencing deterministic (WR-03).
     func awaitCalendarRefresh() async {
-        if let t = calendarTask { _ = await t.value }
+        if let t = editTask { _ = await t.value }
+        if let t = refreshTask { _ = await t.value }
     }
 
     func setCollapsed(_ collapsed: Bool, at date: Date? = nil) {
@@ -269,14 +361,15 @@ final class MenubarListModel: ObservableObject {
     /// rolls back the already-completed markdown delete (best-effort, T-5-09).
     private func bestEffortDeleteEvent(id eventID: String) {
         guard let calendar else { return }
-        deleteTask = Task { [weak self] in
+        // No `self` is needed inside the task (the log runs on the main actor without it),
+        // so capture nothing rather than a now-unused `[weak self]` + `_ = self` no-op (IN-05).
+        deleteTask = Task {
             do {
                 try await calendar.deleteEvent(id: eventID)
             } catch {
                 await MainActor.run {
                     NSLog("[Jotty] calendar deleteEvent failed: \(error.localizedDescription)")
                 }
-                _ = self
             }
         }
     }
@@ -298,7 +391,7 @@ final class MenubarListModel: ObservableObject {
 
         if let calendar, let eventID = task.calEventID {
             let title = CalendarDrift.sanitize(title: task.text)
-            calendarTask = Task { [weak self] in
+            editTask = Task { [weak self] in
                 guard let self else { return }
                 do {
                     try await calendar.updateEvent(id: eventID, title: title,
@@ -312,7 +405,9 @@ final class MenubarListModel: ObservableObject {
                         NSLog("[Jotty] calendar updateEvent failed: \(error.localizedDescription)")
                     }
                 }
-                await self.reloadOnMain()
+                // Skip the dead-link self-heal on the edit's trailing reload: the id was just
+                // (re)written and a stale/empty fetch must not clear it (CR-02 vs SC3).
+                await self.reloadOnMain(clearMissingLinks: false)
             }
         } else {
             reload()
@@ -357,7 +452,13 @@ final class MenubarListModel: ObservableObject {
             var doc = try store.readDoc(on: snapshot)
             for pair in prompt.drifted {
                 guard let idx = doc.tasks.firstIndex(where: { $0.id == pair.task.id }) else { continue }
-                doc.tasks[idx].text = pair.event.title
+                // Store the SANITIZED title (WR-04): drift is detected via
+                // `sanitize(task.text) != event.title`, and create writes `sanitize(text)`
+                // as the event title. Writing the raw event title back into `task.text`
+                // would be asymmetric — the next open recomputes `sanitize(newText)`, which
+                // can differ from `event.title` and re-trigger drift on every open. It also
+                // keeps markdown-significant chars out of the parser-sensitive task line (IN-01).
+                doc.tasks[idx].text = CalendarDrift.sanitize(title: pair.event.title)
                 doc.tasks[idx].timeBlock = TimeBlock(start: pair.event.start, end: pair.event.end)
             }
             try store.replaceTasks(doc.tasks, on: snapshot)
@@ -372,8 +473,8 @@ final class MenubarListModel: ObservableObject {
         driftPrompt = nil
     }
 
-    private func reloadOnMain() async {
-        await MainActor.run { self.reload() }
+    private func reloadOnMain(clearMissingLinks: Bool = true) async {
+        await MainActor.run { self.reload(clearMissingLinks: clearMissingLinks) }
     }
 
     var doneCount: Int { tasks.filter(\.done).count }
@@ -393,6 +494,9 @@ struct MenubarListView: View {
     @ObservedObject var model: MenubarListModel
     let onCapture: () -> Void
     let onSettings: () -> Void
+
+    /// The "+30 min" nudge interval used by the discoverable edit-time affordance (IN-04).
+    private static let nudgeSeconds: TimeInterval = 30 * 60
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -489,6 +593,10 @@ struct MenubarListView: View {
             // a degraded one-liner on denial, nothing when authorized-but-empty.
             calendarSection
 
+            // CR-02: surface tasks whose linked event was deleted in Calendar and whose
+            // dead `cal_event:` link was just cleared (one-line, non-blocking).
+            missingLinkNotice
+
             Divider()
 
             // Footer
@@ -542,8 +650,8 @@ struct MenubarListView: View {
             // Edit-time affordance: nudge the linked event +30m as a discoverable
             // demonstration of the edit-time path (the precise picker UI is Phase 8).
             Button("Move +30 min") {
-                let newBlock = TimeBlock(start: tb.start.addingTimeInterval(1800),
-                                         end: tb.end.addingTimeInterval(1800))
+                let newBlock = TimeBlock(start: tb.start.addingTimeInterval(Self.nudgeSeconds),
+                                         end: tb.end.addingTimeInterval(Self.nudgeSeconds))
                 model.editTime(task, to: newBlock)
             }
         }
@@ -556,6 +664,34 @@ struct MenubarListView: View {
             return "“\(titles[0])” changed in Calendar. Sync the task to match?"
         }
         return "\(titles.count) tasks changed in Calendar. Sync them to match?"
+    }
+
+    // MARK: - Missing-link notice (CR-02)
+
+    /// One-line affordance shown when one or more linked tasks had their calendar event
+    /// deleted in Calendar.app (CR-02). Tapping clears the now-dead `cal_event:` links so the
+    /// tasks degrade to plain time-blocked tasks (calendar wins). Nothing when zero.
+    @ViewBuilder
+    private var missingLinkNotice: some View {
+        if model.missingLinkCount > 0 {
+            Divider()
+            Button(action: { model.confirmClearMissingLinks() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar.badge.exclamationmark")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(model.missingLinkCount == 1
+                         ? "1 linked event was deleted in Calendar. Clear the dead link?"
+                         : "\(model.missingLinkCount) linked events were deleted in Calendar. Clear the dead links?")
+                        .font(.system(size: 11))
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
     }
 
     // MARK: - Calendar section (SC2)

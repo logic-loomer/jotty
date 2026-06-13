@@ -477,6 +477,13 @@ final class MenubarListModelTests: XCTestCase {
     func testEditTimeUpdatesLinkedEventByIdAndPreservesCalEvent() async throws {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
+        // The linked event exists in the open-time fetch, so CR-02's self-heal does not
+        // classify it missing and clear the link before the edit runs.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
         let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
                                      now: { today }, calendar: fake)
         await model.awaitCalendarRefresh()
@@ -520,6 +527,38 @@ final class MenubarListModelTests: XCTestCase {
         let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
         XCTAssertEqual(stored.calEventID, "fake-event-1")
         XCTAssertEqual(stored.timeBlock, newBlock)
+    }
+
+    // MARK: - WR-03: edit + concurrent reload don't drop each other's in-flight work
+
+    func testEditTimeThenConcurrentReloadBothComplete() async throws {
+        // editTime spawns editTask; a reload() fired right after spawns refreshTask. With
+        // distinct handles, awaitCalendarRefresh awaits BOTH — the edit's updateEvent must
+        // still land and not be dropped by the reload overwriting a shared handle (WR-03).
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        // The linked event exists in the fetch (matches the task's pre-edit block), so the
+        // concurrent reload's open-time self-heal does not classify it missing.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        let newBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 16),
+                                 end: makeDate(2026, 6, 12, h: 17))
+        model.editTime(task, to: newBlock)   // spawns editTask
+        model.reload()                       // spawns a fresh refreshTask concurrently
+        await model.awaitCalendarRefresh()
+
+        // The edit's update was not lost despite the concurrent reload.
+        XCTAssertEqual(fake.updatedEventIDs, ["evt-1"], "edit-time update must not be dropped")
+        let doc = try store.readDoc(on: today)
+        XCTAssertEqual(try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" }).timeBlock, newBlock)
     }
 
     // MARK: - SC4: drift sync on open
@@ -600,6 +639,109 @@ final class MenubarListModelTests: XCTestCase {
                                      now: { today }, calendar: fake)
         await model.awaitCalendarRefresh()
         XCTAssertNil(model.driftPrompt)
+    }
+
+    // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
+
+    func testMissingLinkedEventSurfacesPromptOnOpen() async throws {
+        // Task is linked to evt-gone, but the calendar fetch returns NO matching event
+        // (deleted in Calendar.app). On open it is SURFACED (not silently dropped); the dead
+        // link is not mutated until the user confirms.
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-gone")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = []   // event deleted in Calendar -> not in the fetched range
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.missingLinkCount, 1, "deleted linked event must be surfaced")
+        XCTAssertEqual(model.missingLinkPrompt?.tasks.map(\.id), ["t_linked"])
+        XCTAssertNil(model.driftPrompt, "missing != drift")
+        // Not yet mutated on disk — surfacing alone never clobbers the link.
+        let doc = try store.readDoc(on: today)
+        XCTAssertEqual(try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" }).calEventID, "evt-gone")
+    }
+
+    func testConfirmClearMissingLinkClearsDeadLinkKeepsTimeBlock() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-gone")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = []
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.missingLinkPrompt)
+
+        model.confirmClearMissingLinks()
+
+        // Calendar wins: dead link cleared, time block preserved (unlinked time-blocked task).
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertNil(stored.calEventID, "dead cal_event link must be cleared on confirm")
+        XCTAssertNotNil(stored.timeBlock, "time block is preserved")
+        XCTAssertNil(model.missingLinkPrompt, "prompt cleared after confirm")
+    }
+
+    func testDismissMissingLinkKeepsDeadLink() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-gone")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = []
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.missingLinkPrompt)
+
+        model.dismissMissingLinkPrompt()
+
+        let doc = try store.readDoc(on: today)
+        XCTAssertEqual(try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" }).calEventID, "evt-gone",
+                       "dismiss keeps the link")
+        XCTAssertNil(model.missingLinkPrompt)
+    }
+
+    func testPresentLinkedEventDoesNotSurfaceMissing() async throws {
+        // The linked event still exists -> no missing prompt.
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertNil(model.missingLinkPrompt)
+        let doc = try store.readDoc(on: today)
+        XCTAssertEqual(try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" }).calEventID, "evt-1")
+    }
+
+    // MARK: - WR-04: drift sync stores the sanitized event title
+
+    func testConfirmDriftSyncStoresSanitizedTitle() async throws {
+        // Event title carries markdown; sync must store the SANITIZED form so the next open
+        // does not re-drift (sanitize(stored) == event.title) and the task line stays parser-safe.
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let evStart = makeDate(2026, 6, 12, h: 16)
+        let evEnd = makeDate(2026, 6, 12, h: 17)
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "**Deep** `work`",
+                          start: evStart, end: evEnd, calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftSync()
+
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.text, "Deep work", "stored text is sanitized, not raw")
+        // Round-trip stability: re-running drift against the same event finds NO drift.
+        let result = CalendarDrift.driftedTasks([stored], against: fake.cannedEvents)
+        XCTAssertTrue(result.drifted.isEmpty, "sanitized store must not re-drift on next open")
     }
 
     func testHistoricalLinkedTaskNotCheckedForDrift() async throws {

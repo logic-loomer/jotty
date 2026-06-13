@@ -79,7 +79,12 @@ enum CalendarDrift {
                 missing.append(task)
                 continue
             }
-            let titleChanged = sanitize(title: task.text) != event.title
+            // Compare sanitized-vs-sanitized (WR-04): create writes `sanitize(text)` as the
+            // event title and SC4 sync stores `sanitize(event.title)` back, so comparing both
+            // sides through the same function is what keeps the round-trip stable. Comparing
+            // the raw event title would re-drift forever when the event title itself carries
+            // markdown-significant characters.
+            let titleChanged = sanitize(title: task.text) != sanitize(title: event.title)
             let startShifted = abs(event.start.timeIntervalSince(tb.start)) >= toleranceSeconds
             let endShifted = abs(event.end.timeIntervalSince(tb.end)) >= toleranceSeconds
             if titleChanged || startShifted || endShifted {
