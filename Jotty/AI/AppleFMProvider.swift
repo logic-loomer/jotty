@@ -56,7 +56,9 @@ actor AppleFMProvider: AIProvider {
                 )
             )
             let rawTasks = ISOTaskMapper.map(response.content.tasks, in: timezone)
-            let tasks = applyDurationGuardrail(rawTasks, against: text, now: now, timezone: timezone)
+            // Duration guardrail (AI-SPEC §6) — shared post-process, see
+            // Jotty/AI/Guardrails/DurationGuardrail.swift.
+            let tasks = DurationGuardrail.apply(rawTasks, against: text, now: now, timezone: timezone)
             return ExtractionResult(tasks: tasks, noteBody: text)
         } catch let err as LanguageModelSession.GenerationError {
             switch err {
@@ -70,73 +72,6 @@ actor AppleFMProvider: AIProvider {
         } catch {
             throw AIProviderError.underlying(message: error.localizedDescription)
         }
-    }
-
-    // MARK: Guardrail (per AI-SPEC §6)
-
-    /// The 3B on-device model conflates duration phrasing ("1-2 hours", "30 min",
-    /// "couple hours", "an hour") with clock-time blocks ("1-2pm"). Even with
-    /// explicit prompt rules + few-shots, it occasionally emits a `timeBlock`
-    /// for a bare duration. This deterministic post-process strips `timeBlock`
-    /// and clears `calendarBlock` when the original input contains a duration
-    /// phrase without any explicit clock-time endpoints (am/pm or HH:MM).
-    private func applyDurationGuardrail(_ tasks: [ExtractedTask], against input: String, now: Date, timezone: TimeZone) -> [ExtractedTask] {
-        guard hasDurationPhrase(in: input), !hasExplicitClockTime(in: input) else { return tasks }
-        let inferredDue = inferDueDate(from: input, now: now, timezone: timezone)
-        return tasks.map { task in
-            ExtractedTask(
-                title: task.title,
-                dueDate: task.dueDate ?? inferredDue,
-                timeBlock: nil,
-                calendarBlock: false
-            )
-        }
-    }
-
-    /// Best-effort dueDate inference for the duration-guardrail path. Detects
-    /// 'today', 'tomorrow', and weekday names in the input. Anchored against
-    /// the supplied `now` (NOT `Date()`) so test fixtures resolve correctly.
-    private func inferDueDate(from input: String, now: Date, timezone: TimeZone) -> Date? {
-        let lower = input.lowercased()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
-        if lower.range(of: #"\btoday\b"#, options: .regularExpression) != nil {
-            return cal.startOfDay(for: now)
-        }
-        if lower.range(of: #"\btomorrow\b"#, options: .regularExpression) != nil {
-            return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now))
-        }
-        let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-        for (idx, name) in weekdays.enumerated() {
-            if lower.range(of: "\\b\(name)\\b", options: .regularExpression) != nil {
-                let target = idx + 1   // Calendar.weekday is 1-indexed Sun=1
-                let todayWd = cal.component(.weekday, from: now)
-                var delta = target - todayWd
-                if delta <= 0 { delta += 7 }
-                return cal.date(byAdding: .day, value: delta, to: cal.startOfDay(for: now))
-            }
-        }
-        return nil
-    }
-
-    /// Matches "1 hour", "1-2 hours", "30 min", "couple hours", "an hour", "half hour", "few hours", "all morning|afternoon|evening".
-    private func hasDurationPhrase(in input: String) -> Bool {
-        let patterns = [
-            #"\b\d+(?:[-–]\d+)?\s*(?:hours?|hrs?)\b"#,
-            #"\b\d+\s*(?:minutes?|mins?)\b"#,
-            #"\b(?:an?|half|couple|few)\s*hour"#,
-            #"\bhalf\s*(?:an\s*)?hour"#,
-            #"\ball\s*(?:morning|afternoon|evening|day)"#
-        ]
-        return patterns.contains { pattern in
-            input.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-        }
-    }
-
-    /// Matches "1pm", "1:30pm", "13:00", "1-2pm", "from 9 to 11am", "9am-5pm", "14:00-15:30".
-    private func hasExplicitClockTime(in input: String) -> Bool {
-        let pattern = #"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\b|\b\d{1,2}:\d{2}\b"#
-        return input.range(of: pattern, options: .regularExpression) != nil
     }
 
     // MARK: Private

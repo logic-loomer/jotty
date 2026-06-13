@@ -59,6 +59,7 @@
 		A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */; };
 		AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84E33A536DA47388C797099 /* MenubarListModelTests.swift */; };
 		ABAEFE960D853E31B130B707 /* AIAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */; };
+		AF9616D6B8C9325C4CC1B91C /* DurationGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F9CEADED4FCCB1D3EF8B4B6 /* DurationGuardrail.swift */; };
 		B305C0E7660A097AD4197D9F /* MenubarListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43923E183E14DDBEBB793B89 /* MenubarListView.swift */; };
 		B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1779948226E7290A4141189D /* ExtractedTaskAI.swift */; };
 		B6E1E0FEDCDD91A07FB120AA /* KeychainAPIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */; };
@@ -116,6 +117,7 @@
 		3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTask.swift; sourceTree = "<group>"; };
 		3CDA0A15DCF13E839E64C340 /* DailyFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFile.swift; sourceTree = "<group>"; };
 		3DF97B79250F715F0DC65677 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3F9CEADED4FCCB1D3EF8B4B6 /* DurationGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationGuardrail.swift; sourceTree = "<group>"; };
 		3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelTests.swift; sourceTree = "<group>"; };
 		41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeBlock.swift; sourceTree = "<group>"; };
 		428DD70FF55C0CDADC0E5444 /* Jotty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jotty.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -343,6 +345,7 @@
 				A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */,
 				A4C805711B059EFD6C643117 /* RetryPolicy.swift */,
 				41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */,
+				BCD99D5C01C9DD7DEE30BB71 /* Guardrails */,
 				A4872F05770DD79F1C2FACE8 /* Ollama */,
 				FC8A50EE7200C892B75A9D1E /* Providers */,
 			);
@@ -372,6 +375,14 @@
 				D6EB8F59B589E10E72601FAE /* Quarantine.swift */,
 			);
 			path = Ollama;
+			sourceTree = "<group>";
+		};
+		BCD99D5C01C9DD7DEE30BB71 /* Guardrails */ = {
+			isa = PBXGroup;
+			children = (
+				3F9CEADED4FCCB1D3EF8B4B6 /* DurationGuardrail.swift */,
+			);
+			path = Guardrails;
 			sourceTree = "<group>";
 		};
 		C6FE6D81CF7AC65E0720A24B /* Keybindings */ = {
@@ -557,6 +568,7 @@
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
+				AF9616D6B8C9325C4CC1B91C /* DurationGuardrail.swift in Sources */,
 				5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */,
 				B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */,
 				458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */,
