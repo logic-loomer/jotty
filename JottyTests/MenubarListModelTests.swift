@@ -329,7 +329,176 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.todayTasks.map(\.id), ["t_new"])
     }
 
+    // MARK: - SC3: toggle leaves the event
+
+    func testToggleLinkedTaskDoesNotTouchTheEvent() async throws {
+        // SC3: a done task is still a real commitment — toggle must NOT update or delete the event.
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_linked", text: "review", createdAt: today,
+                 timeBlock: TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                                      end: makeDate(2026, 6, 12, h: 15)),
+                 calEventID: "evt-1")
+        ], at: today)
+
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let linked = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+        model.toggle(linked)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertFalse(fake.calls.contains(.updateEvent), "toggle must not update the event")
+        XCTAssertFalse(fake.calls.contains(.deleteEvent), "toggle must not delete the event")
+        // Task is still flipped done in markdown.
+        let doc = try store.readDoc(on: today)
+        XCTAssertTrue(try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" }).done)
+    }
+
+    // MARK: - SC3: delete with remembered preference
+
+    func testDeleteUnlinkedTaskNeverPromptsOrTouchesCalendar() async throws {
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_plain", text: "no event", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        let cfg = try config(deletePref: nil)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_plain" })
+        model.delete(task)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertNil(model.deletePrompt, "unlinked delete never prompts")
+        XCTAssertFalse(fake.calls.contains(.deleteEvent))
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_plain" })
+    }
+
+    func testDeleteLinkedWithNilPrefPromptsThenYesDeletesAndRemembersTrue() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let cfg = try config(deletePref: nil)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.delete(task)
+        // Markdown removal happens immediately; only the calendar event is gated by the prompt.
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
+        let prompt = try XCTUnwrap(model.deletePrompt, "nil pref must surface a prompt")
+        XCTAssertEqual(prompt.task.id, "t_linked")
+
+        model.resolveDeletePrompt(deleteEvent: true)
+        await model.awaitDeleteWork()
+
+        XCTAssertNil(model.deletePrompt, "prompt cleared after resolution")
+        XCTAssertEqual(fake.deletedEventIDs, ["evt-1"])
+        XCTAssertEqual(cfg.config.deleteCalendarEventWithTask, true, "answer is remembered")
+    }
+
+    func testDeleteLinkedWithNilPrefPromptThenNoSkipsDeleteAndRemembersFalse() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let cfg = try config(deletePref: nil)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.delete(task)
+        _ = try XCTUnwrap(model.deletePrompt)
+        model.resolveDeletePrompt(deleteEvent: false)
+        await model.awaitDeleteWork()
+
+        XCTAssertNil(model.deletePrompt)
+        XCTAssertTrue(fake.deletedEventIDs.isEmpty, "no must not delete the event")
+        XCTAssertEqual(cfg.config.deleteCalendarEventWithTask, false)
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
+    }
+
+    func testDeleteLinkedWithRememberedTrueDeletesSilently() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let cfg = try config(deletePref: true)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.delete(task)
+        await model.awaitDeleteWork()
+
+        XCTAssertNil(model.deletePrompt, "remembered choice -> no prompt")
+        XCTAssertEqual(fake.deletedEventIDs, ["evt-1"])
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
+    }
+
+    func testDeleteLinkedWithRememberedFalseSkipsSilently() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        let cfg = try config(deletePref: false)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.delete(task)
+        await model.awaitDeleteWork()
+
+        XCTAssertNil(model.deletePrompt)
+        XCTAssertTrue(fake.deletedEventIDs.isEmpty)
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
+    }
+
+    func testDeleteEventFailureStillRemovesTaskFromMarkdown() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "boom")
+        let cfg = try config(deletePref: true)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.delete(task)
+        await model.awaitDeleteWork()
+
+        // Best-effort: deleteEvent attempted, threw, but the task is gone from markdown (T-5-09).
+        XCTAssertTrue(fake.calls.contains(.deleteEvent))
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_linked" })
+    }
+
     // MARK: - Helpers
+
+    /// Seeds today's file with the given tasks and returns (store, today).
+    private func seed(tasks: [Todo], at today: Date? = nil) throws -> (Store, Date) {
+        let day = today ?? makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: tasks, at: day)
+        return (store, day)
+    }
+
+    /// A linked (timeBlock + calEventID) today task.
+    private func linkedTask(id: String, eventID: String,
+                            text: String = "review",
+                            start: Date? = nil, end: Date? = nil) -> Todo {
+        let s = start ?? makeDate(2026, 6, 12, h: 14)
+        let e = end ?? makeDate(2026, 6, 12, h: 15)
+        return Todo(id: id, text: text, createdAt: makeDate(2026, 6, 12, h: 8),
+                    timeBlock: TimeBlock(start: s, end: e), calEventID: eventID)
+    }
+
+    /// A ConfigStore backed by a fresh temp file, primed with the delete preference.
+    private func config(deletePref: Bool?) throws -> ConfigStore {
+        let path = folder.appendingPathComponent("config-\(UUID().uuidString).json")
+        let cfg = try ConfigStore(path: path)
+        try cfg.update { $0.deleteCalendarEventWithTask = deletePref }
+        return cfg
+    }
 
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int = 12, min: Int = 0) -> Date {
         var c = DateComponents()

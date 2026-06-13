@@ -85,6 +85,82 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(body.contains("t_999"))
     }
 
+    // MARK: - Delete (SC3)
+
+    func testDeleteTodoRemovesMatchingTaskOthersUntouched() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_keep", text: "keep me", createdAt: now),
+            Todo(id: "t_drop", text: "drop me", createdAt: now)
+        ], at: now)
+
+        try store.deleteTodo(id: "t_drop", on: now)
+
+        // Round-trips: reread shows the dropped task gone, the kept task intact.
+        let doc = try store.readDoc(on: now)
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_keep"])
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let body = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(body.contains("t_drop"))
+        XCTAssertTrue(body.contains("t_keep"))
+    }
+
+    func testDeleteTodoMissingIdIsNoOp() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_001", text: "x", createdAt: now)],
+                                at: now)
+        try store.deleteTodo(id: "t_nope", on: now)
+        let doc = try store.readDoc(on: now)
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_001"])
+    }
+
+    // MARK: - Edit time (SC3)
+
+    func testUpdateTodoTimeSetsTimeBlockAndPreservesCalEvent() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let oldStart = makeDate(2026, 5, 8, h: 14, m: 0)
+        let oldEnd = makeDate(2026, 5, 8, h: 15, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_001", text: "review", createdAt: now,
+                 timeBlock: TimeBlock(start: oldStart, end: oldEnd),
+                 calEventID: "evt-abc")
+        ], at: now)
+
+        let newStart = makeDate(2026, 5, 8, h: 16, m: 0)
+        let newEnd = makeDate(2026, 5, 8, h: 17, m: 0)
+        try store.updateTodoTime(id: "t_001",
+                                 timeBlock: TimeBlock(start: newStart, end: newEnd),
+                                 on: now)
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first { $0.id == "t_001" })
+        XCTAssertEqual(task.timeBlock, TimeBlock(start: newStart, end: newEnd))
+        // cal_event preserved across the edit.
+        XCTAssertEqual(task.calEventID, "evt-abc")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let body = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(body.contains("time:16:00-17:00"), "time: token must update")
+        XCTAssertTrue(body.contains("cal_event:evt-abc"))
+    }
+
+    func testUpdateTodoTimeMissingIdIsNoOp() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_001", text: "x", createdAt: now)],
+                                at: now)
+        try store.updateTodoTime(id: "t_nope",
+                                 timeBlock: TimeBlock(start: makeDate(2026, 5, 8, h: 9, m: 0),
+                                                      end: makeDate(2026, 5, 8, h: 10, m: 0)),
+                                 on: now)
+        let doc = try store.readDoc(on: now)
+        XCTAssertNil(try XCTUnwrap(doc.tasks.first).timeBlock)
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
         c.timeZone = TimeZone(identifier: "Australia/Sydney")
