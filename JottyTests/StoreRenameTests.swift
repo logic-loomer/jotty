@@ -123,7 +123,11 @@ final class StoreRenameTests: XCTestCase {
         let moved = try XCTUnwrap(try store.readDoc(on: tomorrow).tasks.first { $0.id == "t_001" })
         XCTAssertEqual(moved.text, "carry over")
         XCTAssertEqual(moved.calEventID, "evt-abc")
-        XCTAssertEqual(moved.timeBlock, TimeBlock(start: start, end: end))
+        // The `time:` token serializes as wall-clock HH:mm and re-parses against the
+        // landing file's day, so a 14:00-15:00 block moves to tomorrow's 14:00-15:00.
+        let movedStart = makeDate(2026, 5, 9, h: 14, m: 0)
+        let movedEnd = makeDate(2026, 5, 9, h: 15, m: 0)
+        XCTAssertEqual(moved.timeBlock, TimeBlock(start: movedStart, end: movedEnd))
         XCTAssertFalse(moved.done, "a moved task is not completed")
         // createdAt advanced to tomorrow's startOfDay so the menubar groups it as a
         // tomorrow task, NOT a !done leftover from today.

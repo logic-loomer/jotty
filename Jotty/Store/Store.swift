@@ -55,6 +55,61 @@ final class Store {
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Rewrites only the task's `text`, preserving id + every metadata token
+    /// (created/done/due/rolled_to/source_note/time/cal_event) via the serialize
+    /// round-trip (SC4 inline rename). The new text is trimmed; an empty-after-trim
+    /// rename is rejected (no write — the file stays byte-identical so the caller can
+    /// revert the UI). No-op when the id is absent, mirroring deleteTodo. No new
+    /// escaping: serialize's IN-01 guard neutralizes `<!--`/`-->` in the text (T-6-07).
+    func renameTodo(id: String, text: String, on date: Date) throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var doc = readOrCreate(at: url, on: date)
+        guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
+        doc.tasks[idx].text = trimmed
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Moves the task with `id` from today's file to tomorrow's file (SC4
+    /// move-to-tomorrow). Removes it from today and writes today first, then appends an
+    /// equivalent task to tomorrow's file — so a mid-failure leaves the task on at least
+    /// one file, never silently lost (T-6-08). The moved task keeps id/text/tokens but
+    /// has `createdAt` advanced to tomorrow's startOfDay, so the menubar partitions it as
+    /// a tomorrow task rather than a leftover. No-op when the id is absent.
+    func moveTodoToTomorrow(id: String, on date: Date) throws {
+        let todayURL = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var todayDoc = readOrCreate(at: todayURL, on: date)
+        guard let idx = todayDoc.tasks.firstIndex(where: { $0.id == id }) else { return }
+
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let tomorrowStart = cal.date(byAdding: .day, value: 1, to: startOfDay(date))!
+
+        let original = todayDoc.tasks[idx]
+        let moved = Todo(id: original.id,
+                         text: original.text,
+                         createdAt: tomorrowStart,
+                         done: original.done,
+                         completedAt: original.completedAt,
+                         dueDate: original.dueDate,
+                         rolledTo: original.rolledTo,
+                         sourceNote: original.sourceNote,
+                         timeBlock: original.timeBlock,
+                         calEventID: original.calEventID)
+
+        // Remove from today and persist first so a partial failure never deletes
+        // without landing.
+        todayDoc.tasks.remove(at: idx)
+        try todayDoc.serialize(timezone: timezone).write(to: todayURL, atomically: true, encoding: .utf8)
+
+        // Append to tomorrow and persist.
+        let tomorrowURL = DailyFile.url(in: folder, on: tomorrowStart, timezone: timezone)
+        var tomorrowDoc = readOrCreate(at: tomorrowURL, on: tomorrowStart)
+        tomorrowDoc.appendTodo(moved)
+        try tomorrowDoc.serialize(timezone: timezone).write(to: tomorrowURL, atomically: true, encoding: .utf8)
+    }
+
     func replaceTasks(_ tasks: [Todo], on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
         var doc = readOrCreate(at: url, on: date)
