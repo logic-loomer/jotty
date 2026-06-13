@@ -9,6 +9,32 @@ enum CaptureState: Equatable {
     case review(tasks: [ExtractedTask], noteBody: String, savedInput: String)
 }
 
+// MARK: - Calendar notice / conflict state (Phase 5, plan 05-05)
+
+/// A non-blocking, user-visible notice raised by the best-effort calendar work on commit.
+///
+/// Calendar creation is best-effort: a denied permission or a write failure must NEVER roll
+/// back the markdown commit or block capture (CONTEXT + RESEARCH anti-pattern). When one of
+/// those happens we surface this lightweight notice instead, which the capture view renders
+/// as a one-line affordance. Distinct from `lastError` (the AI-extraction error channel).
+enum CalendarNotice: Equatable {
+    /// Full calendar access was not granted; the time-blocked task still committed without an event.
+    case accessDenied
+    /// A calendar write failed; the task still committed to markdown (disk wins), just no `cal_event`.
+    case writeFailed(message: String)
+}
+
+/// A pending conflict awaiting the user's commit-anyway / cancel decision (SC5).
+///
+/// Raised before a time-blocked event is written when its window overlaps an existing event.
+/// The view reads `conflictTitle` for the "⚠️ overlaps with '<title>' — commit anyway?" copy and
+/// drives `resolveConflict(commitAnyway:)`. Per CONTEXT: confirm commits both task+event; cancel
+/// leaves that task uncommitted (it is never appended to markdown).
+struct CalendarConflict: Equatable {
+    /// Title of the first overlapping existing event, for the confirm copy.
+    let conflictTitle: String
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -22,6 +48,11 @@ final class CaptureViewModel: ObservableObject {
     @Published var isExtracting: Bool = false
     @Published var lastError: AIProviderError?
 
+    /// Non-blocking calendar notice (denied access / write failure). Cleared on each commit.
+    @Published var calendarNotice: CalendarNotice?
+    /// Pending overlap confirm; non-nil pauses the time-blocked write until the user decides (SC5).
+    @Published var pendingConflict: CalendarConflict?
+
     private let store: Store
     private let draftURL: URL
     private let provider: any AIProvider
@@ -30,9 +61,18 @@ final class CaptureViewModel: ObservableObject {
     /// instead" button hides via `fallbackAvailable`. Production call site
     /// passes an AppleFMProvider in plan 11.
     private let fallbackProvider: (any AIProvider)?
+    /// Optional calendar seam. nil (default) means no calendar work happens — the commit path
+    /// behaves exactly as before plan 05-05 (back-compat for existing call sites/tests). The
+    /// production call site injects an `EventKitCalendarService`; tests inject `FakeCalendarService`.
+    private let calendar: (any CalendarService)?
     private let clock: () -> Date
     private var autosaveTask: Task<Void, Never>?
     private var extractionTask: Task<Void, Never>?
+    /// The in-flight best-effort calendar work for the most recent commit (test hook awaits it).
+    private var calendarTask: Task<Void, Never>?
+    /// Continuation the view fulfils via `resolveConflict(commitAnyway:)` to unblock a paused
+    /// time-blocked write. Stored so the awaiting commit task can resume on the user's decision.
+    private var conflictContinuation: CheckedContinuation<Bool, Never>?
 
     /// The prose that was in-flight when the provider threw, stashed so
     /// retryWithAppleFM() can re-run the SAME input through the fallback.
@@ -45,11 +85,13 @@ final class CaptureViewModel: ObservableObject {
     init(store: Store, draftURL: URL,
          provider: any AIProvider,
          fallbackProvider: (any AIProvider)? = nil,
+         calendar: (any CalendarService)? = nil,
          clock: @escaping () -> Date = Date.init) {
         self.store = store
         self.draftURL = draftURL
         self.provider = provider
         self.fallbackProvider = fallbackProvider
+        self.calendar = calendar
         self.clock = clock
 
         // Restore draft if present.
@@ -257,30 +299,178 @@ final class CaptureViewModel: ObservableObject {
             ? nil
             : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
 
-        let todos: [Todo] = accepted.map { t in
-            Todo(
-                id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
-                text: t.title,
-                createdAt: now,
-                done: false,
-                dueDate: t.dueDate,
-                sourceNote: noteId
-            )
+        // Split accepted tasks: time-blocked tasks are conflict-gated and committed one at a
+        // time inside the async calendar pass (so a cancel can leave that task uncommitted, SC5);
+        // everything else commits immediately. The note commits with the plain tasks now.
+        //
+        // With NO calendar injected there is no calendar pass — time-blocked tasks must still
+        // commit synchronously (carrying their timeBlock, no event) so they never silently
+        // vanish (back-compat). Only gate time-blocked tasks through the async pass when a
+        // calendar exists.
+        let calendarPresent = (self.calendar != nil)
+        let synchronousTasks = calendarPresent
+            ? accepted.filter { $0.timeBlock == nil }
+            : accepted
+        let plainTodos: [Todo] = synchronousTasks.map { t in
+            Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                 text: t.title, createdAt: now, done: false,
+                 dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
         }
+        let timeBlockedTasks = calendarPresent ? accepted.filter { $0.timeBlock != nil } : []
 
         do {
-            try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: todos, at: now)
+            // Disk is source of truth — note + non-time-blocked tasks land FIRST, never gated
+            // on the calendar.
+            try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: plainTodos, at: now)
         } catch {
             // Keep the user in review with their accepted rows so they can retry.
             lastError = .underlying(message: error.localizedDescription)
             return
         }
 
+        calendarNotice = nil
         text = ""
         autosaveTask?.cancel()
         try? FileManager.default.removeItem(at: draftURL)   // best-effort cleanup; not user-visible
         state = .input
         acceptedRowIDs = []
+
+        // Best-effort, off the synchronous commit: for each time-blocked task run the lazy
+        // access gate, the conflict gate (SC5), then create the event and write `cal_event:`
+        // back. A failure/denial NEVER rolls back the markdown commit above and never blocks
+        // capture (CONTEXT). `calendarTask` lets `commitAndWait()` await this deterministically.
+        if calendarPresent, !timeBlockedTasks.isEmpty {
+            calendarTask = Task { [weak self] in
+                guard let self else { return }
+                await self.processTimeBlockedTasks(timeBlockedTasks, noteId: noteId, at: now)
+            }
+        } else {
+            calendarTask = nil
+        }
+    }
+
+    /// Awaits the in-flight best-effort calendar work from the last `commitFromReview()`.
+    /// For tests only (mirrors `submitAndWait()`); production fires-and-forgets.
+    /// NOTE: when a conflict is expected, drive `commitFromReview()` + `resolveConflict(...)`
+    /// manually and await `awaitCalendarWork()` instead — this helper would deadlock on the
+    /// pending-conflict suspension.
+    func commitAndWait() async {
+        commitFromReview()
+        if let t = calendarTask { _ = await t.value }
+    }
+
+    /// Awaits the calendar task spawned by the most recent `commitFromReview()`. Test hook for
+    /// the conflict path where the test resolves the conflict before awaiting. No-op if none.
+    func awaitCalendarWork() async {
+        if let t = calendarTask { _ = await t.value }
+    }
+
+    // MARK: - Calendar commit pass (Phase 5, plan 05-05)
+
+    /// Lazy access gate (RESEARCH): authorized → true; denied → false; notDetermined → request once.
+    private func ensureCalendarAccess(_ cal: any CalendarService) async -> Bool {
+        switch cal.access() {
+        case .authorized: return true
+        case .denied: return false
+        case .notDetermined: return await cal.requestAccess() == .authorized
+        }
+    }
+
+    /// For each just-accepted time-blocked task: gate access, gate conflicts (SC5), create the
+    /// event, and persist `cal_event:<id>` onto that task's markdown line. Best-effort throughout.
+    private func processTimeBlockedTasks(_ tasks: [ExtractedTask], noteId: String?, at now: Date) async {
+        guard let cal = self.calendar else { return }
+
+        // Lazy access gate, once for the whole batch.
+        guard await ensureCalendarAccess(cal) else {
+            // Denied: tasks still commit (disk wins); surface a one-line degraded notice,
+            // never block. They commit WITHOUT a calendar event.
+            for t in tasks {
+                let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                                text: t.title, createdAt: now, done: false,
+                                dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
+                appendSingle(todo, at: now)
+            }
+            calendarNotice = .accessDenied
+            return
+        }
+
+        for t in tasks {
+            guard let tb = t.timeBlock else { continue }
+
+            // Conflict gate (SC5): query overlaps BEFORE committing this task so a cancel can
+            // leave it uncommitted. A read failure is non-fatal — fall through to create.
+            if let overlap = try? await cal.overlappingEvents(start: tb.start, end: tb.end),
+               let first = overlap.first {
+                let commitAnyway = await awaitConflictDecision(title: first.title)
+                if !commitAnyway {
+                    // Cancel: this task is NOT committed (CONTEXT). Skip entirely.
+                    continue
+                }
+            }
+
+            // Confirmed (or no conflict): commit the task to markdown, then create the event.
+            let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                            text: t.title, createdAt: now, done: false,
+                            dueDate: t.dueDate, sourceNote: noteId, timeBlock: tb)
+            appendSingle(todo, at: now)
+
+            do {
+                let eventID = try await cal.createEvent(
+                    title: CalendarDrift.sanitize(title: t.title),
+                    start: tb.start, end: tb.end)
+                writeCalEventID(eventID, forTaskID: todo.id, at: now)
+            } catch {
+                // Write failure: task stays committed (disk wins), no cal_event; non-blocking notice.
+                calendarNotice = .writeFailed(message: (error as? CalendarError).map(Self.describe) ?? "\(error)")
+            }
+        }
+    }
+
+    /// Appends one already-built Todo to today's doc, best-effort (a disk error surfaces as a
+    /// non-blocking notice but never throws into the calendar pass).
+    private func appendSingle(_ todo: Todo, at now: Date) {
+        do {
+            try store.appendCapture(noteText: "", noteId: nil, tasks: [todo], at: now)
+        } catch {
+            calendarNotice = .writeFailed(message: error.localizedDescription)
+        }
+    }
+
+    /// Sets `cal_event:<id>` on the matching committed task and re-persists the day's task list.
+    private func writeCalEventID(_ eventID: String, forTaskID id: String, at now: Date) {
+        guard let doc = try? store.readDoc(on: now) else { return }
+        var tasks = doc.tasks
+        guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[idx].calEventID = eventID
+        try? store.replaceTasks(tasks, on: now)
+    }
+
+    /// Publishes a pending conflict and suspends until the view calls `resolveConflict(...)`.
+    private func awaitConflictDecision(title: String) async -> Bool {
+        pendingConflict = CalendarConflict(conflictTitle: title)
+        let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            conflictContinuation = c
+        }
+        pendingConflict = nil
+        conflictContinuation = nil
+        return decision
+    }
+
+    /// Called by the capture view to resolve a pending conflict (SC5). `true` = commit anyway,
+    /// `false` = cancel (the time-blocked task is left uncommitted). No-op if nothing is pending.
+    func resolveConflict(commitAnyway: Bool) {
+        guard let c = conflictContinuation else { return }
+        conflictContinuation = nil
+        c.resume(returning: commitAnyway)
+    }
+
+    private static func describe(_ e: CalendarError) -> String {
+        switch e {
+        case .accessDenied: return "Calendar access not granted"
+        case .eventNotFound: return "Calendar event not found"
+        case .underlying(let m): return m
+        }
     }
 
     // MARK: - Private

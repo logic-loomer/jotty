@@ -217,7 +217,7 @@ final class CaptureViewModelTests: XCTestCase {
         let tb = TimeBlock(start: dateFor("2026-06-13T11:00:00+10:00"),
                            end: dateFor("2026-06-13T12:00:00+10:00"))
         let fake = FakeCalendarService()
-        fake.errorToThrow = .underlying(message: "EKEventStore save failed")
+        fake.errorToThrow = .underlying(message: "calendar save failed")
         let vm = await makeVMInReview(with: ExtractedTask(title: "deep work", timeBlock: tb),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
@@ -226,7 +226,7 @@ final class CaptureViewModelTests: XCTestCase {
         let doc = try store.readDoc(on: now)
         let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "deep work" }))
         XCTAssertNil(task.calEventID, "no cal_event on write failure")
-        XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "EKEventStore save failed"))
+        XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "calendar save failed"))
         // Capture is unblocked (returned to input, draft cleared).
         if case .input = vm.state {} else { XCTFail("commit must not leave us stuck in review") }
     }
