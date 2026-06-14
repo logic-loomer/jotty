@@ -67,6 +67,10 @@ struct OnboardingView: View {
 
     @State private var launchAtLoginOn = false
     @State private var calendarRequested = false
+    /// Re-entrancy guard (WR-07, mirrors GeneralTab WR-05): true while the onChange handler
+    /// reconciles `launchAtLoginOn` to the live OS status after an enable/disable attempt,
+    /// so the programmatic reassignment does not re-enter the handler and re-toggle.
+    @State private var isReconciling = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -98,9 +102,25 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Launch Jotty at login", isOn: $launchAtLoginOn)
                     .onChange(of: launchAtLoginOn) { _, on in
-                        // Best-effort, non-fatal (T-6-09): an enable/disable throw is
-                        // swallowed so onboarding never crashes on the registration path.
-                        if on { try? launchAtLogin.enable() } else { try? launchAtLogin.disable() }
+                        // Skip programmatic reconciles so the status reconcile below does not
+                        // re-enter and re-toggle (WR-07, mirrors GeneralTab WR-05).
+                        guard !isReconciling else { return }
+                        // Best-effort, non-fatal (T-6-09): an enable/disable throw must NOT
+                        // crash onboarding — but it also must NOT leave a false-positive ON
+                        // (WR-07). Attempt the change, then reconcile the toggle to the REAL
+                        // OS status so a failed enable visibly flips back off.
+                        do {
+                            if on { try launchAtLogin.enable() } else { try launchAtLogin.disable() }
+                        } catch {
+                            // Swallowed for crash-safety; the reconcile below reflects reality.
+                        }
+                        let live = launchAtLogin.status()
+                        let shouldBeOn = (live == .enabled || live == .requiresApproval)
+                        if launchAtLoginOn != shouldBeOn {
+                            isReconciling = true
+                            launchAtLoginOn = shouldBeOn
+                            isReconciling = false
+                        }
                     }
                 Text("Start Jotty automatically when you log in.")
                     .font(.system(size: 11))
@@ -126,8 +146,13 @@ struct OnboardingView: View {
         .padding(24)
         .frame(width: 420, height: 420)
         .onAppear {
-            // Reflect the live OS status so the toggle starts in the right position.
-            launchAtLoginOn = (launchAtLogin.status() == .enabled)
+            // Reflect the live OS status so the toggle starts in the right position
+            // (requiresApproval counts as on — registered, pending user approval), matching
+            // GeneralTab and the WR-07 reconcile below.
+            let live = launchAtLogin.status()
+            isReconciling = true
+            launchAtLoginOn = (live == .enabled || live == .requiresApproval)
+            isReconciling = false
         }
     }
 }
