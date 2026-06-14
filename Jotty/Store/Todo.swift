@@ -3,7 +3,7 @@ import Foundation
 struct Todo: Equatable {
     let id: String
     var text: String
-    let createdAt: Date
+    var createdAt: Date
     var done: Bool
     var completedAt: Date?
     var dueDate: Date?

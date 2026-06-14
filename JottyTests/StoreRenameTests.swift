@@ -191,6 +191,52 @@ final class StoreRenameTests: XCTestCase {
         XCTAssertEqual(docs.first?.createdAt, cal.startOfDay(for: tomorrow))
     }
 
+    func testMoveToTomorrowPreservesSourceProvenanceAndAllTokens() throws {
+        // Phase 7 CR-01 regression: an accepted inbox task carries source:/source_url:
+        // (provenance back to the GitHub issue/PR) plus time:/cal_event:. The
+        // field-by-field rebuild in moveTodoToTomorrow dropped source/sourceURL.
+        // The copy-mutate fix must carry EVERY token across the cross-file move.
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let tomorrow = makeDate(2026, 5, 9, h: 7, m: 30)
+        let start = makeDate(2026, 5, 8, h: 14, m: 0)
+        let end = makeDate(2026, 5, 8, h: 15, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_001", text: "from github", createdAt: now,
+                 timeBlock: TimeBlock(start: start, end: end), calEventID: "evt-abc",
+                 source: "github:123456", sourceURL: "https://github.com/o/r/issues/7")
+        ], at: now)
+
+        try store.moveTodoToTomorrow(id: "t_001", from: now, now: now)
+
+        let moved = try XCTUnwrap(try store.readDoc(on: tomorrow).tasks.first { $0.id == "t_001" })
+        XCTAssertEqual(moved.source, "github:123456", "source: token must survive the move")
+        XCTAssertEqual(moved.sourceURL, "https://github.com/o/r/issues/7",
+                       "source_url: token must survive the move")
+        XCTAssertEqual(moved.calEventID, "evt-abc", "cal_event: token must survive the move")
+        let movedStart = makeDate(2026, 5, 9, h: 14, m: 0)
+        let movedEnd = makeDate(2026, 5, 9, h: 15, m: 0)
+        XCTAssertEqual(moved.timeBlock, TimeBlock(start: movedStart, end: movedEnd),
+                       "time: token must survive the move")
+    }
+
+    func testMoveSameFilePreservesSourceProvenance() throws {
+        // Same-file branch (source day == tomorrow) must also carry source/sourceURL.
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let tomorrow = makeDate(2026, 5, 9, h: 10, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_001", text: "from github", createdAt: tomorrow,
+                 source: "github:999", sourceURL: "https://github.com/o/r/pull/9")
+        ], at: tomorrow)
+
+        try store.moveTodoToTomorrow(id: "t_001", from: tomorrow, now: now)
+
+        let moved = try XCTUnwrap(try store.readDoc(on: tomorrow).tasks.first { $0.id == "t_001" })
+        XCTAssertEqual(moved.source, "github:999")
+        XCTAssertEqual(moved.sourceURL, "https://github.com/o/r/pull/9")
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
         c.timeZone = TimeZone(identifier: "Australia/Sydney")

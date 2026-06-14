@@ -93,17 +93,13 @@ final class Store {
         var sourceDoc = readOrCreate(at: sourceURL, on: sourceDate)
         guard let idx = sourceDoc.tasks.firstIndex(where: { $0.id == id }) else { return }
 
-        let original = sourceDoc.tasks[idx]
-        let moved = Todo(id: original.id,
-                         text: original.text,
-                         createdAt: tomorrowStart,
-                         done: original.done,
-                         completedAt: original.completedAt,
-                         dueDate: original.dueDate,
-                         rolledTo: original.rolledTo,
-                         sourceNote: original.sourceNote,
-                         timeBlock: original.timeBlock,
-                         calEventID: original.calEventID)
+        // Copy the WHOLE value so every field (id/text/tokens, and the Phase-7
+        // source/sourceURL provenance, plus any future field) carries across the
+        // move untouched — only createdAt is advanced. A field-by-field rebuild
+        // here silently dropped source/sourceURL once (Phase 7 CR-01); the
+        // copy-mutate pattern can never regress as fields are added.
+        var moved = sourceDoc.tasks[idx]
+        moved.createdAt = tomorrowStart
 
         let tomorrowURL = DailyFile.url(in: folder, on: tomorrowStart, timezone: timezone)
 
