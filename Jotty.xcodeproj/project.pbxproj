@@ -49,6 +49,7 @@
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		5858C556D6D4A6B141134BA7 /* FakeInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423C42337CB98153A4329E2E /* FakeInboxSource.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
+		5A567E21E1743428D4444C8C /* GitHubInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */; };
 		5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */; };
 		5BF0108DAFB7389639F8822E /* ExtractedTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */; };
 		621D937DC0A0FE8ED173C60C /* KeyComboDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EB871EE3BC1E7D453AA11E /* KeyComboDisplay.swift */; };
@@ -211,6 +212,7 @@
 		646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		648D58E2772B190DB7959D7A /* OllamaModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManager.swift; sourceTree = "<group>"; };
 		676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictDetectionTests.swift; sourceTree = "<group>"; };
+		69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubInboxSource.swift; sourceTree = "<group>"; };
 		6D93F9D0664E78E14B656E7D /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		6DC72E43E14620B4805DE626 /* SystemClaudeHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemClaudeHandoff.swift; sourceTree = "<group>"; };
 		6DE9FB54B158EC494838B935 /* default-keybindings.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-keybindings.json"; sourceTree = "<group>"; };
@@ -355,6 +357,7 @@
 		2A665F63B4F739A0354A15AD /* Inbox */ = {
 			isa = PBXGroup;
 			children = (
+				69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */,
 				7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */,
 				D7E50985DD1B606D64D5E868 /* InboxService.swift */,
 				AEB933160AFF4D189209B4EC /* InboxSource.swift */,
@@ -841,6 +844,7 @@
 				32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */,
 				D2A3A7C12C3C6198C6476A30 /* GeminiProvider.swift in Sources */,
 				9016E4F39ED8C2B4BA08CBB6 /* GeneralTab.swift in Sources */,
+				5A567E21E1743428D4444C8C /* GitHubInboxSource.swift in Sources */,
 				4D92D119A5DF67335C2570AB /* GitHubReleases.swift in Sources */,
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
