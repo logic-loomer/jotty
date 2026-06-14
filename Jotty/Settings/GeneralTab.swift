@@ -27,6 +27,13 @@ struct GeneralTab: View {
     @State private var status: LaunchAtLoginStatus
     @State private var toggleFailed = false
     @State private var onboardingReset = false
+    /// Re-entrancy guard (WR-05): true while `refreshStatus` programmatically reconciles
+    /// `launchEnabled` to the live OS status. SwiftUI fires `onChange` for ANY value
+    /// change, including programmatic ones, so without this guard a reconcile would
+    /// re-enter `applyLaunchAtLogin` and issue a second enable()/disable() — which can
+    /// ping-pong (requiresApproval flips the toggle back ON) and repeatedly
+    /// register/unregister via SMAppService.
+    @State private var isReconciling = false
 
     init(configStore: ConfigStore,
          launchAtLogin: any LaunchAtLoginService = SMAppLaunchAtLoginService()) {
@@ -42,6 +49,9 @@ struct GeneralTab: View {
             Section(header: Text("Startup")) {
                 Toggle("Launch Jotty at login", isOn: $launchEnabled)
                     .onChange(of: launchEnabled) { _, newValue in
+                        // Skip the apply path for programmatic reconciles (WR-05): only a
+                        // real user toggle should drive enable()/disable().
+                        guard !isReconciling else { return }
                         applyLaunchAtLogin(newValue)
                     }
 
@@ -103,14 +113,24 @@ struct GeneralTab: View {
 
     /// Re-reads the live OS status (D-SC2: never trust a cached/persisted value)
     /// and reconciles the toggle to it (e.g. requiresApproval keeps the toggle on
-    /// but shows the approval hint; a failed enable flips it back off).
+    /// but shows the approval hint; a failed enable flips it back off). The toggle
+    /// reconcile goes through `setToggle` so the programmatic change does NOT re-enter
+    /// `applyLaunchAtLogin` (WR-05).
     private func refreshStatus() {
         let live = launchAtLogin.status()
         status = live
         let shouldBeOn = (live == .enabled || live == .requiresApproval)
         if launchEnabled != shouldBeOn {
-            launchEnabled = shouldBeOn
+            setToggle(shouldBeOn)
         }
+    }
+
+    /// Sets `launchEnabled` programmatically with the re-entrancy guard raised, so the
+    /// resulting `onChange` is ignored and no second enable()/disable() is issued (WR-05).
+    private func setToggle(_ on: Bool) {
+        isReconciling = true
+        launchEnabled = on
+        isReconciling = false
     }
 
     private func replayOnboarding() {
