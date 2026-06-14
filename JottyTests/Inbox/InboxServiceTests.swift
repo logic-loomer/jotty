@@ -97,7 +97,9 @@ final class InboxServiceTests: XCTestCase {
         let service = InboxService(sources: [src], state: store)
 
         await service.refresh()
-        XCTAssertEqual(service.suggestions.map(\.id), ["fake:1", "fake:2"])
+        // WR-02: suggestions are sorted deterministically (timestamp desc, then id).
+        // The two canned items share a timestamp, so id breaks the tie: "fake:2" > "fake:1".
+        XCTAssertEqual(service.suggestions.map(\.id), ["fake:2", "fake:1"])
 
         try service.accept(target)
         // Dropped from the live suggestion set immediately.
@@ -120,7 +122,8 @@ final class InboxServiceTests: XCTestCase {
         let service = InboxService(sources: [src], state: store)
 
         await service.refresh()
-        XCTAssertEqual(service.suggestions.map(\.id), ["fake:1", "fake:2"])
+        // WR-02: deterministic sort (timestamp desc, then id) → "fake:2" leads on the tie.
+        XCTAssertEqual(service.suggestions.map(\.id), ["fake:2", "fake:1"])
 
         try service.dismiss(target)
         XCTAssertFalse(service.suggestions.contains { $0.id == "fake:1" })
@@ -128,5 +131,35 @@ final class InboxServiceTests: XCTestCase {
 
         await service.refresh()
         XCTAssertEqual(service.suggestions.map(\.id), ["fake:2"])
+    }
+
+    // MARK: WR-02 — deterministic, recency-ordered suggestions across refreshes
+
+    func testSuggestionsAreSortedByRecencyThenId() async throws {
+        // Two sources fan out concurrently; completion order is non-deterministic, but the
+        // merged list must be stable: newest timestamp first, id breaking ties.
+        let older = item("z:old")
+        let olderWithTime = InboxItem(id: older.id, sourceID: "z", title: "old",
+                                      url: older.url,
+                                      timestamp: Date(timeIntervalSince1970: 100),
+                                      rawText: "old")
+        let newer = InboxItem(id: "a:new", sourceID: "a", title: "new",
+                              url: "https://x.test/a:new",
+                              timestamp: Date(timeIntervalSince1970: 200),
+                              rawText: "new")
+        let s1 = FakeInboxSource(id: "a"); s1.cannedItems = [newer]
+        let s2 = FakeInboxSource(id: "z"); s2.cannedItems = [olderWithTime]
+
+        // Run both source orderings; the sorted result must be identical (deterministic).
+        let serviceA = InboxService(sources: [s1, s2], state: try makeStore())
+        await serviceA.refresh()
+        let serviceB = InboxService(sources: [s2, s1], state: try InboxStateStore(
+            path: path.deletingLastPathComponent().appendingPathComponent("b.json")))
+        await serviceB.refresh()
+
+        XCTAssertEqual(serviceA.suggestions.map(\.id), ["a:new", "z:old"],
+                       "newest timestamp leads regardless of source order")
+        XCTAssertEqual(serviceA.suggestions.map(\.id), serviceB.suggestions.map(\.id),
+                       "order is independent of which source returned first")
     }
 }

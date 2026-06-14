@@ -36,20 +36,31 @@ final class InboxService: ObservableObject {
     /// 3. Dedupe the collected items against `accepted ∪ dismissed` (SC2): an id in
     ///    either set is never re-suggested.
     func refresh() async {
-        guard sources.contains(where: { $0.isConfigured }) else {
+        // WR-03: evaluate `isConfigured` ONCE per source per refresh. For
+        // `GitHubInboxSource` this is a synchronous main-thread Keychain read, so the
+        // previous double evaluation (guard + for-where) issued two main-thread Keychain
+        // lookups per source per refresh. Compute the active set once and fan out over it.
+        let active = sources.filter { $0.isConfigured }
+        guard !active.isEmpty else {
             suggestions = []
             return
         }
         var collected: [InboxItem] = []
         await withTaskGroup(of: [InboxItem].self) { group in
-            for src in sources where src.isConfigured {
+            for src in active {
                 group.addTask { (try? await src.fetchItems()) ?? [] }
             }
             for await items in group { collected += items }
         }
         let dedupeState = state.state
         let excluded = dedupeState.accepted.union(dedupeState.dismissed)
-        suggestions = collected.filter { !excluded.contains($0.id) }
+        // WR-02: `withTaskGroup` collects in completion (network-return) order, which is
+        // non-deterministic across refreshes for ≥2 sources, so the Suggested list would
+        // visibly reshuffle. Sort deterministically (recency desc, then id) so the list is
+        // stable and recency-ordered regardless of which source returned first.
+        suggestions = collected
+            .filter { !excluded.contains($0.id) }
+            .sorted { ($0.timestamp, $0.id) > ($1.timestamp, $1.id) }
     }
 
     /// Records `item.id` as accepted (persisted) and drops it from `suggestions` so it is
