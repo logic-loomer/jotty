@@ -47,7 +47,12 @@ struct KeybindingsTab: View {
                     HStack {
                         Text(entry.label)
                         Spacer()
-                        RecordComboField(current: bindings[entry.action]) { combo in
+                        RecordComboField(
+                            current: bindings[entry.action],
+                            // WR-06: the GLOBAL hotkey must require a modifier — a bare key
+                            // would be grabbed system-wide and hijack that key everywhere.
+                            allowsBareKey: entry.action != .globalToggleCapture
+                        ) { combo in
                             rebind(entry.action, to: combo)
                         }
                         .frame(width: 120, height: 24)
