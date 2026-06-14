@@ -25,6 +25,7 @@
 		28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E549027F93BB23F8A8121 /* CaptureViewModelFallbackTests.swift */; };
 		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
 		2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */; };
+		301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */; };
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
 		3477567BEFA4C82E03320B2E /* SMAppLaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF369BD5FB25AF56FD74547 /* SMAppLaunchAtLoginService.swift */; };
 		36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */; };
@@ -206,6 +207,7 @@
 		5212E65936B5489A73151E30 /* CalendarEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventMapper.swift; sourceTree = "<group>"; };
 		53AC3F72A417E829574D72E6 /* MenubarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarController.swift; sourceTree = "<group>"; };
 		569E74D1B7E1C17DC75AA83E /* JSONSchemaBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONSchemaBuilderTests.swift; sourceTree = "<group>"; };
+		56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubInboxSourceTests.swift; sourceTree = "<group>"; };
 		584B89BD144F18FA0301D259 /* KeybindingConflicts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingConflicts.swift; sourceTree = "<group>"; };
 		5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocTests.swift; sourceTree = "<group>"; };
 		5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStore.swift; sourceTree = "<group>"; };
@@ -476,6 +478,7 @@
 			isa = PBXGroup;
 			children = (
 				423C42337CB98153A4329E2E /* FakeInboxSource.swift */,
+				56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */,
 				32D258ED7D377FA81D9B65BC /* InboxServiceTests.swift */,
 				88B479C8DBBC174CCACF42C1 /* InboxSourceCatalogTests.swift */,
 				BD82516879EB779F454ABE18 /* InboxStateStoreTests.swift */,
@@ -777,6 +780,7 @@
 				63702B888DBB2625DFB04D63 /* FakeLaunchAtLoginService.swift in Sources */,
 				E4447D28FA66F03D1BDC5339 /* FixtureComparator.swift in Sources */,
 				E3A30F2247865922A7DD2338 /* GeminiProviderTests.swift in Sources */,
+				301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */,
 				FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */,
 				6A34ACDBA9F78E078E70E54D /* InboxServiceTests.swift in Sources */,
 				89FF09BC042A9FC1201B1B67 /* InboxSourceCatalogTests.swift in Sources */,
