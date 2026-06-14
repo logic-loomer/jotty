@@ -11,6 +11,8 @@ struct Todo: Equatable {
     var sourceNote: String?  // optional note id this task was extracted from
     var timeBlock: TimeBlock?  // optional time block for the task (Phase 5)
     var calEventID: String?    // linked calendar event identifier (Phase 5)
+    var source: String?        // inbox provenance: composite "<sourceID>:<itemID>" (Phase 7)
+    var sourceURL: String?     // canonical link to the originating inbox item (Phase 7)
 
     init(id: String,
          text: String,
@@ -21,7 +23,9 @@ struct Todo: Equatable {
          rolledTo: Date? = nil,
          sourceNote: String? = nil,
          timeBlock: TimeBlock? = nil,
-         calEventID: String? = nil) {
+         calEventID: String? = nil,
+         source: String? = nil,
+         sourceURL: String? = nil) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
@@ -32,5 +36,7 @@ struct Todo: Equatable {
         self.sourceNote = sourceNote
         self.timeBlock = timeBlock
         self.calEventID = calEventID
+        self.source = source
+        self.sourceURL = sourceURL
     }
 }

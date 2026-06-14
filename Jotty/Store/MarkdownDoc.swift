@@ -71,6 +71,18 @@ struct MarkdownDoc: Equatable {
                !cal.contains(where: { $0.isWhitespace }) {
                 meta += " cal_event:\(cal)"
             }
+            if let src = task.source,
+               // T-7-02: source is `sourceID:itemID` (space-free GitHub id); guard anyway so
+               // a malformed value can never split into bogus tokens.
+               !src.contains(where: { $0.isWhitespace }) {
+                meta += " source:\(src)"
+            }
+            if let su = task.sourceURL,
+               // T-7-01: a whitespace-bearing url would split into a bogus token and corrupt
+               // the space-split metadata line (Pitfall 4) — skip rather than corrupt.
+               !su.contains(where: { $0.isWhitespace }) {
+                meta += " source_url:\(su)"
+            }
             // IN-01: the task line is `- [x] <text> <!-- <meta> -->`; a `text` containing
             // `<!--`/`-->` would shift the comment boundary and corrupt the round-trip
             // (calendar-sourced titles can now reach `task.text` via SC4 sync). Neutralize the
@@ -134,6 +146,8 @@ struct MarkdownDoc: Equatable {
             var sourceNote: String? = nil
             var timeBlock: TimeBlock? = nil
             var calEventID: String? = nil
+            var source: String? = nil
+            var sourceURL: String? = nil
 
             let tokens = metaBlob.split(separator: " ", omittingEmptySubsequences: true)
             for token in tokens {
@@ -166,6 +180,10 @@ struct MarkdownDoc: Equatable {
                     }
                 case "cal_event":
                     calEventID = value
+                case "source":
+                    source = value
+                case "source_url":
+                    sourceURL = value
                 default:
                     break
                 }
@@ -176,7 +194,8 @@ struct MarkdownDoc: Equatable {
             let todo = Todo(id: id, text: taskText, createdAt: createdAt,
                             done: done, completedAt: completedAt,
                             dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote,
-                            timeBlock: timeBlock, calEventID: calEventID)
+                            timeBlock: timeBlock, calEventID: calEventID,
+                            source: source, sourceURL: sourceURL)
             doc.tasks.append(todo)
         }
 
