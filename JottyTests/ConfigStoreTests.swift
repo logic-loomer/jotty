@@ -32,4 +32,57 @@ final class ConfigStoreTests: XCTestCase {
         let store2 = try ConfigStore(path: tempURL)
         XCTAssertEqual(store2.config.storageFolder, custom)
     }
+
+    // MARK: - WR-03: Sendable + concurrent read/write safety
+
+    /// ConfigStore is `Sendable` (its config read + every update are lock-guarded), so it
+    /// can be captured into the off-main Claude-handoff seam and read concurrently with a
+    /// Settings-tab `update {}` without tearing. This drives many concurrent readers
+    /// against repeated writers: each read must observe a CONSISTENT (never half-written)
+    /// AppConfig — under the data race the `@unchecked` previously masked this would trip
+    /// TSan / produce a torn value. (Run with the Thread Sanitizer to harden further.)
+    func testConcurrentReadsAndWritesDoNotTear() throws {
+        let store = try ConfigStore(path: tempURL)
+        // Two valid, distinct states; every read must see one of them whole, never a mix.
+        let web: ClaudeAction = .web
+        let code: ClaudeAction = .code
+        try store.update { $0.claudeAction = web; $0.aiProviderID = "apple-fm" }
+
+        let iterations = 2_000
+        let group = DispatchGroup()
+
+        // Writers flip between two fully-consistent states.
+        for i in 0..<4 {
+            group.enter()
+            DispatchQueue.global().async {
+                for n in 0..<iterations {
+                    let toCode = (n % 2 == 0)
+                    try? store.update {
+                        $0.claudeAction = toCode ? code : web
+                        $0.aiProviderID = toCode ? "claude" : "apple-fm"
+                    }
+                    _ = i
+                }
+                group.leave()
+            }
+        }
+
+        // Readers assert the two fields are always mutually consistent (the invariant a
+        // torn read would break): claudeAction==.code iff aiProviderID=="claude".
+        for _ in 0..<4 {
+            group.enter()
+            DispatchQueue.global().async {
+                for _ in 0..<iterations {
+                    let snapshot = store.config
+                    let codeMode = (snapshot.claudeAction == code)
+                    let claudeProvider = (snapshot.aiProviderID == "claude")
+                    XCTAssertEqual(codeMode, claudeProvider,
+                                   "read must observe a whole, consistent AppConfig (no tear)")
+                }
+                group.leave()
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 30), .success, "no deadlock under contention")
+    }
 }

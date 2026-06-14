@@ -19,6 +19,14 @@ import AppKit
 /// via `@unchecked Sendable` (mirrors the repo's `FakeClaudeHandoff`). The
 /// `@unchecked` lets injected test closures capture local mutable state without
 /// `@Sendable` capture errors, while the real OS effects are fire-and-forget.
+///
+/// WR-03: the masked data race the reviewer flagged was the PRODUCTION `action`
+/// closure capturing a then-non-Sendable, non-isolated `ConfigStore` and reading
+/// `config` off the main actor concurrently with a Settings-tab `update {}` write.
+/// `ConfigStore` is now a genuinely `Sendable`, lock-guarded type, so that
+/// concurrent read/write is serialized and can never tear — the `@unchecked` here
+/// no longer hides a real race, it only relaxes the (unrelated) test-closure
+/// capture rules. The argv-only Code-mode contract (T-6-04) is unchanged.
 final class SystemClaudeHandoff: ClaudeHandoff, @unchecked Sendable {
 
     /// Opens a Web-mode URL. Default routes to `NSWorkspace.shared.open`.

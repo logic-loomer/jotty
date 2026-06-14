@@ -74,9 +74,28 @@ struct AppConfig: Codable, Equatable {
     }
 }
 
-final class ConfigStore {
-    private(set) var config: AppConfig
+/// Thread-safe, persisted app config.
+///
+/// `Sendable` so it can be captured into the `@Sendable` Claude-handoff `action`
+/// closure and the calendar `calendarID` closure WITHOUT `@unchecked` masking a data
+/// race (WR-03): a `send(prompt:)` that legitimately runs off the main actor must be
+/// able to read `config` concurrently with an `update {}` write from a Settings tab.
+/// `AppConfig` is a `Sendable` value type; `config`'s storage and every `update` are
+/// serialized behind a lock, so reads and writes never tear.
+final class ConfigStore: @unchecked Sendable {
+    /// Serializes every read of and write to `_config`. `@unchecked Sendable` is sound
+    /// here because the ONLY mutable state (`_config`) is never touched outside this lock.
+    private let lock = NSLock()
+    private var _config: AppConfig
     private let path: URL
+
+    /// Live snapshot of the config, read under the lock so it never tears against a
+    /// concurrent `update {}` (WR-03). `AppConfig` is a value type, so the returned copy
+    /// is independent of subsequent mutations.
+    var config: AppConfig {
+        lock.lock(); defer { lock.unlock() }
+        return _config
+    }
 
     init(path: URL) throws {
         self.path = path
@@ -86,19 +105,26 @@ final class ConfigStore {
 
         if let data = try? Data(contentsOf: path),
            let loaded = try? JSONDecoder().decode(AppConfig.self, from: data) {
-            self.config = loaded
+            self._config = loaded
         } else {
-            self.config = .defaultValue
-            try save()
+            self._config = .defaultValue
+            // Encode + write the initial default outside any captured-self closure; the
+            // lock is uncontended during init so a plain save is fine.
+            try Self.write(_config, to: path)
         }
     }
 
     func update(_ mutate: (inout AppConfig) -> Void) throws {
-        mutate(&config)
-        try save()
+        lock.lock()
+        mutate(&_config)
+        let snapshot = _config
+        lock.unlock()
+        // Persist OUTSIDE the lock (file I/O must not be held under the mutex), using the
+        // snapshot taken while locked so the written bytes match the applied mutation.
+        try Self.write(snapshot, to: path)
     }
 
-    private func save() throws {
+    private static func write(_ config: AppConfig, to path: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(config).write(to: path, options: .atomic)
