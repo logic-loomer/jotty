@@ -957,4 +957,108 @@ final class MenubarListModelTests: XCTestCase {
         c.timeZone = tz
         return Calendar(identifier: .gregorian).date(from: c)!
     }
+
+    // MARK: - Unified inbox: Accept / Dismiss / lazy refresh (Phase 7, SC2/SC3)
+
+    /// A temp-path InboxStateStore (dedupe state), cleaned with the suite's `folder`.
+    private func makeInboxState() throws -> InboxStateStore {
+        let path = folder.appendingPathComponent("inbox-state-\(UUID().uuidString).json")
+        return try InboxStateStore(path: path)
+    }
+
+    private func inboxItem(_ id: String, source: String = "github",
+                           title: String = "org/repo #1 — fix bug",
+                           url: String = "https://github.com/org/repo/issues/1") -> InboxItem {
+        InboxItem(id: id, sourceID: source, title: title, url: url,
+                  timestamp: Date(timeIntervalSince1970: 0), rawText: title)
+    }
+
+    /// SC2: accepting a suggestion writes a Todo to today's file carrying the
+    /// `source`/`sourceURL` provenance (round-trips through MarkdownDoc), records the id
+    /// so a later refresh never re-suggests it, and drops it from the live suggestion list.
+    func testAcceptWritesSourceTokenTaskRecordsIdAndDropsSuggestion() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "github", isConfigured: true)
+        let item = inboxItem("github:42")
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+        XCTAssertEqual(service.suggestions.map(\.id), ["github:42"])
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, inboxService: service)
+
+        model.acceptSuggestion(item)
+
+        // Written to today's file with source:/source_url: provenance (round-trip).
+        let doc = try store.readDoc(on: today)
+        let written = try XCTUnwrap(doc.tasks.first { $0.text == item.title })
+        XCTAssertEqual(written.source, "github:42")
+        XCTAssertEqual(written.sourceURL, "https://github.com/org/repo/issues/1")
+
+        // Dropped from suggestions + recorded so a re-refresh never re-suggests it.
+        XCTAssertFalse(service.suggestions.contains { $0.id == "github:42" })
+        await service.refresh()
+        XCTAssertFalse(service.suggestions.contains { $0.id == "github:42" },
+                       "accepted id must never be re-suggested (SC2)")
+    }
+
+    /// SC2: dismissing a suggestion records the id (never re-suggested) and removes it
+    /// from the list WITHOUT writing any task to the Store.
+    func testDismissRecordsIdAndWritesNoTask() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "github", isConfigured: true)
+        let item = inboxItem("github:7")
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, inboxService: service)
+
+        model.dismissSuggestion(item)
+
+        // No task written by a dismiss.
+        let doc = try store.readDoc(on: today)
+        XCTAssertFalse(doc.tasks.contains { $0.source == "github:7" })
+        // Dropped + never re-suggested.
+        XCTAssertFalse(service.suggestions.contains { $0.id == "github:7" })
+        await service.refresh()
+        XCTAssertFalse(service.suggestions.contains { $0.id == "github:7" },
+                       "dismissed id must never be re-suggested (SC2)")
+    }
+
+    /// SC3: the open-time refresh hook makes NO network call when no source is
+    /// configured — the privacy default. Asserted through the wiring path
+    /// (`refreshInbox()` → `InboxService.refresh()`) via the fake's call count.
+    func testRefreshInboxMakesNoFetchWhenUnconfigured() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "github", isConfigured: false)
+        src.cannedItems = [inboxItem("github:1")]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today },
+                                     inboxService: service)
+
+        await model.refreshInbox()
+
+        XCTAssertEqual(src.fetchCallCount, 0, "no network on default/unconfigured config (SC3)")
+        XCTAssertTrue(service.suggestions.isEmpty)
+    }
+
+    /// A nil inbox service (no wiring) is a no-op: refreshInbox/accept/dismiss must not crash.
+    func testNilInboxServiceIsNoOp() async throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today })
+        await model.refreshInbox()                       // no crash
+        model.acceptSuggestion(inboxItem("github:1"))    // no crash, no write
+        model.dismissSuggestion(inboxItem("github:1"))   // no crash
+        XCTAssertTrue(model.tasks.isEmpty)
+    }
 }

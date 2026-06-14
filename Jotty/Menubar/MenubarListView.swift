@@ -69,6 +69,12 @@ final class MenubarListModel: ObservableObject {
     /// existing tests/callers construct the model without it; when nil, the "Send to
     /// Claude" menu item is a no-op (AppDelegate injects the real SystemClaudeHandoff).
     private let claudeHandoff: (any ClaudeHandoff)?
+    /// Optional unified-inbox coordinator (Phase 7). nil-defaulted like calendar so
+    /// existing tests/callers construct the model without it; when nil there is no
+    /// Suggested section and `refreshInbox()` is a no-op. AppDelegate injects the real
+    /// `InboxService([GitHubInboxSource], …)`. Exposed (not private) so the view can
+    /// `@ObservedObject` it directly for `suggestions` updates.
+    let inboxService: InboxService?
 
     /// One-line, transient notice shown when Code-mode Send-to-Claude finds no `claude`
     /// binary (D-SC1 graceful degrade): points the user to Web mode. Cleared by the view
@@ -92,7 +98,8 @@ final class MenubarListModel: ObservableObject {
          now: @escaping () -> Date = Date.init,
          calendar: (any CalendarService)? = nil,
          configStore: ConfigStore? = nil,
-         claudeHandoff: (any ClaudeHandoff)? = nil) {
+         claudeHandoff: (any ClaudeHandoff)? = nil,
+         inboxService: InboxService? = nil) {
         self.store = store
         self.timezone = timezone
         self.defaults = defaults
@@ -100,6 +107,7 @@ final class MenubarListModel: ObservableObject {
         self.calendar = calendar
         self.configStore = configStore
         self.claudeHandoff = claudeHandoff
+        self.inboxService = inboxService
         reload()
     }
 
@@ -151,6 +159,51 @@ final class MenubarListModel: ObservableObject {
             refreshTask = Task { [weak self] in
                 await self?.reloadCalendar(clearMissingLinks: clearMissingLinks)
             }
+        }
+    }
+
+    // MARK: - Unified inbox (Phase 7, SC2/SC3)
+
+    /// Lazy refresh hook (SC3): fan out over configured sources. `InboxService.refresh()`
+    /// self-guards — it makes NO network call when zero sources are configured — so calling
+    /// this on every menubar open is safe on the default config. A nil service is a no-op.
+    func refreshInbox() async {
+        await inboxService?.refresh()
+    }
+
+    /// Accept a suggestion (SC2): write it as a real task carrying `source:`/`source_url:`
+    /// provenance into today's `## Tasks`, then record the id so it is never re-suggested
+    /// and drop it from the Suggested list. Best-effort — a Store/Keychain error degrades
+    /// gracefully (the item stays suggested), never crashes the popover.
+    func acceptSuggestion(_ item: InboxItem) {
+        guard let inboxService else { return }
+        let when = now()
+        let todo = Todo(
+            id: UUID().uuidString,
+            text: item.title,
+            createdAt: when,
+            source: item.id,        // composite "<sourceID>:<itemID>" → source: token
+            sourceURL: item.url)    // canonical link → source_url: token
+        do {
+            try store.appendCapture(noteText: "", noteId: nil, tasks: [todo], at: when)
+            // Record the id + drop from suggestions ONLY after the write succeeds, so a
+            // failed write leaves the item suggested (no silent loss).
+            try inboxService.accept(item)
+            reload()                // surface the new task in the list
+        } catch {
+            NSLog("[Jotty] accept suggestion failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Dismiss a suggestion (SC2): record the id (persisted) and drop it from the Suggested
+    /// list — never written to a task, never re-suggested. Best-effort; a persist failure
+    /// logs and leaves the item visible rather than crashing.
+    func dismissSuggestion(_ item: InboxItem) {
+        guard let inboxService else { return }
+        do {
+            try inboxService.dismiss(item)
+        } catch {
+            NSLog("[Jotty] dismiss suggestion failed: \(error.localizedDescription)")
         }
     }
 
@@ -601,6 +654,15 @@ struct MenubarListView: View {
 
             Divider()
 
+            // Suggested section (Phase 7, SC2): external inbox items offered for
+            // Accept/Dismiss, ABOVE the task list. Renders only when the inbox service
+            // is wired AND has suggestions; nothing on the default/unconfigured config.
+            if let inboxService = model.inboxService {
+                SuggestedSection(service: inboxService,
+                                 onAccept: { model.acceptSuggestion($0) },
+                                 onDismiss: { model.dismissSuggestion($0) })
+            }
+
             // Task list
             if model.tasks.isEmpty {
                 Text("No tasks today. ⌘N to capture.")
@@ -934,6 +996,76 @@ struct MenubarListView: View {
     private func openInCalendar(_ event: CalendarEvent) {
         if let url = CalendarURL.show(for: event.start) {
             NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+// MARK: - Suggested section (Phase 7, SC2)
+
+/// The menubar "Suggested" section: external inbox items (assigned GitHub issues,
+/// review-requested PRs, …) offered for Accept / Dismiss, distinct from tasks and
+/// calendar rows. It `@ObservedObject`s the `InboxService` directly so a refresh's
+/// `@Published suggestions` update redraws live. Renders NOTHING when the suggestion
+/// list is empty (default/unconfigured config), keeping the popover tidy.
+private struct SuggestedSection: View {
+    @ObservedObject var service: InboxService
+    let onAccept: (InboxItem) -> Void
+    let onDismiss: (InboxItem) -> Void
+
+    var body: some View {
+        if !service.suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Suggested")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 1)
+
+                ForEach(service.suggestions) { item in
+                    HStack(spacing: 8) {
+                        Image(systemName: Self.glyph(for: item.sourceID))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 14)
+                        Text(item.title.isEmpty ? item.rawText : item.title)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .help(item.url)
+                        Spacer(minLength: 4)
+                        // Accept → writes a source:/source_url: task; Dismiss → never re-suggest.
+                        Button(action: { onAccept(item) }) {
+                            Image(systemName: "plus.circle")
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Accept — add to today's tasks")
+                        Button(action: { onDismiss(item) }) {
+                            Image(systemName: "xmark.circle")
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Dismiss — never suggest again")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 3)
+                }
+            }
+            .padding(.bottom, 6)
+
+            Divider()
+        }
+    }
+
+    /// SF Symbol per source id; defaults to a generic inbox glyph for unmapped sources.
+    private static func glyph(for sourceID: String) -> String {
+        switch sourceID {
+        case "github": return "chevron.left.forwardslash.chevron.right"
+        case "gmail":  return "envelope"
+        case "slack":  return "number"
+        case "linear": return "line.3.horizontal"
+        case "notion": return "doc.text"
+        default:       return "tray"
         }
     }
 }

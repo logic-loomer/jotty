@@ -34,8 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// no re-wiring. Construction does NOT request access (CONTEXT: lazy on the
     /// first calendar action — the access gate fires inside the read/commit paths).
     private var calendar: EventKitCalendarService!
+    /// The single, app-lifetime unified-inbox coordinator (Phase 7). Constructed once
+    /// with the shipped `GitHubInboxSource` and the persisted dedupe `InboxStateStore`,
+    /// injected into the menubar. `refresh()` self-guards on a configured source, so the
+    /// default config makes no network call (SC3). nil only if the state store fails to
+    /// open (degrades to no Suggested section rather than crashing the app).
+    private var inboxService: InboxService?
 
     private var midnightTimer: Timer?
+    /// Opt-in periodic inbox refresh timer (SC3). nil unless `inboxCheckPeriodically`
+    /// is on; rescheduled when Settings closes so a toggle/interval change takes effect.
+    private var inboxTimer: Timer?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Set activation policy BEFORE the app appears, to avoid a Dock-icon flash.
@@ -85,16 +94,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
         }
 
+        // Construct the unified-inbox coordinator (Phase 7): the one shipped
+        // GitHubInboxSource (reads its PAT from the Keychain at fetch time) over the
+        // shared URLSession, plus the persisted dedupe state. `refresh()` self-guards
+        // on a configured source, so with no PAT the menubar open makes no network
+        // call (SC3). A state-store open failure degrades to no Suggested section.
+        if let inboxState = try? InboxStateStore() {
+            inboxService = InboxService(
+                sources: [GitHubInboxSource(session: .shared,
+                                            keychain: KeychainAPIKeyStore(),
+                                            patAccount: "github")],
+                state: inboxState)
+        } else {
+            NSLog("[Jotty] inbox state store unavailable; Suggested section disabled")
+            inboxService = nil
+        }
+
         // Inject the real calendar service into the menubar: the read section
         // (SC2), the SC3 lifecycle, and the SC4 drift-on-open hook all ride the
         // model's reloadCalendar(), which fires from reload() (popover open /
-        // window close / midnight) whenever a service is wired (plan 06/07).
+        // window close / midnight) whenever a service is wired (plan 06/07). The
+        // inbox service drives the Suggested section + lazy refresh-on-open (Phase 7).
         menubar = MenubarController(store: store, calendar: calendar,
-                                    configStore: configStore, claudeHandoff: claudeHandoff)
+                                    configStore: configStore, claudeHandoff: claudeHandoff,
+                                    inboxService: inboxService)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
         scheduleMidnightRollover(rolloverState: rolloverState)
+        // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
+        // unless the user enabled "Check periodically" in Settings → Integrations.
+        scheduleInboxTimer()
 
         hotkey = HotkeyManager()
         registerGlobalHotkey()
@@ -180,6 +210,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// (Re)schedules the opt-in periodic inbox refresh (SC3). A no-op (timer cleared)
+    /// unless `inboxCheckPeriodically` is on AND an interval is set; the interval is
+    /// floored at 5 minutes (Pitfall 1) so the timer can never poll a third-party API
+    /// more often. Each tick calls the SAME self-guarded `refreshInbox()` the menubar
+    /// open uses, so an unconfigured source still makes no network call. Called at
+    /// launch and when Settings closes so a toggle/interval change takes effect live.
+    private func scheduleInboxTimer() {
+        inboxTimer?.invalidate()
+        inboxTimer = nil
+        let cfg = configStore.config
+        guard cfg.inboxCheckPeriodically, let mins = cfg.inboxCheckIntervalMinutes else { return }
+        let interval = TimeInterval(max(5, mins) * 60)
+        inboxTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { await self.menubar.listModel.refreshInbox() }
+        }
+    }
+
     private func openCapture() {
         // Close any prior capture window to prevent stacking on rapid re-presses.
         captureController?.window?.close()
@@ -254,7 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 object: controller.window,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.registerGlobalHotkey() }
+                MainActor.assumeIsolated {
+                    self?.registerGlobalHotkey()
+                    // A Settings → Integrations toggle/interval change takes effect live.
+                    self?.scheduleInboxTimer()
+                }
             }
         }
         settingsController?.show()
