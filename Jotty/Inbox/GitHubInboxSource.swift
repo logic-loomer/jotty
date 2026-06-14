@@ -26,8 +26,9 @@ enum GitHubInboxError: Error, Equatable {
     case notConfigured
     /// HTTP 401: bad/expired PAT. Surface in Integrations; do not retry (T-7-08).
     case unauthorized
-    /// HTTP 403/429 with `X-RateLimit-Remaining: 0`: rate limited. Do not retry
-    /// until `X-RateLimit-Reset` (RESEARCH Pitfall 1); the service swallows it.
+    /// HTTP 403/429 that is a primary rate limit (`X-RateLimit-Remaining: 0`) OR a
+    /// secondary/abuse limit (`Retry-After` present, no `Remaining: 0`). Do not retry
+    /// until reset/Retry-After (RESEARCH Pitfall 1, WR-04); the service swallows it.
     case rateLimited
     /// Any other non-2xx status from GitHub.
     case httpStatus(Int)
@@ -165,10 +166,17 @@ struct GitHubInboxSource: InboxSource {
         case 401:
             throw GitHubInboxError.unauthorized
         case 403, 429:
-            // Rate limited iff the bucket is exhausted (RESEARCH Pitfall 1);
-            // otherwise it is a generic forbidden.
-            let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")
-            if remaining == "0" {
+            // Rate limited iff the primary bucket is exhausted
+            // (`X-RateLimit-Remaining` trimmed == "0", RESEARCH Pitfall 1) OR GitHub
+            // signalled a secondary/abuse limit, which omits `X-RateLimit-Remaining: 0`
+            // and instead carries a `Retry-After` header (WR-04). Either signal maps to
+            // the typed `rateLimited` Integrations surfaces; anything else is a generic
+            // forbidden. The header is trimmed so a stray " 0" is not mis-classified.
+            let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining")?
+                .trimmingCharacters(in: .whitespaces)
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After")?
+                .trimmingCharacters(in: .whitespaces)
+            if remaining == "0" || (retryAfter?.isEmpty == false) {
                 throw GitHubInboxError.rateLimited
             }
             throw GitHubInboxError.httpStatus(http.statusCode)
@@ -221,8 +229,10 @@ struct GitHubInboxSource: InboxSource {
 // (matching the ClaudeProvider idiom) rather than `.convertFromSnakeCase`, so
 // the field mapping is auditable in one place.
 
-/// One issue or PR from `/issues` or `/search/issues`. The `pullRequest` key is
-/// present only for PRs (Pitfall 2); `repository` is present only on `/issues`.
+/// One issue or PR from `/issues` or `/search/issues`. `repository` is present only
+/// on `/issues`. (The `pull_request` field marks PR-ness but no runtime behavior reads
+/// it — dedupe is by id and `map` does not branch on PR vs issue — so it is not decoded;
+/// IN-04. Re-add a `PRStub`/`pull_request` key here when a PR-specific glyph/filter lands.)
 struct GitHubIssue: Decodable {
     let id: Int
     let number: Int
@@ -230,21 +240,16 @@ struct GitHubIssue: Decodable {
     let htmlURL: String
     let updatedAt: String
     let repository: Repo?
-    let pullRequest: PRStub?
 
     struct Repo: Decodable {
         let fullName: String
         enum CodingKeys: String, CodingKey { case fullName = "full_name" }
     }
 
-    /// Presence marks the item as a PR; the body is intentionally unused.
-    struct PRStub: Decodable {}
-
     enum CodingKeys: String, CodingKey {
         case id, number, title, repository
         case htmlURL = "html_url"
         case updatedAt = "updated_at"
-        case pullRequest = "pull_request"
     }
 }
 
