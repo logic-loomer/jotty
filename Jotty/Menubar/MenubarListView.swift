@@ -777,12 +777,14 @@ struct MenubarListView: View {
                     // the field reliably gets the caret inside the NSPopover.
                     DispatchQueue.main.async { renameFieldFocused = true }
                 }
-                .onSubmit { commitRename(task) }
+                .onSubmit { commitRename(id: task.id) }
                 .onExitCommand { cancelRename() }   // Esc → cancel, no write
                 .onChange(of: renameFieldFocused) { _, focused in
                     // Blur commits (mirrors Return); guard on still-editing this row so a
-                    // post-commit focus flip does not double-fire.
-                    if !focused, editingTaskID == task.id { commitRename(task) }
+                    // post-commit focus flip does not double-fire. Commit by id (WR-04) so a
+                    // mid-edit reload that re-diffs the ForEach cannot land the draft on a
+                    // different row than the one being edited.
+                    if !focused, editingTaskID == task.id { commitRename(id: task.id) }
                 }
         } else {
             Text(task.text)
@@ -803,19 +805,27 @@ struct MenubarListView: View {
         editingTaskID = task.id
     }
 
-    /// Commits the draft via the model (Store rejects empty-after-trim → the reload
-    /// reverts the UI to the persisted text), then exits edit mode.
-    private func commitRename(_ task: Todo) {
+    /// Commits the draft for the row identified by `id` (WR-04). Captures the draft, exits
+    /// edit mode, clears the shared draft, then RE-RESOLVES the task from the model at
+    /// commit time — so a mid-edit `reload()` (midnight Timer / `applicationDidBecomeActive`)
+    /// that re-diffs the `ForEach` cannot let a stale captured `Todo` write the draft onto a
+    /// row whose identity changed under it. A no-longer-present id is a safe no-op (Store
+    /// also rejects empty-after-trim → the reload reverts the UI to the persisted text).
+    private func commitRename(id: String) {
         let draft = renameDraft
         editingTaskID = nil
         renameFieldFocused = false
+        renameDraft = ""
+        guard let task = model.tasks.first(where: { $0.id == id }) else { return }
         model.rename(task, to: draft)
     }
 
-    /// Cancels edit mode without writing (Esc): disk stays the source of truth.
+    /// Cancels edit mode without writing (Esc): disk stays the source of truth. Clears the
+    /// shared draft so a later edit never inherits a stale value.
     private func cancelRename() {
         editingTaskID = nil
         renameFieldFocused = false
+        renameDraft = ""
     }
 
     /// Human-readable summary of the drifted tasks for the SC4 prompt.
