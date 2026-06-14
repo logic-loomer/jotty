@@ -171,10 +171,12 @@ final class MenubarListModel: ObservableObject {
         await inboxService?.refresh()
     }
 
-    /// Accept a suggestion (SC2): write it as a real task carrying `source:`/`source_url:`
-    /// provenance into today's `## Tasks`, then record the id so it is never re-suggested
-    /// and drop it from the Suggested list. Best-effort — a Store/Keychain error degrades
-    /// gracefully (the item stays suggested), never crashes the popover.
+    /// Accept a suggestion (SC2): record the id (so it is never re-suggested and is dropped
+    /// from the Suggested list), then write it as a real task carrying `source:`/`source_url:`
+    /// provenance into today's `## Tasks`. The id is recorded FIRST (WR-01): if the task
+    /// write fails, a leaked dedupe entry (no task) is harmless, whereas the reverse order
+    /// could write a duplicate task on re-accept. Best-effort — any error degrades
+    /// gracefully (logged), never crashes the popover.
     func acceptSuggestion(_ item: InboxItem) {
         guard let inboxService else { return }
         let when = now()
@@ -185,10 +187,14 @@ final class MenubarListModel: ObservableObject {
             source: item.id,        // composite "<sourceID>:<itemID>" → source: token
             sourceURL: item.url)    // canonical link → source_url: token
         do {
-            try store.appendCapture(noteText: "", noteId: nil, tasks: [todo], at: when)
-            // Record the id + drop from suggestions ONLY after the write succeeds, so a
-            // failed write leaves the item suggested (no silent loss).
+            // WR-01: record acceptance (dedupe id) BEFORE the visible task write. If the
+            // task write then throws, the worst case is a leaked dedupe entry (the item
+            // won't re-suggest) — strictly safer than the reverse order, where a write
+            // success followed by an accept failure leaves the item suggested and invites
+            // the user to re-accept, writing a SECOND duplicate task. A dedupe entry with
+            // no task is harmless; a duplicate task is not.
             try inboxService.accept(item)
+            try store.appendCapture(noteText: "", noteId: nil, tasks: [todo], at: when)
             reload()                // surface the new task in the list
         } catch {
             NSLog("[Jotty] accept suggestion failed: \(error.localizedDescription)")
