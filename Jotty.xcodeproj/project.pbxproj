@@ -91,6 +91,7 @@
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
 		A555FA0BE4730FAB981CF708 /* ClaudeProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7719D4B2AE14EC6B4A7E5A9 /* ClaudeProviderTests.swift */; };
 		A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */; };
+		A59F82509CD4D9973852DC20 /* InboxService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E50985DD1B606D64D5E868 /* InboxService.swift */; };
 		AA4787417E88E3F72C5F5510 /* MenubarListModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84E33A536DA47388C797099 /* MenubarListModelTests.swift */; };
 		AA88A84B0DC036C099F8AC29 /* ProviderToleranceConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A5F0E9C31E086E62CAD2E59 /* ProviderToleranceConfigTests.swift */; };
 		ABAEFE960D853E31B130B707 /* AIAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */; };
@@ -269,6 +270,7 @@
 		D6EB8F59B589E10E72601FAE /* Quarantine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quarantine.swift; sourceTree = "<group>"; };
 		D7719D4B2AE14EC6B4A7E5A9 /* ClaudeProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProviderTests.swift; sourceTree = "<group>"; };
 		D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewListView.swift; sourceTree = "<group>"; };
+		D7E50985DD1B606D64D5E868 /* InboxService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxService.swift; sourceTree = "<group>"; };
 		D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaDownloader.swift; sourceTree = "<group>"; };
 		DBD348D2521FC3BD20CC2309 /* ConfigStoreProviderFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreProviderFieldTests.swift; sourceTree = "<group>"; };
 		DEDE140B418AF6F0F2B101AD /* OnboardingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindow.swift; sourceTree = "<group>"; };
@@ -354,6 +356,7 @@
 			isa = PBXGroup;
 			children = (
 				7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */,
+				D7E50985DD1B606D64D5E868 /* InboxService.swift */,
 				AEB933160AFF4D189209B4EC /* InboxSource.swift */,
 				2FE80CD595DDAA8675E4921D /* InboxSourceCatalog.swift */,
 				747678BA842844AE926C40DA /* InboxStateStore.swift */,
@@ -842,6 +845,7 @@
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
 				3B3F9C348BF60C997586949D /* InboxItem.swift in Sources */,
+				A59F82509CD4D9973852DC20 /* InboxService.swift in Sources */,
 				F633A34C698A9F2ADBAD1E2F /* InboxSource.swift in Sources */,
 				E3104A620FC2E95C3F982980 /* InboxSourceCatalog.swift in Sources */,
 				69934DF54E83C2F27229ACFE /* InboxStateStore.swift in Sources */,
