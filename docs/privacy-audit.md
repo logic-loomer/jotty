@@ -131,6 +131,60 @@ OpenAI, and Gemini are cloud providers: selecting one and committing a capture s
 the capture text to that endpoint. API keys for the cloud providers live only in the
 macOS Keychain, never in `config.json` or any file on disk.
 
+## Inbox network posture (Phase 7)
+
+The Unified Inbox is held to the same zero-network default. The default,
+unconfigured config reaches no inbox endpoint at all.
+
+- **No network on the default config.** With no source configured, the inbox makes no
+  request. `InboxService.refresh()` self-guards on having at least one configured
+  source, so opening the menubar with no Personal Access Token set issues no inbox
+  call and shows no Suggested section.
+- **One reachable endpoint in this version: `api.github.com`.** GitHub is the only
+  shipped source. It is contacted **only when a PAT is configured**, and only for two
+  reads per refresh: your assigned issues (`https://api.github.com/issues?filter=assigned`)
+  and review-requested pull requests (`https://api.github.com/search/issues`). No
+  other inbox endpoint is reachable in this version.
+- **Refresh is lazy and opt-in.** With a source configured, the inbox refreshes when
+  you open the menubar (the same lazy trigger as the calendar read). The only other
+  trigger is the **Settings → Integrations** "Check periodically" toggle, which is
+  **OFF by default** (and floored at a 5-minute interval when on). There is no
+  background polling unless you opt in.
+- **The PAT lives in the Keychain only.** The GitHub Personal Access Token is written
+  to the macOS Keychain (`kSecClassGenericPassword`, app-scoped, not iCloud-synced)
+  via the same path as the cloud-provider API keys. It is never written to
+  `config.json`, UserDefaults, logs, or any file on disk, and is never read back into
+  the UI after it is saved.
+
+### Inbox transparency registry
+
+The full five-source registry is surfaced in **Settings → Integrations**, listing
+every planned endpoint whether or not the source is built, so the complete inbox
+network surface is visible. The values come from the static `InboxSourceCatalog`
+source of truth.
+
+| Source | Status | Endpoint |
+|---|---|---|
+| GitHub | Built | `https://api.github.com` |
+| Gmail | Planned (extension point) | `https://gmail.googleapis.com` |
+| Slack | Planned (extension point) | `https://slack.com/api` |
+| Linear | Planned (extension point) | `https://api.linear.app` |
+| Notion | Planned (extension point) | `https://api.notion.com` |
+
+Only GitHub is reachable in this version; the Planned rows are transparency
+disclosures of future endpoints, not active network destinations.
+
+### Auditing the inbox path
+
+The manual capture procedure above extends to the inbox unchanged. To confirm the
+default-config posture, run the `tcpdump` / Little Snitch capture from
+[Manual procedure](#manual-procedure-human-only) with **no PAT set** and open the
+menubar: no connection to `api.github.com` should appear, and no Suggested section
+should render. To audit the configured path, set a PAT, open the menubar, and confirm
+the only inbox connection is to `api.github.com` (the two reads above) — and that no
+request fires on the default config or while the periodic toggle is OFF and the
+menubar is closed.
+
 ## Why the live capture is human-only
 
 `xcodebuild test` runs the suite against fakes (no real network, no real Calendar, no

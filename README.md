@@ -2,7 +2,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** v1.0 shipped. Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full six-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, and a documented privacy audit confirming the zero-network default. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
+**Status:** v1.0 shipped, plus Phase 7 (Unified Inbox). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, and a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
 
 ## Build from source
 
@@ -281,7 +281,7 @@ status line reflects the real OS state (`enabled`, `requires approval`, or
 
 ## Settings (Phase 6)
 
-The Settings window has six tabs:
+The Settings window has seven tabs (Integrations added in Phase 7):
 
 | Tab | What it controls |
 |---|---|
@@ -289,6 +289,7 @@ The Settings window has six tabs:
 | **Storage** | Notes folder |
 | **AI** | Provider picker, API keys (Keychain), endpoint transparency, Claude action mode |
 | **Calendar** | Default calendar, delete-linked-event preference |
+| **Integrations** | GitHub PAT (Keychain), opt-in periodic-check toggle, 5-source transparency table (added Phase 7) |
 | **Keybindings** | Rebind any action, conflict warnings, reset to defaults |
 | **Advanced** | Reveal `config.json` in Finder, reset to defaults, privacy + endpoint summary |
 
@@ -319,6 +320,57 @@ that is the release-time human confirmation. The full procedure and the per-prov
 endpoint table are in **[docs/privacy-audit.md](docs/privacy-audit.md)**.
 **Settings → Advanced** shows the same zero-network summary plus the endpoint table.
 
+## Unified Inbox (Phase 7)
+
+External items surface as *suggested* tasks in the menubar, so work assigned to you
+elsewhere shows up next to your own captures without leaving Jotty. Open the menubar
+and a **Suggested** section (above your tasks) lists each item with its source glyph
+and title.
+
+- **Accept** writes the item into today's `## Tasks` with a source link, then drops
+  it from the Suggested list. The task line carries `source:<sourceID>:<itemID>` and
+  `source_url:<url>` tokens (the same additive metadata pattern as `cal_event:` and
+  `time:`), so the task always points back to where it came from.
+- **Dismiss** is remembered: the item is recorded in a local dismissed set and is
+  never suggested again. Accepted items are tracked the same way, so a later refresh
+  never re-suggests something you already actioned.
+
+### Sources
+
+The inbox is built on a single `InboxSource` protocol with a static transparency
+registry, so every planned source is visible in Settings even before it ships.
+
+| Source | Status | Auth | Endpoint |
+|---|---|---|---|
+| **GitHub** | Shipped | Personal Access Token | `https://api.github.com` |
+| Gmail | Extension point | — | `https://gmail.googleapis.com` |
+| Slack | Extension point | — | `https://slack.com/api` |
+| Linear | Extension point | — | `https://api.linear.app` |
+| Notion | Extension point | — | `https://api.notion.com` |
+
+**GitHub is the one shipped source.** Set a Personal Access Token (with read access
+to issues and pull requests) in **Settings → Integrations**; Jotty stores it in the
+macOS Keychain (never in `config.json`, UserDefaults, or any file on disk) and
+suggests your assigned issues and review-requested PRs.
+
+**Gmail / Slack / Linear / Notion are documented extension points**, not yet built.
+They appear in the transparency table with their endpoints so the privacy posture is
+complete, and the protocol + registry make adding one a matter of writing a single
+conforming `InboxSource` type — the Keychain credential flow and transparency list
+are already generic.
+
+### Refresh and privacy
+
+- **No background polling by default.** With a source configured, the inbox refreshes
+  when you open the menubar (lazy, the same as the calendar read). On the default,
+  unconfigured config Jotty makes no inbox network request at all.
+- **Opt-in periodic checks.** **Settings → Integrations** has a "Check periodically"
+  toggle (with an interval, minimum 5 minutes) that is **OFF by default**. Turn it on
+  only if you want a timer to refresh in the background.
+
+The full network posture is recorded in
+**[docs/privacy-audit.md](docs/privacy-audit.md)**.
+
 ## Testing
 
 ```bash
@@ -333,7 +385,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 - **Phase 4:** Cloud AI providers (Ollama, Claude, OpenAI, Gemini) (shipped)
 - **Phase 5:** Calendar integration (read + write) (shipped)
 - **Phase 6:** Send-to-Claude, launch-at-login, full settings UI, onboarding, privacy audit — **v1.0 shipped**
-- **Phase 7:** Unified inbox (calendar + tasks + notes)
+- **Phase 7:** Unified inbox (GitHub shipped via PAT; Gmail / Slack / Linear / Notion documented extension points) (shipped)
 - **Phase 8:** Calendar power-UX (add to calendar, smart scheduling)
 - **Phase 9:** Command bar (global search, quick actions)
 
