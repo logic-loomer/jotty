@@ -221,7 +221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inboxTimer = nil
         let cfg = configStore.config
         guard cfg.inboxCheckPeriodically, let mins = cfg.inboxCheckIntervalMinutes else { return }
-        let interval = TimeInterval(max(5, mins) * 60)
+        // IN-03: floor via the shared InboxRefreshPolicy so this never diverges from
+        // the Settings stepper's minimum (Pitfall 1).
+        let interval = TimeInterval(InboxRefreshPolicy.flooredMinutes(mins) * 60)
         inboxTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { await self.menubar.listModel.refreshInbox() }

@@ -20,9 +20,10 @@ struct IntegrationsTab: View {
 
     /// The minimum opt-in interval (Pitfall 1): the periodic timer can never poll
     /// a third-party API more often than this, even if a stale config asks for less.
-    private static let minIntervalMinutes = 5
+    /// IN-03: single source of truth — shared with AppDelegate's timer scheduler.
+    private static let minIntervalMinutes = InboxRefreshPolicy.minIntervalMinutes
     /// Default interval applied when the toggle is first turned on (interval was nil).
-    private static let defaultIntervalMinutes = 15
+    private static let defaultIntervalMinutes = InboxRefreshPolicy.defaultIntervalMinutes
 
     @State private var checkPeriodically: Bool
     @State private var intervalMinutes: Int

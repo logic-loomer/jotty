@@ -124,6 +124,7 @@
 		D9EF353A56B432983FF479B3 /* FakeCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */; };
 		DC13F6F4A63642BD6B3DE162 /* CalendarDrift.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23C090ADF66A94D4A73E9BD8 /* CalendarDrift.swift */; };
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
+		DD0A20E6A8E5F48DF822A976 /* InboxRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC59B2CBBAE698BFF81B1B9 /* InboxRefreshPolicy.swift */; };
 		DE94C60BB5A7B4B2DCCA2359 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */; };
 		DEBE33F44C0B1A2F9162CC63 /* LaunchAtLoginTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF21C8F9A39D7BE6531516DF /* LaunchAtLoginTests.swift */; };
 		DFFC4E09887978614C1381A7 /* KeyCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */; };
@@ -279,6 +280,7 @@
 		D7E50985DD1B606D64D5E868 /* InboxService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxService.swift; sourceTree = "<group>"; };
 		D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaDownloader.swift; sourceTree = "<group>"; };
 		DBD348D2521FC3BD20CC2309 /* ConfigStoreProviderFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreProviderFieldTests.swift; sourceTree = "<group>"; };
+		DDC59B2CBBAE698BFF81B1B9 /* InboxRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxRefreshPolicy.swift; sourceTree = "<group>"; };
 		DEDE140B418AF6F0F2B101AD /* OnboardingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindow.swift; sourceTree = "<group>"; };
 		E164C1254160F1C1D6633F02 /* OllamaBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBinaryLocatorTests.swift; sourceTree = "<group>"; };
 		E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubReleases.swift; sourceTree = "<group>"; };
@@ -363,6 +365,7 @@
 			children = (
 				69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */,
 				7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */,
+				DDC59B2CBBAE698BFF81B1B9 /* InboxRefreshPolicy.swift */,
 				D7E50985DD1B606D64D5E868 /* InboxService.swift */,
 				AEB933160AFF4D189209B4EC /* InboxSource.swift */,
 				2FE80CD595DDAA8675E4921D /* InboxSourceCatalog.swift */,
@@ -856,6 +859,7 @@
 				F37BB57E7E6293A91C4826E6 /* HotkeyManager.swift in Sources */,
 				C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */,
 				3B3F9C348BF60C997586949D /* InboxItem.swift in Sources */,
+				DD0A20E6A8E5F48DF822A976 /* InboxRefreshPolicy.swift in Sources */,
 				A59F82509CD4D9973852DC20 /* InboxService.swift in Sources */,
 				F633A34C698A9F2ADBAD1E2F /* InboxSource.swift in Sources */,
 				E3104A620FC2E95C3F982980 /* InboxSourceCatalog.swift in Sources */,
