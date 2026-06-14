@@ -103,10 +103,11 @@ final class MenubarListModel: ObservableObject {
         reload()
     }
 
-    /// Day-partition key for a task: its `createdAt` day in the model's timezone.
-    /// Used by the row affordances (rename / move / open day file) so they always
-    /// address the file the task actually lives in.
-    private func dayOf(_ task: Todo) -> Date { task.createdAt }
+    /// The day FILE a task is stored in: its `createdAt` day in the model's timezone
+    /// (IN-05). Used by `rename` / `openDayFile` (which genuinely want the file the task
+    /// lives in) and as the SOURCE day for `moveToTomorrow` — never as the "act relative
+    /// to" anchor (that anchor is `now()`, see CR-01).
+    private func fileDay(of task: Todo) -> Date { task.createdAt }
 
     /// `clearMissingLinks` is forwarded to the spawned calendar refresh: it is true on a
     /// genuine open-time reload (popover open, foreground, midnight) so a deleted event's
@@ -495,14 +496,18 @@ final class MenubarListModel: ObservableObject {
 
     // MARK: - Row affordances (SC1 / SC4)
 
-    /// Moves the task to tomorrow's file (SC4). Disk is the source of truth: the
-    /// store removes it from today and lands it on tomorrow (re-partitioned createdAt),
-    /// then we reload so it leaves today's list. A linked calendar event is left
-    /// untouched here (the time block keeps its wall-clock slot on the new day; a
-    /// later edit re-syncs the event). A failure logs, never crashes.
+    /// Moves the task to TOMORROW's file (SC4). "Tomorrow" is computed from the current
+    /// day (`now()`), NOT from the task's creation day, so a stale leftover (created days
+    /// ago) lands on the real tomorrow and stops being a leftover — never written back to a
+    /// past-day file (CR-01). The source file is the one the task currently lives in
+    /// (`fileDay(of:)`). Disk is the source of truth: the store removes it from its source
+    /// and lands it on tomorrow (re-partitioned createdAt), then we reload so it leaves
+    /// today's list. A linked calendar event is left untouched here (the time block keeps
+    /// its wall-clock slot on the new day; a later edit re-syncs the event). A failure
+    /// logs, never crashes.
     func moveToTomorrow(_ task: Todo) {
         do {
-            try store.moveTodoToTomorrow(id: task.id, on: dayOf(task))
+            try store.moveTodoToTomorrow(id: task.id, from: fileDay(of: task), now: now())
         } catch {
             NSLog("[Jotty] moveToTomorrow failed: \(error.localizedDescription)")
         }
@@ -513,7 +518,7 @@ final class MenubarListModel: ObservableObject {
     /// user's default .md handler; never mutates state. No-op only when the file path
     /// cannot be resolved (it always can — DailyFile derives a deterministic path).
     func openDayFile(_ task: Todo) {
-        let url = DailyFile.url(in: store.folder, on: dayOf(task), timezone: store.timezone)
+        let url = DailyFile.url(in: store.folder, on: fileDay(of: task), timezone: store.timezone)
         NSWorkspace.shared.open(url)
     }
 
@@ -537,7 +542,7 @@ final class MenubarListModel: ObservableObject {
     /// reload so the list reflects the new text. A failure logs, never crashes.
     func rename(_ task: Todo, to text: String) {
         do {
-            try store.renameTodo(id: task.id, text: text, on: dayOf(task))
+            try store.renameTodo(id: task.id, text: text, on: fileDay(of: task))
         } catch {
             NSLog("[Jotty] rename failed: \(error.localizedDescription)")
         }

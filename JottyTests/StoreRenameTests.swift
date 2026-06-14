@@ -101,7 +101,7 @@ final class StoreRenameTests: XCTestCase {
         try store.appendCapture(noteText: "", noteId: nil,
                                 tasks: [Todo(id: "t_001", text: "carry over", createdAt: now)], at: now)
 
-        try store.moveTodoToTomorrow(id: "t_001", on: now)
+        try store.moveTodoToTomorrow(id: "t_001", from: now, now: now)
 
         XCTAssertTrue(try store.readDoc(on: now).tasks.isEmpty)
         XCTAssertEqual(try store.readDoc(on: tomorrow).tasks.map(\.id), ["t_001"])
@@ -118,7 +118,7 @@ final class StoreRenameTests: XCTestCase {
                  timeBlock: TimeBlock(start: start, end: end), calEventID: "evt-abc")
         ], at: now)
 
-        try store.moveTodoToTomorrow(id: "t_001", on: now)
+        try store.moveTodoToTomorrow(id: "t_001", from: now, now: now)
 
         let moved = try XCTUnwrap(try store.readDoc(on: tomorrow).tasks.first { $0.id == "t_001" })
         XCTAssertEqual(moved.text, "carry over")
@@ -142,9 +142,53 @@ final class StoreRenameTests: XCTestCase {
         let tomorrow = makeDate(2026, 5, 9, h: 7, m: 30)
         try store.appendCapture(noteText: "", noteId: nil,
                                 tasks: [Todo(id: "t_001", text: "stay", createdAt: now)], at: now)
-        try store.moveTodoToTomorrow(id: "t_nope", on: now)
+        try store.moveTodoToTomorrow(id: "t_nope", from: now, now: now)
         XCTAssertEqual(try store.readDoc(on: now).tasks.map(\.id), ["t_001"])
         XCTAssertTrue(try store.readDoc(on: tomorrow).tasks.isEmpty)
+    }
+
+    func testMoveStaleSourceLandsRelativeToNowNotSource() throws {
+        // CR-01 at the store layer: the destination is now()+1 day, derived from the
+        // CURRENT day — never from the (past) source day. A task living in a 3-days-ago
+        // file moves to now+1, removed from its old file.
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let sourceDay = makeDate(2026, 5, 5, h: 9, m: 0)   // 3 days before "now"
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let realTomorrow = makeDate(2026, 5, 9, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_001", text: "stale", createdAt: sourceDay)],
+                                at: sourceDay)
+
+        try store.moveTodoToTomorrow(id: "t_001", from: sourceDay, now: now)
+
+        // Removed from the old source file.
+        XCTAssertTrue(try store.readDoc(on: sourceDay).tasks.isEmpty,
+                      "removed from its old source day")
+        // Landed on now+1, not source+1 (which would be 2026-05-06, in the past).
+        XCTAssertEqual(try store.readDoc(on: realTomorrow).tasks.map(\.id), ["t_001"])
+        let pastDay = makeDate(2026, 5, 6, h: 7, m: 30)   // source+1, the WRONG (past) day
+        XCTAssertTrue(try store.readDoc(on: pastDay).tasks.isEmpty,
+                      "must NOT land in source+1 past-day file")
+    }
+
+    func testMoveWhenSourceIsAlreadyTomorrowRepartitionsInPlace() throws {
+        // Same-file branch: source day == tomorrow (now+1). The task stays in that file
+        // but its createdAt advances to tomorrow's startOfDay (it must not be duplicated
+        // or lost when remove+append target the same path).
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let tomorrow = makeDate(2026, 5, 9, h: 10, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_001", text: "already future", createdAt: tomorrow)],
+                                at: tomorrow)
+
+        try store.moveTodoToTomorrow(id: "t_001", from: tomorrow, now: now)
+
+        let docs = try store.readDoc(on: tomorrow).tasks
+        XCTAssertEqual(docs.map(\.id), ["t_001"], "exactly one copy survives in the same file")
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Australia/Sydney")!
+        XCTAssertEqual(docs.first?.createdAt, cal.startOfDay(for: tomorrow))
     }
 
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {

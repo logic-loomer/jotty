@@ -71,22 +71,29 @@ final class Store {
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// Moves the task with `id` from today's file to tomorrow's file (SC4
-    /// move-to-tomorrow). Removes it from today and writes today first, then appends an
+    /// Moves the task with `id` from the file it currently lives in (`sourceDate`) to
+    /// TOMORROW's file, where "tomorrow" is `startOfDay(now) + 1 day` — derived from the
+    /// CURRENT day, NOT the task's (possibly past) creation day (CR-01). A leftover that
+    /// originated several days ago therefore lands on the real tomorrow and stops being a
+    /// leftover, instead of being written back into a stale past-day file.
+    ///
+    /// Removes it from the source file and writes that file first, then appends an
     /// equivalent task to tomorrow's file — so a mid-failure leaves the task on at least
-    /// one file, never silently lost (T-6-08). The moved task keeps id/text/tokens but
-    /// has `createdAt` advanced to tomorrow's startOfDay, so the menubar partitions it as
-    /// a tomorrow task rather than a leftover. No-op when the id is absent.
-    func moveTodoToTomorrow(id: String, on date: Date) throws {
-        let todayURL = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var todayDoc = readOrCreate(at: todayURL, on: date)
-        guard let idx = todayDoc.tasks.firstIndex(where: { $0.id == id }) else { return }
-
+    /// one file, never silently lost (T-6-08). The moved task keeps id/text/tokens but has
+    /// `createdAt` advanced to tomorrow's startOfDay, so the menubar partitions it as a
+    /// tomorrow task rather than a leftover. No-op when the id is absent. A source==tomorrow
+    /// no-op move re-reads/rewrites the same file consistently (the remove-then-append
+    /// round-trips through one document).
+    func moveTodoToTomorrow(id: String, from sourceDate: Date, now: Date) throws {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timezone
-        let tomorrowStart = cal.date(byAdding: .day, value: 1, to: startOfDay(date))!
+        let tomorrowStart = cal.date(byAdding: .day, value: 1, to: startOfDay(now))!
 
-        let original = todayDoc.tasks[idx]
+        let sourceURL = DailyFile.url(in: folder, on: sourceDate, timezone: timezone)
+        var sourceDoc = readOrCreate(at: sourceURL, on: sourceDate)
+        guard let idx = sourceDoc.tasks.firstIndex(where: { $0.id == id }) else { return }
+
+        let original = sourceDoc.tasks[idx]
         let moved = Todo(id: original.id,
                          text: original.text,
                          createdAt: tomorrowStart,
@@ -98,13 +105,23 @@ final class Store {
                          timeBlock: original.timeBlock,
                          calEventID: original.calEventID)
 
-        // Remove from today and persist first so a partial failure never deletes
+        let tomorrowURL = DailyFile.url(in: folder, on: tomorrowStart, timezone: timezone)
+
+        // Same-file move (source day IS tomorrow): replace the element in the single doc so
+        // the remove + append round-trip through one consistent document instead of racing
+        // two reads/writes against the same path (and never duplicating the task).
+        if sourceURL == tomorrowURL {
+            sourceDoc.tasks[idx] = moved
+            try sourceDoc.serialize(timezone: timezone).write(to: sourceURL, atomically: true, encoding: .utf8)
+            return
+        }
+
+        // Remove from the source file and persist first so a partial failure never deletes
         // without landing.
-        todayDoc.tasks.remove(at: idx)
-        try todayDoc.serialize(timezone: timezone).write(to: todayURL, atomically: true, encoding: .utf8)
+        sourceDoc.tasks.remove(at: idx)
+        try sourceDoc.serialize(timezone: timezone).write(to: sourceURL, atomically: true, encoding: .utf8)
 
         // Append to tomorrow and persist.
-        let tomorrowURL = DailyFile.url(in: folder, on: tomorrowStart, timezone: timezone)
         var tomorrowDoc = readOrCreate(at: tomorrowURL, on: tomorrowStart)
         tomorrowDoc.appendTodo(moved)
         try tomorrowDoc.serialize(timezone: timezone).write(to: tomorrowURL, atomically: true, encoding: .utf8)
