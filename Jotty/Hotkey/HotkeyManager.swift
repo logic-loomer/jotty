@@ -3,6 +3,10 @@ import Carbon.HIToolbox
 
 @MainActor
 final class HotkeyManager {
+    /// Four-char-code signature for our `EventHotKeyID` ('JOTT'), extracted from the inline
+    /// magic literal (IN-03) so the value has a name at its single use site.
+    private static let signature = OSType(0x4A4F5454)   // 'JOTT'
+
     private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
     private nonisolated(unsafe) var eventHandler: EventHandlerRef?
     private var handler: (() -> Void)?
@@ -12,7 +16,7 @@ final class HotkeyManager {
         unregister()
         self.handler = handler
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4A4F5454), id: 1)   // 'JOTT'
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: 1)
         let modifiers = carbonModifiers(for: combo.modifiers)
 
         var ref: EventHotKeyRef?

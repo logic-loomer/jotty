@@ -15,7 +15,10 @@ import SwiftUI
 enum ProviderEndpoints {
     static let claude = "https://api.anthropic.com/v1/messages"
     static let openai = "https://api.openai.com/v1/chat/completions"
-    static let gemini = "https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent"
+    // IN-06: display the bare host instead of a `<model>` template artifact — the host is
+    // what matters for the privacy/endpoint transparency surface, and the real per-call URL
+    // (with the configured model) is built by GeminiProvider, not read from this constant.
+    static let gemini = "https://generativelanguage.googleapis.com"
     static let ollama = "http://127.0.0.1:11434"
 }
 
