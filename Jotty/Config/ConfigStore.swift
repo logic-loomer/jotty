@@ -27,6 +27,15 @@ struct AppConfig: Codable, Equatable {
     /// Whether the first-run onboarding flow has been completed (D-SC5).
     /// Defaults to `false`; flipped true once onboarding finishes.
     var hasCompletedOnboarding: Bool
+    /// Unified-inbox opt-in periodic refresh (Phase 7, SC3 — privacy default OFF).
+    /// `false` by default: with no source AND no opt-in there is zero background
+    /// polling; refresh runs only when the user opens the menubar. Flipped true via
+    /// Settings → Integrations to enable a periodic timer.
+    var inboxCheckPeriodically: Bool
+    /// Periodic refresh interval in minutes when `inboxCheckPeriodically` is on.
+    /// nil = off (no interval set). A minimum of 5 minutes is enforced at the use
+    /// site (Pitfall 1) so the opt-in timer can never hammer a third-party API.
+    var inboxCheckIntervalMinutes: Int?
 
     init(storageFolder: URL,
          aiProviderID: String = "apple-fm",
@@ -34,7 +43,9 @@ struct AppConfig: Codable, Equatable {
          calendarIdentifier: String? = nil,
          deleteCalendarEventWithTask: Bool? = nil,
          claudeAction: ClaudeAction = .web,
-         hasCompletedOnboarding: Bool = false) {
+         hasCompletedOnboarding: Bool = false,
+         inboxCheckPeriodically: Bool = false,
+         inboxCheckIntervalMinutes: Int? = nil) {
         self.storageFolder = storageFolder
         self.aiProviderID = aiProviderID
         self.ollamaModel = ollamaModel
@@ -42,6 +53,8 @@ struct AppConfig: Codable, Equatable {
         self.deleteCalendarEventWithTask = deleteCalendarEventWithTask
         self.claudeAction = claudeAction
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.inboxCheckPeriodically = inboxCheckPeriodically
+        self.inboxCheckIntervalMinutes = inboxCheckIntervalMinutes
     }
 
     /// Backward-compatible decode: config.json files written before Phase 4
@@ -65,6 +78,13 @@ struct AppConfig: Codable, Equatable {
             ClaudeAction.self, forKey: .claudeAction) ?? .web
         hasCompletedOnboarding = try container.decodeIfPresent(
             Bool.self, forKey: .hasCompletedOnboarding) ?? false
+        // Phase 7 keys: a pre-Phase-7 config.json omits these. decodeIfPresent → default
+        // (OFF / nil) so a missing key never fails the whole decode (which would reset the
+        // user's config to defaults) and the SC3 privacy default holds for existing files.
+        inboxCheckPeriodically = try container.decodeIfPresent(
+            Bool.self, forKey: .inboxCheckPeriodically) ?? false
+        inboxCheckIntervalMinutes = try container.decodeIfPresent(
+            Int.self, forKey: .inboxCheckIntervalMinutes)
     }
 
     static var defaultValue: AppConfig {

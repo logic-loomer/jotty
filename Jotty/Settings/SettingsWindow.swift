@@ -58,6 +58,8 @@ struct SettingsWindowView: View {
                 .tabItem { Label("AI", systemImage: "brain") }
             CalendarTab(configStore: configStore, calendar: calendar)
                 .tabItem { Label("Calendar", systemImage: "calendar") }
+            IntegrationsTab(configStore: configStore)
+                .tabItem { Label("Integrations", systemImage: "tray.and.arrow.down") }
             if let keybindings {
                 KeybindingsTab(store: keybindings)
                     .tabItem { Label("Keybindings", systemImage: "keyboard") }

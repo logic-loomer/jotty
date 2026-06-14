@@ -33,6 +33,57 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(store2.config.storageFolder, custom)
     }
 
+    // MARK: - Phase 7 inbox opt-in keys (SC3 — default OFF, backward-compatible)
+
+    /// SC3: the periodic-check opt-in defaults OFF and the interval defaults to nil
+    /// (off) on a brand-new config — no background polling on the default config.
+    func testInboxPeriodicCheckDefaultsOff() throws {
+        let store = try ConfigStore(path: tempURL)
+        XCTAssertFalse(store.config.inboxCheckPeriodically)
+        XCTAssertNil(store.config.inboxCheckIntervalMinutes)
+    }
+
+    /// Backward compat: a config.json written WITHOUT the Phase 7 keys (e.g. a
+    /// pre-Phase-7 file) must decode successfully with `inboxCheckPeriodically == false`
+    /// via decodeIfPresent — a missing key must NOT fail the whole decode (which would
+    /// silently reset the user's entire config to defaults).
+    func testInboxKeysAbsentDecodesWithDefaultsNotResettingConfig() throws {
+        // A minimal config.json carrying only a non-default storageFolder and NONE of
+        // the Phase 7 keys (mirrors a file written by an older build).
+        let json = """
+        {
+          "storageFolder": "file:///tmp/BackCompatJotty/",
+          "aiProviderID": "apple-fm",
+          "claudeAction": "web",
+          "hasCompletedOnboarding": true
+        }
+        """
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.data(using: .utf8)!.write(to: tempURL)
+
+        let store = try ConfigStore(path: tempURL)
+        // The rest of the config survived (not reset to defaults)…
+        XCTAssertEqual(store.config.storageFolder.path, "/tmp/BackCompatJotty")
+        XCTAssertTrue(store.config.hasCompletedOnboarding)
+        // …and the missing Phase 7 keys defaulted off.
+        XCTAssertFalse(store.config.inboxCheckPeriodically)
+        XCTAssertNil(store.config.inboxCheckIntervalMinutes)
+    }
+
+    /// The opt-in toggle persists and reloads true (SC3 user enables periodic checks).
+    func testInboxPeriodicCheckPersistsAndReloads() throws {
+        let store1 = try ConfigStore(path: tempURL)
+        try store1.update {
+            $0.inboxCheckPeriodically = true
+            $0.inboxCheckIntervalMinutes = 15
+        }
+
+        let store2 = try ConfigStore(path: tempURL)
+        XCTAssertTrue(store2.config.inboxCheckPeriodically)
+        XCTAssertEqual(store2.config.inboxCheckIntervalMinutes, 15)
+    }
+
     // MARK: - WR-03: Sendable + concurrent read/write safety
 
     /// ConfigStore is `Sendable` (its config read + every update are lock-guarded), so it
