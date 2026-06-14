@@ -26,12 +26,19 @@ final class KeybindingsStore {
     /// User-writable persistence path. `nil` for the in-memory `init(data:)`
     /// construction (bundled-default reads), which never persists.
     private let path: URL?
+    /// The injected default seed, retained at init so `reset()` restores exactly the
+    /// seed first-run seeding used (WR-01) and forward-compat backfill (WR-02) merges
+    /// against the SAME source — never coupling back to global `Bundle.main` state.
+    /// `nil` for the in-memory `init(data:)` path (which never resets or backfills).
+    private let defaultData: Data?
 
     // MARK: - Bundled-default / in-memory construction (legacy, read-only)
 
-    /// Decodes an in-memory bindings file (the bundled default). Does not persist.
+    /// Decodes an in-memory bindings file (the bundled default). Does not persist,
+    /// reset, or backfill, so it carries no retained seed.
     init(data: Data) throws {
         self.path = nil
+        self.defaultData = nil
         self.bindings = Self.decode(data)
     }
 
@@ -41,21 +48,32 @@ final class KeybindingsStore {
     /// corrupt file, seeds from `defaultData` and writes the user file.
     init(path: URL, defaultData: Data) throws {
         self.path = path
+        self.defaultData = defaultData
         try FileManager.default.createDirectory(
             at: path.deletingLastPathComponent(),
             withIntermediateDirectories: true)
 
         if let data = try? Data(contentsOf: path) {
-            let resolved = Self.decode(data)
+            var resolved = Self.decode(data)
             if resolved.isEmpty {
-                // Empty / malformed → reseed from the bundled default.
+                // Empty / malformed → reseed from the injected default.
                 self.bindings = Self.decode(defaultData)
                 try persist()
             } else {
+                // WR-02 forward-compat: a valid pre-upgrade file is missing actions added
+                // in a later version (e.g. sendToClaude). Backfill those from the default
+                // seed so the new action keeps its default combo instead of resolving to
+                // nil ("Not set"), and persist so the file is complete on the next launch.
+                var backfilled = false
+                for (action, combo) in Self.decode(defaultData) where resolved[action] == nil {
+                    resolved[action] = combo
+                    backfilled = true
+                }
                 self.bindings = resolved
+                if backfilled { try persist() }
             }
         } else {
-            // First load: seed from the bundled default and write the user file.
+            // First load: seed from the injected default and write the user file.
             self.bindings = Self.decode(defaultData)
             try persist()
         }
@@ -80,9 +98,13 @@ final class KeybindingsStore {
         try persist()
     }
 
-    /// Restores every binding to the bundled default and persists.
+    /// Restores every binding to the INJECTED default seed (WR-01) and persists — the
+    /// exact same source first-run seeding used, never re-reading global `Bundle.main`
+    /// state (which could diverge from the injected seed). Falls back to the bundle only
+    /// for the in-memory `init(data:)` path that has no retained seed.
     func reset() throws {
-        bindings = Self.decode(try Self.bundledDefaultData())
+        let seed = try defaultData ?? Self.bundledDefaultData()
+        bindings = Self.decode(seed)
         try persist()
     }
 
