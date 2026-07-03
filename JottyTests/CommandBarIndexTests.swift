@@ -127,6 +127,28 @@ final class CommandBarIndexTests: XCTestCase {
                        "today's file is not a day-file result either")
     }
 
+    func testFutureDatedDayFileIsExcluded() throws {
+        // Review IN-03: era-shifted legacy filenames (e.g. `2569-07-03.md`) parse
+        // as far-future days; without the `< today` filter they indexed as
+        // top-ranked "Earlier" results with future recency.
+        let store = Store(folder: folder, timezone: tz)
+        let past = makeDate(2026, 6, 15, h: 9)
+        let future = makeDate(2569, 7, 3, h: 9)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_past", text: "real history", createdAt: past),
+        ], at: past)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_future", text: "era-shifted ghost", createdAt: future),
+        ], at: future)
+
+        let items = CommandBarIndex.buildHistorical(
+            folder: folder, timezone: tz, excludingDay: makeDate(2026, 6, 16, h: 8))
+
+        XCTAssertEqual(earlierItems(items).map(\.todoID), ["t_past"],
+                       "only days strictly BEFORE today index")
+        XCTAssertEqual(dayFileItems(items).map { dayKey($0.day) }, ["2026-06-15"])
+    }
+
     // MARK: - Pinned id / searchText / recency derivations
 
     func testPinnedIDsSearchTextAndRecency() throws {

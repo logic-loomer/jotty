@@ -56,21 +56,33 @@ enum CommandItem: Identifiable, Equatable {
         }
     }
 
+    /// Cached formatters (review IN-02): `rescore()` evaluates `searchText` for
+    /// every corpus item on EVERY keystroke — constructing a formatter per call
+    /// (well over a thousand per keystroke at multi-year scale) undercut the
+    /// documented sub-ms re-rank budget. `nonisolated(unsafe)` is sound:
+    /// DateFormatter is documented thread-safe on macOS 10.9+, and both are
+    /// fully configured at init and never mutated afterwards.
+    private nonisolated(unsafe) static let dayKeyFormatter =
+        DailyFile.dayFormatter(timezone: .current)
+    private nonisolated(unsafe) static let dayLabelFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "EEE MMM d yyyy"
+        f.timeZone = .current
+        return f
+    }()
+
     /// The machine day key ("2026-06-15") — the raw file-name form.
     private static func dayKey(_ day: Date) -> String {
-        DailyFile.dayFormatter(timezone: .current).string(from: day)
+        dayKeyFormatter.string(from: day)
     }
 
     /// The human day label ("Mon Jun 15 2026"). Locale/calendar pinned exactly
     /// like `DailyFile.dayFormatter` so the label — and every test asserting it —
     /// is independent of the machine's region settings.
     private static func dayLabel(_ day: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = Calendar(identifier: .gregorian)
-        f.dateFormat = "EEE MMM d yyyy"
-        f.timeZone = .current
-        return f.string(from: day)
+        dayLabelFormatter.string(from: day)
     }
 }
 
@@ -117,8 +129,13 @@ enum CommandBarIndex {
         let formatter = DailyFile.dayFormatter(timezone: timezone)
         let todayKey = formatter.string(from: today)
 
+        // Strictly BEFORE today (review IN-03): `allDayDates()` documents that
+        // era-shifted legacy filenames (e.g. `2569-07-03.md`) parse as far-future
+        // days and that consumers filter `< today` — otherwise such a file would
+        // index as a top-ranked "Earlier" item with future recency. String
+        // comparison is safe given the fixed `yyyy-MM-dd` format.
         let days = store.allDayDates()
-            .filter { formatter.string(from: $0) != todayKey }
+            .filter { formatter.string(from: $0) < todayKey }
             .sorted(by: >)   // newest day first
 
         var items: [CommandItem] = []
