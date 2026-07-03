@@ -377,4 +377,167 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(mixTB.start.timeIntervalSince1970,
                        tb.start.timeIntervalSince1970, accuracy: 1.0)
     }
+
+    // Phase 8 plan 01 / CALX-02: recur:<rule> serializes and re-parses to the
+    // identical Recurrence (template token round-trip).
+    func testRecurDailyRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_r1", text: "standup", createdAt: now,
+                            recur: .daily))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("recur:daily"),
+                      "serialized line should carry recur:daily")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].recur, .daily)
+    }
+
+    // Phase 8 plan 01 / CALX-02: custom weekday sets serialize as a stable
+    // SORTED csv so the round-trip is deterministic.
+    func testRecurCustomRoundTripsWithStableSortedCSV() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_r2", text: "gym", createdAt: now,
+                            recur: .custom([5, 1, 3])))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("recur:custom:1,3,5"),
+                      "custom csv must serialize sorted ascending")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].recur, .custom([1, 3, 5]))
+    }
+
+    // Phase 8 plan 01 / CALX-02: recur_src:<templateId>:<yyyy-MM-dd> (the
+    // idempotency marker on instances) round-trips verbatim.
+    func testRecurSrcRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_r3", text: "instance", createdAt: now,
+                            recurSrc: "t_abc123:2026-06-14"))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("recur_src:t_abc123:2026-06-14"),
+                      "serialized line should carry the recur_src marker")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].recurSrc, "t_abc123:2026-06-14")
+    }
+
+    // Phase 8 plan 01 / CALX-03: snooze:<yyyy-MM-dd> round-trips via the
+    // dateOnly formatter, identical to due: handling.
+    func testSnoozeRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_s1", text: "later", createdAt: now,
+                            snooze: dateFor("2026-05-15")))
+
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertTrue(serialized.contains("snooze:2026-05-15"),
+                      "serialized line should carry snooze:2026-05-15")
+
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].snooze.flatMap(dateOnlyString), "2026-05-15")
+    }
+
+    // Phase 8 plan 01: an old daily file WITHOUT recur/recur_src/snooze tokens
+    // parses to nil for all three (backward compatibility).
+    func testLegacyTaskLineParsesWithNilRecurrenceFields() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let legacy = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] old task <!-- id:t_legacy created:2026-05-08T07:30:00+10:00 due:2026-05-09 cal_event:EVT:1 -->
+
+        ## Notes
+
+        """
+        let parsed = try MarkdownDoc.parse(legacy, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let t = parsed.tasks[0]
+        XCTAssertNil(t.recur, "legacy line has no recur: -> recur nil")
+        XCTAssertNil(t.recurSrc, "legacy line has no recur_src: -> recurSrc nil")
+        XCTAssertNil(t.snooze, "legacy line has no snooze: -> snooze nil")
+        // Pre-existing tokens on the same legacy line must still parse.
+        XCTAssertEqual(t.dueDate.flatMap(dateOnlyString), "2026-05-09")
+        XCTAssertEqual(t.calEventID, "EVT:1")
+    }
+
+    // Phase 8 plan 01 / T-8-01: all three new tokens coexist with EVERY existing
+    // token on one meta line and each field round-trips (additive-not-breaking
+    // regression guard: the space-split meta line is not corrupted).
+    func testRecurrenceTokensCoexistWithAllExistingTokens() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        let tb = TimeBlock(start: timeFor("2026-05-08T08:00:00+10:00"),
+                           end: timeFor("2026-05-08T09:30:00+10:00"))
+        doc.appendTodo(Todo(id: "t_all", text: "everything", createdAt: now,
+                            dueDate: dateFor("2026-05-09"),
+                            timeBlock: tb,
+                            calEventID: "EVT:7",
+                            source: "github:42",
+                            sourceURL: "https://github.com/o/r/pull/42",
+                            recur: .custom([2, 4]),
+                            recurSrc: "t_tmpl99:2026-05-08",
+                            snooze: dateFor("2026-05-12")))
+
+        let serialized = doc.serialize(timezone: tz)
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let t = parsed.tasks[0]
+        XCTAssertEqual(t.id, "t_all")
+        XCTAssertEqual(t.text, "everything")
+        XCTAssertEqual(t.createdAt.timeIntervalSince1970,
+                       now.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(t.dueDate.flatMap(dateOnlyString), "2026-05-09")
+        let allTB = try XCTUnwrap(t.timeBlock)
+        XCTAssertEqual(allTB.start.timeIntervalSince1970,
+                       tb.start.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(allTB.end.timeIntervalSince1970,
+                       tb.end.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(t.calEventID, "EVT:7")
+        XCTAssertEqual(t.source, "github:42")
+        XCTAssertEqual(t.sourceURL, "https://github.com/o/r/pull/42")
+        XCTAssertEqual(t.recur, .custom([2, 4]))
+        XCTAssertEqual(t.recurSrc, "t_tmpl99:2026-05-08")
+        XCTAssertEqual(t.snooze.flatMap(dateOnlyString), "2026-05-12")
+    }
+
+    // Phase 8 plan 01 / T-8-01: a whitespace-bearing recurSrc must NOT be written
+    // into the meta line (would split into a bogus token), mirroring the
+    // cal_event:/source_url: guards.
+    func testRecurSrcWithWhitespaceIsNotSerialized() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_bad", text: "bad marker", createdAt: now,
+                            recur: .daily,
+                            recurSrc: "t_x 2026-05-08"))
+        let serialized = doc.serialize(timezone: tz)
+        XCTAssertFalse(serialized.contains("recur_src:"),
+                       "a whitespace-bearing recur_src must be skipped, not corrupt the line")
+        // recur: (space-free) is still written; the line must re-parse cleanly.
+        XCTAssertTrue(serialized.contains("recur:daily"))
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertEqual(parsed.tasks[0].recur, .daily)
+        XCTAssertNil(parsed.tasks[0].recurSrc,
+                     "whitespace-bearing marker was dropped -> recurSrc nil on parse")
+    }
 }
