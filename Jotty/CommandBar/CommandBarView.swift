@@ -119,7 +119,12 @@ struct CommandBarView: View {
                     ForEach(model.sections) { section in
                         sectionHeader(section.kind)
                         ForEach(section.items) { item in
-                            row(item, flatIndex: flatIDs.firstIndex(of: item.id) ?? .max)
+                            // `?? -1` (review IN-04): defensively unreachable
+                            // (every rendered item is in visibleRows), but if the
+                            // identity assumption ever broke, `.max` would make
+                            // the tap's `flatIndex + 1` an overflow TRAP — while
+                            // -1 + 1 == 0 is already a no-op in activate(visibleRow:).
+                            row(item, flatIndex: flatIDs.firstIndex(of: item.id) ?? -1)
                         }
                     }
                 }

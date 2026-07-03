@@ -1,6 +1,12 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// APP-LIFETIME INVARIANT (review IN-06): the Carbon event callback captures an
+/// UNRETAINED pointer to this manager and hops it to the main queue — a block
+/// already enqueued when the manager deallocates would dereference freed memory.
+/// This is safe ONLY because AppDelegate constructs one HotkeyManager at launch
+/// and retains it for the app's lifetime. Do NOT create short-lived instances
+/// (tests exercise `handlers`/`handleHotkey(id:)` directly and never register).
 @MainActor
 final class HotkeyManager {
     /// Four-char-code signature for our `EventHotKeyID` ('JOTT'), extracted from the inline
