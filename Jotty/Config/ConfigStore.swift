@@ -122,6 +122,17 @@ final class ConfigStore: @unchecked Sendable {
     private var _config: AppConfig
     private let path: URL
 
+    /// WR-05: serializes persistence so concurrent `update {}` calls can never leave
+    /// config.json holding a STALE snapshot. Without it, updates A→B could interleave
+    /// as "B writes, then A writes" — disk ends on A while memory holds B. Kept
+    /// separate from `lock` so file I/O never runs under the state mutex (CQ-05).
+    private let writeLock = NSLock()
+    /// Monotonic snapshot version, incremented under `lock` with each mutation.
+    private var generation: UInt64 = 0
+    /// Highest generation claimed for writing; guarded by `writeLock`. A writer whose
+    /// snapshot is older than this skips its write (it was superseded by a newer one).
+    private var claimedGeneration: UInt64 = 0
+
     /// Live snapshot of the config, read under the lock so it never tears against a
     /// concurrent `update {}` (WR-03). `AppConfig` is a value type, so the returned copy
     /// is independent of subsequent mutations.
@@ -151,9 +162,17 @@ final class ConfigStore: @unchecked Sendable {
         lock.lock()
         mutate(&_config)
         let snapshot = _config
+        generation &+= 1
+        let snapshotGeneration = generation
         lock.unlock()
-        // Persist OUTSIDE the lock (file I/O must not be held under the mutex), using the
-        // snapshot taken while locked so the written bytes match the applied mutation.
+        // Persist OUTSIDE the state lock (file I/O must not be held under the mutex),
+        // using the snapshot taken while locked so the written bytes match the applied
+        // mutation. WR-05: writes are serialized behind `writeLock` and versioned by
+        // generation — a snapshot superseded by a newer already-claimed one is skipped,
+        // so the LAST bytes on disk always correspond to the newest mutation.
+        writeLock.lock(); defer { writeLock.unlock() }
+        guard snapshotGeneration > claimedGeneration else { return }
+        claimedGeneration = snapshotGeneration
         try Self.write(snapshot, to: path)
     }
 
