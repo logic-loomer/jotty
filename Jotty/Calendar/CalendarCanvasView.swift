@@ -58,10 +58,20 @@ struct CalendarCanvasView: View {
         // the event create (the time: block is already on disk, disk wins);
         // Create anyway commits the event. Double-resolve is structurally
         // impossible (the model nils the continuation before resuming).
+        //
+        // WR-04: the isPresented setter is INERT — the buttons own the
+        // decision (every dismissal path, incl. Esc, routes through the
+        // .cancel-role button). A setter that resolved-to-cancel raced the
+        // tapped button's action: resolveDropConflict is first-caller-wins,
+        // and SwiftUI's setter-vs-action ordering is undocumented, so
+        // "Create anyway" could silently become a cancel. Same side-effect-
+        // free idiom as the deletePrompt/driftPrompt setters in the menubar.
+        // pendingDropConflict is cleared by the model inside
+        // resolveDropConflict, which is what flips this binding false.
         .alert("Time conflict",
                isPresented: Binding(
                    get: { model.list.pendingDropConflict != nil },
-                   set: { if !$0 { model.list.resolveDropConflict(commitAnyway: false) } })) {
+                   set: { _ in })) {
             Button("Create anyway") { model.list.resolveDropConflict(commitAnyway: true) }
             Button("Cancel", role: .cancel) { model.list.resolveDropConflict(commitAnyway: false) }
         } message: {
