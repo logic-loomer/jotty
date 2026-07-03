@@ -141,6 +141,7 @@
 		E518CB95C20DB7611D5B7480 /* ConfigStoreProviderFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBD348D2521FC3BD20CC2309 /* ConfigStoreProviderFieldTests.swift */; };
 		E6560770E1789D3C19A78AB8 /* ClaudePromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989392B9AE0158984B8094BF /* ClaudePromptTests.swift */; };
 		E6D7365C144A11F1799B4B1F /* RecurrenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC8413600825804C641455A /* RecurrenceTests.swift */; };
+		EAB324F2CE09494D41825AE4 /* Recurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB376A65C61F4CC4B8E8D63 /* Recurrence.swift */; };
 		EFE4C2C74BBA2997F75419E0 /* extraction-fixtures.json in Resources */ = {isa = PBXBuildFile; fileRef = BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */; };
 		F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74F35AEAC40DCE682986CCC /* SmokeTest.swift */; };
 		F1795581B4AF9AEA26BF24F4 /* RetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C805711B059EFD6C643117 /* RetryPolicy.swift */; };
@@ -308,6 +309,7 @@
 		F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverServiceTests.swift; sourceTree = "<group>"; };
 		F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
 		F776385CB322A3DDE510F823 /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
+		FAB376A65C61F4CC4B8E8D63 /* Recurrence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recurrence.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -394,6 +396,7 @@
 		2C0E6BBE9D8F920A613EA2F9 /* Rollover */ = {
 			isa = PBXGroup;
 			children = (
+				FAB376A65C61F4CC4B8E8D63 /* Recurrence.swift */,
 				7336303002FC0750BF76F3EB /* RolloverService.swift */,
 			);
 			path = Rollover;
@@ -935,6 +938,7 @@
 				D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */,
 				C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */,
 				09556E3574E7E5D08C69BDFA /* RecordComboField.swift in Sources */,
+				EAB324F2CE09494D41825AE4 /* Recurrence.swift in Sources */,
 				F1795581B4AF9AEA26BF24F4 /* RetryPolicy.swift in Sources */,
 				5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */,
 				DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */,
