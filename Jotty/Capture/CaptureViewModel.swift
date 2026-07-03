@@ -347,6 +347,26 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
+    /// UX-10 (plan 07.1-11): renames the extracted task at `index` while in Review,
+    /// rebuilding the immutable `.review` payload in place. Rules mirror the menubar
+    /// inline rename:
+    /// - whitespace-only titles revert (no change written);
+    /// - out-of-bounds indices are a no-op;
+    /// - `acceptedRowIDs` and `calendarEnabledRowIDs` are untouched — direct state
+    ///   reassignment, NEVER `enterReview` (RESEARCH Pitfall 6: it re-checks every
+    ///   row and re-seeds the calendar toggles, destroying the user's choices).
+    func renameReviewRow(_ index: Int, title: String) {
+        guard case .review(var tasks, let noteBody, let saved) = state,
+              tasks.indices.contains(index) else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }   // empty-after-trim reverts (menubar rule)
+        tasks[index] = ExtractedTask(title: trimmed,
+                                     dueDate: tasks[index].dueDate,
+                                     timeBlock: tasks[index].timeBlock,
+                                     calendarBlock: tasks[index].calendarBlock)
+        state = .review(tasks: tasks, noteBody: noteBody, savedInput: saved)
+    }
+
     func returnToInput() {
         if case .review(_, _, let saved) = state {
             self.text = saved
