@@ -198,8 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // last-rollover.txt, so a same-day re-run is a no-op), reload the list so any
         // moved tasks are reflected (mirrors the timer path), and re-arm the midnight
         // timer so the next fire is scheduled relative to NOW, not the pre-sleep clock.
+        // WR-02: the reload's calendar refresh must honor the same no-prompt rule as
+        // the reloadCalendar call above — foreground activation is not an explicit
+        // calendar action, so it must never re-issue the TCC dialog.
         runRolloverCatchUp()
-        menubar.listModel.reload()
+        menubar.listModel.reload(promptIfUndetermined: false)
         scheduleMidnightRollover()
     }
 
@@ -247,7 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         midnightTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.runRolloverCatchUp()
-            self.menubar.listModel.reload()
+            // WR-02: an unattended timer fire must never pop the system calendar
+            // prompt at 00:00:05 while access is still notDetermined.
+            self.menubar.listModel.reload(promptIfUndetermined: false)
             self.scheduleMidnightRollover()
         }
     }

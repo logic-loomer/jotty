@@ -133,7 +133,12 @@ final class MenubarListModel: ObservableObject {
     /// genuine open-time reload (popover open, foreground, midnight) so a deleted event's
     /// dead link self-heals (CR-02), but false when reload runs as the tail of an edit-time
     /// create/update, so the self-heal never races the just-written id (see `reloadCalendar`).
-    func reload(clearMissingLinks: Bool = true) {
+    ///
+    /// `promptIfUndetermined` is likewise forwarded (WR-02): the popover-open path keeps the
+    /// default `true` (an explicit user action may drive the one-time TCC prompt), but the
+    /// foreground-activation catch-up and the midnight timer pass `false` — a background
+    /// reload must NEVER re-issue the system calendar prompt while access is notDetermined.
+    func reload(clearMissingLinks: Bool = true, promptIfUndetermined: Bool = true) {
         // Single snapshot: grouping, collapse key, and dateLabel must all
         // derive from the same instant (midnight Timer reloads an open popover).
         let snapshot = now()
@@ -169,7 +174,8 @@ final class MenubarListModel: ObservableObject {
         // fresh. The task path above stays synchronous; calendar is async/best-effort.
         if calendar != nil {
             refreshTask = Task { [weak self] in
-                await self?.reloadCalendar(clearMissingLinks: clearMissingLinks)
+                await self?.reloadCalendar(promptIfUndetermined: promptIfUndetermined,
+                                           clearMissingLinks: clearMissingLinks)
             }
         }
     }
