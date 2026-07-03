@@ -11,7 +11,11 @@ struct Todo: Equatable {
         "t_" + String(UUID().uuidString.prefix(8)).lowercased()
     }
 
-    let id: String
+    /// `var` (not `let`) so recurrence instancing can COPY-MUTATE a template
+    /// into a fresh instance (Phase 7 CR-01: copy the whole Todo, then override
+    /// fields — a field-by-field rebuild silently drops future fields). No
+    /// mutation path other than instance construction reassigns an id.
+    var id: String
     var text: String
     var createdAt: Date
     var done: Bool

@@ -31,7 +31,12 @@ final class RolloverService {
             var rewritten: [Todo] = []
             for taskItem in doc.tasks {
                 var task = taskItem
-                if !task.done && task.rolledTo == nil {
+                // A recurring TEMPLATE (recur set, no recur_src marker) is never
+                // collected as a leftover and never marked rolled — it persists on
+                // its origin day as the source of future instances (SC2/CALX-02).
+                // Instances (recur_src set) and non-recurring tasks roll as before.
+                let isTemplate = task.recur != nil && task.recurSrc == nil
+                if !task.done && task.rolledTo == nil && !isTemplate {
                     var copy = task
                     copy.rolledTo = nil
                     collected.append(copy)
@@ -47,13 +52,76 @@ final class RolloverService {
             cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
         }
 
-        if !collected.isEmpty {
+        let instances = try recurrenceInstances(for: today, calendar: cal)
+
+        // CRITICAL: collected leftovers + recurrence instances merge into ONE
+        // today write — a second replaceTasks call would race the first.
+        if !collected.isEmpty || !instances.isEmpty {
             var todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
             todayDoc.tasks.append(contentsOf: collected)
+            todayDoc.tasks.append(contentsOf: instances)
             try store.replaceTasks(todayDoc.tasks, on: today)
         }
 
         try writeState(today)
+    }
+
+    /// Builds the fresh recurring instances due on `today` (SC2 / CALX-02).
+    ///
+    /// Templates are gathered across the FULL `maxLookbackDays` window,
+    /// deliberately INDEPENDENT of the last-rollover state: the state file does
+    /// NOT block same-day re-runs (launch + midnight Timer both call `run`), so
+    /// the `recur_src:<templateId>:<yyyy-MM-dd>` marker checked against today's
+    /// doc is the ONLY thing preventing duplicate instances (T-8-04).
+    private func recurrenceInstances(for today: Date, calendar cal: Calendar) throws -> [Todo] {
+        var templates: [Todo] = []
+        var seenIDs = Set<String>()
+        let windowStart = cal.date(byAdding: .day, value: -maxLookbackDays, to: today) ?? today
+        var cursor = cal.date(byAdding: .day, value: -1, to: today)!
+        while cursor >= windowStart {
+            let doc = (try? store.readDoc(on: cursor)) ?? MarkdownDoc(date: cursor)
+            for task in doc.tasks where task.recur != nil && task.recurSrc == nil {
+                if seenIDs.insert(task.id).inserted { templates.append(task) }
+            }
+            cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
+        }
+        guard !templates.isEmpty else { return [] }
+
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "yyyy-MM-dd"
+        dayFmt.timeZone = timezone
+        let todayKey = dayFmt.string(from: today)
+
+        let todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
+        var existingMarkers = Set(todayDoc.tasks.compactMap { $0.recurSrc })
+
+        var instances: [Todo] = []
+        for template in templates {
+            let templateWeekday = cal.component(.weekday, from: template.createdAt)
+            guard let rule = template.recur,
+                  rule.isDue(on: today, templateWeekday: templateWeekday, calendar: cal) else {
+                continue
+            }
+            let marker = "\(template.id):\(todayKey)"
+            // Idempotent guard: a prior run this day already instanced this template.
+            guard !existingMarkers.contains(marker) else { continue }
+
+            // COPY-MUTATE the whole template (Phase 7 CR-01 — never rebuild
+            // field-by-field), then override: a fresh instance is a brand-new,
+            // not-done, unscheduled, unlinked task created today.
+            var instance = template
+            instance.id = Todo.newID()
+            instance.done = false
+            instance.completedAt = nil
+            instance.createdAt = today
+            instance.rolledTo = nil
+            instance.recurSrc = marker
+            instance.timeBlock = nil
+            instance.calEventID = nil
+            instances.append(instance)
+            existingMarkers.insert(marker)
+        }
+        return instances
     }
 
     private func readState() -> Date? {
