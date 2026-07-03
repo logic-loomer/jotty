@@ -34,21 +34,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # WR-01: `exit 0` alone marks the STEP successful and the workflow proceeds —
+      # the guard must gate the remaining steps via a step output, or a keyless
+      # weekly run spins up XcodeGen + xcodebuild for nothing (and goes red).
       - name: Guard — require at least one provider key
+        id: keys
         run: |
           if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$GEMINI_API_KEY" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No provider keys configured — skipping"
-            exit 0
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "At least one provider key present — proceeding with cloud sweep."
           fi
-          echo "At least one provider key present — proceeding with cloud sweep."
 
       - name: Install XcodeGen
+        if: steps.keys.outputs.present == 'true'
         run: brew install xcodegen
 
       - name: Generate Xcode project
+        if: steps.keys.outputs.present == 'true'
         run: xcodegen generate
 
       - name: Run cross-provider eval (cloud legs)
+        if: steps.keys.outputs.present == 'true'
         run: |
           xcodebuild test \
             -scheme Jotty \
@@ -56,7 +65,7 @@ jobs:
             -destination 'platform=macOS'
 
       - name: Upload eval-run reports
-        if: always()
+        if: always() && steps.keys.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eval-runs
