@@ -237,14 +237,12 @@ final class CaptureViewModel: ObservableObject {
         let now = clock()
         var noteLines: [String] = []
         var tasks: [Todo] = []
-        let taskRegex = /^\s*[-*]\s\[([ xX])\]\s+(.+)$/
 
         for line in input.components(separatedBy: "\n") {
-            if let match = line.firstMatch(of: taskRegex) {
+            if let match = line.firstMatch(of: Self.manualTaskRegex) {
                 let done = match.1 != " "
                 let title = String(match.2).trimmingCharacters(in: .whitespaces)
-                let id = "t_" + String(UUID().uuidString.prefix(8)).lowercased()
-                tasks.append(Todo(id: id, text: title, createdAt: now,
+                tasks.append(Todo(id: Todo.newID(), text: title, createdAt: now,
                                   done: done,
                                   completedAt: done ? now : nil))
             } else {
@@ -254,7 +252,7 @@ final class CaptureViewModel: ObservableObject {
 
         let noteBody = noteLines.joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let noteId = noteBody.isEmpty ? nil : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+        let noteId = noteBody.isEmpty ? nil : Note.newID()
 
         try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: tasks, at: now)
 
@@ -297,7 +295,7 @@ final class CaptureViewModel: ObservableObject {
 
         let noteId: String? = noteBody.isEmpty
             ? nil
-            : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+            : Note.newID()
 
         // Split accepted tasks: time-blocked tasks are conflict-gated and committed one at a
         // time inside the async calendar pass (so a cancel can leave that task uncommitted, SC5);
@@ -312,7 +310,7 @@ final class CaptureViewModel: ObservableObject {
             ? accepted.filter { $0.timeBlock == nil }
             : accepted
         let plainTodos: [Todo] = synchronousTasks.map { t in
-            Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+            Todo(id: Todo.newID(),
                  text: t.title, createdAt: now, done: false,
                  dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
         }
@@ -386,7 +384,7 @@ final class CaptureViewModel: ObservableObject {
             // Denied: tasks still commit (disk wins); surface a one-line degraded notice,
             // never block. They commit WITHOUT a calendar event.
             for t in tasks {
-                let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                let todo = Todo(id: Todo.newID(),
                                 text: t.title, createdAt: now, done: false,
                                 dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
                 appendSingle(todo, at: now)
@@ -416,7 +414,7 @@ final class CaptureViewModel: ObservableObject {
             }
 
             // Confirmed (or no conflict): commit the task to markdown, then create the event.
-            let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+            let todo = Todo(id: Todo.newID(),
                             text: t.title, createdAt: now, done: false,
                             dueDate: t.dueDate, sourceNote: noteId, timeBlock: tb)
             appendSingle(todo, at: now)

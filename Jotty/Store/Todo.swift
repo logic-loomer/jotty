@@ -1,6 +1,16 @@
 import Foundation
 
 struct Todo: Equatable {
+    /// Single authority for task-ID generation (CQ-09).
+    ///
+    /// The format is REQUIREMENTS-pinned (decision 2026-05-08): `t_<8 hex>` —
+    /// "t_" plus the first 8 characters of a UUID string, lowercased. This is
+    /// byte-for-byte the expression the capture paths used inline before
+    /// centralization; do not change the derivation.
+    static func newID() -> String {
+        "t_" + String(UUID().uuidString.prefix(8)).lowercased()
+    }
+
     let id: String
     var text: String
     var createdAt: Date
