@@ -22,15 +22,25 @@ struct RecordComboField: NSViewRepresentable {
     /// system-wide by `HotkeyManager.register`, hijacking that key everywhere. App-scoped
     /// actions (submit/cancel/sendToClaude) may keep bare keys (e.g. Esc to cancel).
     var allowsBareKey: Bool = true
+    /// Whether this action's combo must include ⌘/⌃/⌥ (Phase 9 review WR-02). True for
+    /// the APP-LEVEL actions the AppDelegate local key monitor routes: the monitor only
+    /// fires on a command-like modifier, so recording a bare or ⇧-only combo would
+    /// persist a displayed-but-permanently-dead binding. Mirrors the monitor's guard
+    /// (`ActionDispatcher.appLevelActions(matching:...)`).
+    var requiresCommandLikeModifier: Bool = false
     /// Called with the freshly-captured combo when the user presses a key.
     let onCapture: (KeyCombo) -> Void
 
     func makeNSView(context: Context) -> RecorderView {
-        RecorderView(current: current, allowsBareKey: allowsBareKey, onCapture: onCapture)
+        RecorderView(current: current, allowsBareKey: allowsBareKey,
+                     requiresCommandLikeModifier: requiresCommandLikeModifier,
+                     onCapture: onCapture)
     }
 
     func updateNSView(_ view: RecorderView, context: Context) {
-        view.update(current: current, allowsBareKey: allowsBareKey, onCapture: onCapture)
+        view.update(current: current, allowsBareKey: allowsBareKey,
+                    requiresCommandLikeModifier: requiresCommandLikeModifier,
+                    onCapture: onCapture)
     }
 }
 
@@ -40,6 +50,7 @@ struct RecordComboField: NSViewRepresentable {
 final class RecorderView: NSView {
     private var current: KeyCombo?
     private var allowsBareKey: Bool
+    private var requiresCommandLikeModifier: Bool
     private var onCapture: (KeyCombo) -> Void
     private var isRecording = false
 
@@ -54,9 +65,12 @@ final class RecorderView: NSView {
 
     private let label = NSTextField(labelWithString: "")
 
-    init(current: KeyCombo?, allowsBareKey: Bool, onCapture: @escaping (KeyCombo) -> Void) {
+    init(current: KeyCombo?, allowsBareKey: Bool,
+         requiresCommandLikeModifier: Bool = false,
+         onCapture: @escaping (KeyCombo) -> Void) {
         self.current = current
         self.allowsBareKey = allowsBareKey
+        self.requiresCommandLikeModifier = requiresCommandLikeModifier
         self.onCapture = onCapture
         super.init(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         wantsLayer = true
@@ -77,9 +91,12 @@ final class RecorderView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(current: KeyCombo?, allowsBareKey: Bool, onCapture: @escaping (KeyCombo) -> Void) {
+    func update(current: KeyCombo?, allowsBareKey: Bool,
+                requiresCommandLikeModifier: Bool = false,
+                onCapture: @escaping (KeyCombo) -> Void) {
         self.current = current
         self.allowsBareKey = allowsBareKey
+        self.requiresCommandLikeModifier = requiresCommandLikeModifier
         self.onCapture = onCapture
         if !isRecording { refreshLabel() }
     }
@@ -124,11 +141,14 @@ final class RecorderView: NSView {
 
         let combo = KeyCombo(keyCode: event.keyCode, modifiers: mods)
 
-        // WR-06: reject a combo that is unsafe/unusable for this action (e.g. a
-        // modifier-less key for the GLOBAL hotkey, which would be grabbed system-wide).
-        // Beep and keep recording so the user can press a valid combo instead of silently
-        // persisting a dangerous one.
-        guard RecorderView.isAcceptable(combo, allowsBareKey: allowsBareKey) else {
+        // WR-06/WR-02: reject a combo that is unsafe/unusable for this action (a
+        // modifier-less key for the GLOBAL hotkey, which would be grabbed system-wide;
+        // a bare/⇧-only combo for an APP-LEVEL action, which the local monitor would
+        // never fire). Beep and keep recording so the user can press a valid combo
+        // instead of silently persisting a dangerous or dead one.
+        guard RecorderView.isAcceptable(combo, allowsBareKey: allowsBareKey,
+                                        requiresCommandLikeModifier: requiresCommandLikeModifier)
+        else {
             NSSound.beep()
             return
         }
@@ -138,12 +158,19 @@ final class RecorderView: NSView {
         window?.makeFirstResponder(nil)
     }
 
-    /// Pure validity check (WR-06), exposed (internal) for unit tests. A captured combo is
-    /// rejected when it has NO modifier and bare keys are not allowed for this action
-    /// (the global hotkey case). Bare keys are fine for app-scoped actions (e.g. Esc to
-    /// cancel), so `allowsBareKey == true` accepts everything the recorder can build.
-    static func isAcceptable(_ combo: KeyCombo, allowsBareKey: Bool) -> Bool {
+    /// Pure validity check (WR-06 + review WR-02), exposed (internal) for unit tests.
+    /// A captured combo is rejected when:
+    /// - it has NO modifier and bare keys are not allowed for this action (the global
+    ///   hotkey case — a modifier-less global would be grabbed system-wide), or
+    /// - the action requires a command-like modifier (⌘/⌃/⌥) and the combo has none
+    ///   (WR-02: the app-level local monitor only fires on ⌘/⌃/⌥, so a bare or ⇧-only
+    ///   combo would record as a displayed-but-permanently-dead binding).
+    /// Bare keys stay fine for app-scoped capture actions (e.g. Esc to cancel).
+    static func isAcceptable(_ combo: KeyCombo, allowsBareKey: Bool,
+                             requiresCommandLikeModifier: Bool = false) -> Bool {
         if combo.modifiers.isEmpty && !allowsBareKey { return false }
+        if requiresCommandLikeModifier
+            && combo.modifiers.isDisjoint(with: [.cmd, .ctrl, .opt]) { return false }
         return true
     }
 

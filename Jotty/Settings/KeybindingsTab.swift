@@ -56,6 +56,12 @@ struct KeybindingsTab: View {
     /// grabbed system-wide and hijack that key everywhere. BOTH globals qualify.
     static let requiresModifierActions: Set<Action> = [.globalToggleCapture, .globalCommandBar]
 
+    /// Phase 9 review WR-02: APP-LEVEL actions fire through the AppDelegate local
+    /// monitor, which requires ⌘/⌃/⌥ — so the recorder must enforce the same rule
+    /// or a bare/⇧-only combo records as a permanently dead binding. The SAME set
+    /// the monitor routes, so the two rules can never drift apart.
+    static let requiresCommandModifierActions: Set<Action> = ActionDispatcher.appLevelActions
+
     private var currentConflicts: [KeybindingConflict] {
         conflicts(in: bindings)
     }
@@ -69,7 +75,9 @@ struct KeybindingsTab: View {
                         Spacer()
                         RecordComboField(
                             current: bindings[entry.action],
-                            allowsBareKey: !Self.requiresModifierActions.contains(entry.action)
+                            allowsBareKey: !Self.requiresModifierActions.contains(entry.action),
+                            requiresCommandLikeModifier:
+                                Self.requiresCommandModifierActions.contains(entry.action)
                         ) { combo in
                             rebind(entry.action, to: combo)
                         }
