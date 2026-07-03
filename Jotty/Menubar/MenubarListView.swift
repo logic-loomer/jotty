@@ -999,9 +999,10 @@ struct MenubarListView: View {
     @ObservedObject var model: MenubarListModel
     let onCapture: () -> Void
     let onSettings: () -> Void
-    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) via the
-    /// `Action.openCalendarCanvas` handler in AppDelegate. The canvas is an
-    /// OPTIONAL alternative surface — this popover stays the default.
+    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) via
+    /// AppDelegate's `openCalendarCanvas()`; this header item is the canvas's
+    /// only entry point (menubar-item-only, IN-01). The canvas is an OPTIONAL
+    /// alternative surface — this popover stays the default.
     let onOpenCanvas: () -> Void
 
     /// The "+30 min" nudge interval used by the discoverable edit-time affordance (IN-04).
@@ -1041,8 +1042,8 @@ struct MenubarListView: View {
                 Text("\(model.doneCount) of \(model.tasks.count) done")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                // Phase 8 SC4: the "Calendar canvas" item — opens the optional
-                // canvas window through Action.openCalendarCanvas's handler.
+                // Phase 8 SC4: the "Calendar canvas" item — the canvas's only
+                // entry point; opens the optional window via AppDelegate.
                 Button(action: onOpenCanvas) {
                     Image(systemName: "calendar.day.timeline.left")
                         .font(.callout)

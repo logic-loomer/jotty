@@ -6,9 +6,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyManager!
     private var settingsController: SettingsWindowController?
     private var captureController: CaptureWindowController?
-    /// The calendar canvas window (Phase 8 SC4 / CALX-04). Created lazily on the
-    /// first `Action.openCalendarCanvas` dispatch and retained (mirror of the
-    /// Settings controller idiom) so repeated opens re-show one window.
+    /// The calendar canvas window (Phase 8 SC4 / CALX-04). Created lazily on
+    /// the first menubar "Calendar canvas" item tap and retained (mirror of
+    /// the Settings controller idiom) so repeated opens re-show one window.
     private var canvasController: CalendarCanvasWindowController?
 
     private var configStore: ConfigStore!
@@ -131,8 +131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     keybindings: keybindings)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
-        // Phase 8 SC4: the popover's "Calendar canvas" item routes here — the
-        // same handler `Action.openCalendarCanvas` dispatches to.
+        // Phase 8 SC4: the popover's "Calendar canvas" item — the canvas's
+        // only entry point (menubar-item-only, IN-01) — routes here.
         menubar.onOpenCanvas = { [weak self] in self?.openCalendarCanvas() }
 
         scheduleMidnightRollover()
@@ -364,12 +364,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) — the handler
-    /// `Action.openCalendarCanvas` routes to (dispatched from the menubar item;
-    /// the case deliberately ships with no default key combo). The window wraps
-    /// the SHARED menubar list model, so the canvas reads the same store +
-    /// calendar seam as the dropdown and a drop's trailing reload refreshes
-    /// both surfaces. OPTIONAL surface: the dropdown stays the default.
+    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) — reached
+    /// exclusively from the menubar popover's "Calendar canvas" item (no
+    /// Action case / key combo, IN-01). The window wraps the SHARED menubar
+    /// list model, so the canvas reads the same store + calendar seam as the
+    /// dropdown and a drop's trailing reload refreshes both surfaces.
+    /// OPTIONAL surface: the dropdown stays the default.
     ///
     /// Calendar access stays LAZY (T-8-12 / Phase 5 decision): constructing the
     /// window never prompts; the `reload()` below is an explicit user action,
