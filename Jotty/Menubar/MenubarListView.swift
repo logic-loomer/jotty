@@ -749,6 +749,15 @@ struct MenubarListView: View {
     /// so the field actually gets the caret and keystrokes).
     @FocusState private var renameFieldFocused: Bool
 
+    // MARK: - Snooze date picker state (Phase 8 SC3)
+
+    /// The task awaiting a "Pick a date…" snooze choice, or nil when the picker
+    /// sheet is closed. Confirming calls `model.snooze(task, to: snoozeDraftDate)`.
+    @State private var snoozePickTask: Todo?
+    /// The in-progress date for the snooze picker sheet; seeded with the model's
+    /// now()-anchored tomorrow on entry (CR-01 — never task.createdAt).
+    @State private var snoozeDraftDate: Date = Date()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -923,6 +932,40 @@ struct MenubarListView: View {
         } message: {
             Text(model.claudeNotice ?? "")
         }
+        // SC3: "Pick a date…" snooze sheet — a date-only picker; confirming
+        // persists via model.snooze (visibility only, never relocation).
+        .sheet(isPresented: Binding(
+                   get: { snoozePickTask != nil },
+                   set: { if !$0 { snoozePickTask = nil } })) {
+            snoozeDatePickerSheet
+        }
+    }
+
+    /// The "Pick a date…" snooze sheet: a compact date-only picker with
+    /// Cancel/Snooze actions. Kept deliberately small (Claude discretion per
+    /// CONTEXT — no over-building; the graphical picker is one tap per date).
+    private var snoozeDatePickerSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Snooze until")
+                .font(.headline)
+            DatePicker("", selection: $snoozeDraftDate, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+            HStack {
+                Button("Cancel") { snoozePickTask = nil }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Snooze") {
+                    if let task = snoozePickTask {
+                        model.snooze(task, to: snoozeDraftDate)
+                    }
+                    snoozePickTask = nil
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
     }
 
     /// Per-row context menu (SC1 + SC3 + SC4): the full four-item set —
@@ -937,6 +980,9 @@ struct MenubarListView: View {
         Button("Move to tomorrow") { model.moveToTomorrow(task) }
         Button("Open day file") { model.openDayFile(task) }
         sendToClaudeItem(task)
+        // Phase 8: recurrence rule (SC2 UI surface) + snooze-until-date (SC3).
+        repeatSubmenu(task)
+        snoozeSubmenu(task)
         if task.calEventID != nil, let tb = task.timeBlock {
             Divider()
             // Edit-time affordance: nudge the linked event +30m as a discoverable
@@ -945,6 +991,81 @@ struct MenubarListView: View {
                 let newBlock = TimeBlock(start: tb.start.addingTimeInterval(Self.nudgeSeconds),
                                          end: tb.end.addingTimeInterval(Self.nudgeSeconds))
                 model.editTime(task, to: newBlock)
+            }
+        }
+    }
+
+    // MARK: - Repeat + Snooze-to submenus (Phase 8 SC2/SC3)
+
+    /// Weekday names indexed by gregorian weekday int - 1 (1=Sun…7=Sat), for the
+    /// Custom recurrence toggles.
+    private static let weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday",
+                                       "Thursday", "Friday", "Saturday"]
+
+    /// The Repeat submenu (SC2 UI): None/Daily/Weekdays/Weekly write the rule via
+    /// `model.setRecurrence`; Custom nests a lightweight Sun…Sat toggle set feeding
+    /// `.custom(Set<Int>)`. The active rule carries a checkmark.
+    @ViewBuilder
+    private func repeatSubmenu(_ task: Todo) -> some View {
+        Menu("Repeat") {
+            recurrenceChoice("None", rule: nil, for: task)
+            recurrenceChoice("Daily", rule: .daily, for: task)
+            recurrenceChoice("Weekdays", rule: .weekday, for: task)
+            recurrenceChoice("Weekly", rule: .weekly, for: task)
+            customWeekdaysSubmenu(task)
+        }
+    }
+
+    /// A single Repeat choice; the currently active rule shows a checkmark.
+    @ViewBuilder
+    private func recurrenceChoice(_ title: String, rule: Recurrence?, for task: Todo) -> some View {
+        Button(action: { model.setRecurrence(task, to: rule) }) {
+            if task.recur == rule {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    /// The Custom recurrence picker (Claude discretion per CONTEXT): a simple
+    /// Sun…Sat toggle set — each tap flips that weekday's membership in the
+    /// task's `.custom` set and persists immediately (an empty set clears the
+    /// rule, matching `Recurrence.parse`'s rejection of empty customs).
+    private func customWeekdaysSubmenu(_ task: Todo) -> some View {
+        let selected: Set<Int> = {
+            if case .custom(let days) = task.recur { return days }
+            return []
+        }()
+        return Menu("Custom") {
+            ForEach(1..<8, id: \.self) { day in
+                Button {
+                    var days = selected
+                    if days.contains(day) { days.remove(day) } else { days.insert(day) }
+                    model.setRecurrence(task, to: days.isEmpty ? nil : .custom(days))
+                } label: {
+                    if selected.contains(day) {
+                        Label(Self.weekdayNames[day - 1], systemImage: "checkmark")
+                    } else {
+                        Text(Self.weekdayNames[day - 1])
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Snooze-to submenu (SC3): Tomorrow / Next week use the model's
+    /// now()-anchored convenience dates (CR-01); "Pick a date…" opens the
+    /// date-only picker sheet.
+    @ViewBuilder
+    private func snoozeSubmenu(_ task: Todo) -> some View {
+        Menu("Snooze to…") {
+            Button("Tomorrow") { model.snooze(task, to: model.snoozeTomorrowDate) }
+            Button("Next week") { model.snooze(task, to: model.snoozeNextWeekDate) }
+            Divider()
+            Button("Pick a date…") {
+                snoozeDraftDate = model.snoozeTomorrowDate
+                snoozePickTask = task
             }
         }
     }
