@@ -23,9 +23,10 @@ final class CaptureWindowController: NSWindowController {
         let view = CaptureView(
             vm: vm,
             onSubmitInput: { [weak vm] in
-                // Just kick off submission. Don't close — submit() spawns an
-                // async AI Task; the Review state lands later via vm.state and
-                // CaptureView re-renders to ReviewListView.
+                // Just kick off submission. Don't close here — the AI path lands
+                // in Review via vm.state, and BOTH commit paths now close the
+                // window through vm.dismissRequested -> CaptureView.onChange ->
+                // this controller's onDismiss closure (UX-03, plan 07.1-06).
                 vm?.submit()
             },
             onDismiss: { [weak win] in
