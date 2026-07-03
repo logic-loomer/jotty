@@ -65,8 +65,14 @@ final class InboxStateStore {
     /// User-writable persistence path, mirroring `ConfigStore.defaultPath` /
     /// `KeybindingsStore.defaultPath`.
     static var defaultPath: URL {
-        let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // CQ-06 fail-soft: fall back to the home-anchored Application Support path so
+        // this accessor keeps returning a non-optional URL instead of crashing launch.
+        guard let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            NSLog("[Jotty] Application Support unavailable; falling back to ~/Library/Application Support")
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Jotty/inbox-state.json")
+        }
         return appSupport.appendingPathComponent("Jotty/inbox-state.json")
     }
 }

@@ -27,6 +27,10 @@ import AppKit
 /// concurrent read/write is serialized and can never tear — the `@unchecked` here
 /// no longer hides a real race, it only relaxes the (unrelated) test-closure
 /// capture rules. The argv-only Code-mode contract (T-6-04) is unchanged.
+///
+/// `@unchecked Sendable` invariant (CQ-05): every stored property is an immutable
+/// `let` closure and the type holds NO mutable state — any new stored property MUST
+/// stay `let`, or this conformance must be re-justified.
 final class SystemClaudeHandoff: ClaudeHandoff, @unchecked Sendable {
 
     /// Opens a Web-mode URL. Default routes to `NSWorkspace.shared.open`.

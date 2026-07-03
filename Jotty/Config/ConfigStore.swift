@@ -88,8 +88,15 @@ struct AppConfig: Codable, Equatable {
     }
 
     static var defaultValue: AppConfig {
-        let docs = FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask).first!
+        // CQ-06 fail-soft: urls(for:in:) returning an empty array is pathological but
+        // possible. Fall back to the equivalent home-anchored path so this value
+        // builder keeps returning a usable config instead of crashing launch.
+        guard let docs = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first else {
+            NSLog("[Jotty] Documents directory unavailable; falling back to ~/Documents")
+            return AppConfig(storageFolder: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Documents/Jotty"))
+        }
         return AppConfig(storageFolder: docs.appendingPathComponent("Jotty"))
     }
 }
@@ -102,6 +109,12 @@ struct AppConfig: Codable, Equatable {
 /// able to read `config` concurrently with an `update {}` write from a Settings tab.
 /// `AppConfig` is a `Sendable` value type; `config`'s storage and every `update` are
 /// serialized behind a lock, so reads and writes never tear.
+///
+/// `@unchecked Sendable` invariant (CQ-05): every access to the ONLY mutable state
+/// (`_config`) goes through the internal `lock` (`NSLock`) — reads via the `config`
+/// accessor, writes via `update(_:)`. Any NEW member that touches `_config` MUST take
+/// `lock` the same way; nothing may read or write `_config` outside it. This invariant
+/// is regression-tested by JottyTests/Config/ConfigStoreConcurrencyTests.swift.
 final class ConfigStore: @unchecked Sendable {
     /// Serializes every read of and write to `_config`. `@unchecked Sendable` is sound
     /// here because the ONLY mutable state (`_config`) is never touched outside this lock.
@@ -151,8 +164,14 @@ final class ConfigStore: @unchecked Sendable {
     }
 
     static var defaultPath: URL {
-        let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // CQ-06 fail-soft: fall back to the home-anchored Application Support path so
+        // this accessor keeps returning a non-optional URL instead of crashing launch.
+        guard let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            NSLog("[Jotty] Application Support unavailable; falling back to ~/Library/Application Support")
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Jotty/config.json")
+        }
         return appSupport.appendingPathComponent("Jotty/config.json")
     }
 }
