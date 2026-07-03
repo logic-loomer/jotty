@@ -1,13 +1,19 @@
 name: Jotty
 options:
   bundleIdPrefix: com.jotty
+  # macOS 26.0 pin: the default on-device AI provider (AppleFMProvider) is built
+  # on the FoundationModels (Apple Intelligence) framework, which requires
+  # macOS 26. Lowering this breaks the zero-network default extraction path.
   deploymentTarget:
     macOS: "26.0"
   developmentLanguage: en
 settings:
   SWIFT_VERSION: "6.0"
+  # Keep in sync with options.deploymentTarget above (FoundationModels pin).
   MACOSX_DEPLOYMENT_TARGET: "26.0"
-  ENABLE_USER_SCRIPT_SANDBOXING: NO
+  # Safe to sandbox: this project has no user-script build phases, so script
+  # sandboxing costs nothing (verified: full build + test suite green with YES).
+  ENABLE_USER_SCRIPT_SANDBOXING: YES
 targets:
   Jotty:
     type: application
@@ -24,6 +30,8 @@ targets:
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "2"
         LSUIElement: true
+        # Matches the 26.0 deployment pin: FoundationModels (Apple
+        # Intelligence) requires macOS 26 — see options.deploymentTarget.
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: ""
         NSMainStoryboardFile: ""
