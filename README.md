@@ -4,7 +4,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** v1.0 shipped, plus Phase 7 (Unified Inbox). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, and a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
+**Status:** v1.0 shipped, plus Phase 7 (Unified Inbox) and Phase 8 (Calendar Power-UX). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default, and calendar power-UX: recurring tasks, snooze, drag-to-time-block, and an optional calendar canvas window. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
 
 ## Build from source
 
@@ -373,6 +373,58 @@ are already generic.
 The full network posture is recorded in
 **[docs/privacy-audit.md](docs/privacy-audit.md)**.
 
+## Calendar Power-UX (Phase 8)
+
+Calendar interactions become first-class: recurring tasks, snooze, drag-to-time-block,
+and an optional calendar canvas window. Everything builds on the Phase 5 calendar
+foundation (the `CalendarService` seam and the `time:` / `cal_event:` tokens) and keeps
+markdown on disk as the source of truth. Three new metadata tokens carry the features -
+`recur:`, `recur_src:`, and `snooze:` - additive to the existing task-line tokens, so
+older files parse unchanged.
+
+### Recurring tasks
+
+Right-click a task and pick **Repeat** (None / Daily / Weekdays / Weekly / Custom).
+The choice lands on the task line as a `recur:<rule>` token: `daily`, `weekday`
+(Mon-Fri), `weekly` (the same weekday the task was created on), or `custom:<csv>` of
+weekday numbers (1 = Sunday through 7 = Saturday, e.g. `custom:2,4,6` for Mon/Wed/Fri;
+the Custom submenu toggles individual weekdays).
+
+The recurring line is a **template**: it stays on its own day and is never consumed or
+rolled forward. On each day the rule matches, rollover (at app launch and at midnight)
+writes a fresh, unchecked task line into today's file - new id, `recur:` preserved -
+stamped with a `recur_src:<templateId>:<date>` marker. That marker makes instancing
+idempotent: rollover can run any number of times per day and the instance is created at
+most once per template per day. To stop a recurrence, set Repeat back to None on the
+template.
+
+### Snooze
+
+Right-click a task and pick **Snooze to** (Tomorrow / Next week / Pick a date). The
+task line gains a `snooze:<YYYY-MM-DD>` token and disappears from the menubar list
+until that date, then reappears automatically on the day. Snooze affects visibility
+only: the task stays in its original day file (unlike Move to tomorrow, which relocates
+the line), and the token is left in place after the task reappears.
+
+### Drag-to-time-block
+
+In the calendar canvas, drag an unscheduled task from the rail onto a time slot. The
+drop snaps to the nearest 15-minute slot, writes a `time:` block (30 minutes by
+default) to the task line, and creates a real calendar event through the same Phase 5
+path as capture: an overlap warning if the slot conflicts with an existing event
+(Cancel keeps the time block but skips the event), then the `cal_event:<id>` link
+written back to the task. Dropping a task that already has a time block is a move - the
+linked event updates in place, never duplicates.
+
+### Calendar canvas
+
+An optional window - an alternative to the menubar dropdown, not a replacement -
+showing today on a vertical time-of-day axis: calendar events as blue blocks,
+time-blocked tasks as green blocks, both positioned by start time and duration at 60
+pixels per hour, plus a rail of unscheduled tasks to drag from. Open it from the
+calendar icon in the menubar popover header. As with all calendar features, access is
+requested lazily on first use, never at launch.
+
 ## Testing
 
 ```bash
@@ -388,7 +440,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 - **Phase 5:** Calendar integration (read + write) (shipped)
 - **Phase 6:** Send-to-Claude, launch-at-login, full settings UI, onboarding, privacy audit — **v1.0 shipped**
 - **Phase 7:** Unified inbox (GitHub shipped via PAT; Gmail / Slack / Linear / Notion documented extension points) (shipped)
-- **Phase 8:** Calendar power-UX (add to calendar, smart scheduling)
+- **Phase 8:** Calendar power-UX (recurring tasks, snooze, drag-to-time-block, calendar canvas) (shipped)
 - **Phase 9:** Command bar (global search, quick actions)
 
 ## License
