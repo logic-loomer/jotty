@@ -203,6 +203,58 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertFalse(todayDoc.tasks.contains { $0.id == "t_tpl" })
     }
 
+    /// CR-01 regression: recurrence must NOT die when the template's origin day
+    /// falls out of the (collect-loop) lookback window. Templates persist on
+    /// their origin day forever, so the template scan is unbounded — 20+
+    /// consecutive daily runs later, a .daily template still instances.
+    func testDailyTemplateStillInstancesTwentyDaysAfterCreation() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        // Run every consecutive day: 2026-05-08 … 2026-05-27 (day 20 > the
+        // 14-day collect window).
+        for offset in 1...20 {
+            var c = Calendar(identifier: .gregorian); c.timeZone = tz
+            let day = c.date(byAdding: .day, value: offset, to: makeDate(2026, 5, 7, h: 9))!
+            try svc.run(now: day)
+        }
+
+        let day20 = makeDate(2026, 5, 27)
+        let day20Doc = try store.readDoc(on: day20)
+        XCTAssertEqual(day20Doc.tasks.filter { $0.recurSrc == "t_tpl:2026-05-27" }.count, 1,
+                       "the template must still instance on day 20")
+        // And the template still sits untouched on its origin day.
+        let originDoc = try store.readDoc(on: origin)
+        let template = try XCTUnwrap(originDoc.tasks.first { $0.id == "t_tpl" })
+        XCTAssertEqual(template.recur, .daily)
+        XCTAssertNil(template.rolledTo)
+    }
+
+    /// CR-01: the app may simply not run for weeks — a single rollover after a
+    /// long gap must still find the (now far-out-of-window) template.
+    func testTemplateInstancesAfterMultiWeekGapInRuns() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: makeDate(2026, 6, 8, h: 9))   // 32 days later
+
+        let doc = try store.readDoc(on: makeDate(2026, 6, 8))
+        XCTAssertEqual(doc.tasks.filter { $0.recurSrc == "t_tpl:2026-06-08" }.count, 1,
+                       "a template older than any bounded window must still instance")
+    }
+
     /// Regression guard: an ordinary incomplete task rolls forward exactly as
     /// before, even when a template shares its day.
     func testNonRecurringRollUnchangedAlongsideTemplate() throws {

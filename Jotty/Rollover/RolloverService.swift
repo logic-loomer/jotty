@@ -68,22 +68,31 @@ final class RolloverService {
 
     /// Builds the fresh recurring instances due on `today` (SC2 / CALX-02).
     ///
-    /// Templates are gathered across the FULL `maxLookbackDays` window,
-    /// deliberately INDEPENDENT of the last-rollover state: the state file does
-    /// NOT block same-day re-runs (launch + midnight Timer both call `run`), so
-    /// the `recur_src:<templateId>:<yyyy-MM-dd>` marker checked against today's
-    /// doc is the ONLY thing preventing duplicate instances (T-8-04).
+    /// Templates are gathered from EVERY existing day file strictly before
+    /// `today` — deliberately NOT bounded by `maxLookbackDays` (CR-01). A
+    /// template never moves (it persists on its origin day per CONTEXT /
+    /// RESEARCH A1), so any bounded window silently kills every recurrence the
+    /// moment its origin day falls out of that window: with the old 14-day
+    /// scan, every recurring task died two weeks after "Repeat" was set. The
+    /// enumeration cost is one directory listing plus small per-day parses, on
+    /// a code path that runs a handful of times per day.
+    ///
+    /// Files are scanned newest-first so if one id somehow carries `recur` on
+    /// two days (hand-edited history), the most recent line wins as template.
+    ///
+    /// The `recur_src:<templateId>:<yyyy-MM-dd>` marker check against today's
+    /// doc is the second belt behind the first-run-of-day gate in `run()`
+    /// (CR-02): it keeps a crash between the today-write and the state-write
+    /// from duplicating instances on the retry.
     private func recurrenceInstances(for today: Date, calendar cal: Calendar) throws -> [Todo] {
         var templates: [Todo] = []
         var seenIDs = Set<String>()
-        let windowStart = cal.date(byAdding: .day, value: -maxLookbackDays, to: today) ?? today
-        var cursor = cal.date(byAdding: .day, value: -1, to: today)!
-        while cursor >= windowStart {
-            let doc = (try? store.readDoc(on: cursor)) ?? MarkdownDoc(date: cursor)
+        let days = store.allDayDates().filter { $0 < today }.sorted(by: >)
+        for day in days {
+            let doc = (try? store.readDoc(on: day)) ?? MarkdownDoc(date: day)
             for task in doc.tasks where task.recur != nil && task.recurSrc == nil {
                 if seenIDs.insert(task.id).inserted { templates.append(task) }
             }
-            cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
         }
         guard !templates.isEmpty else { return [] }
 

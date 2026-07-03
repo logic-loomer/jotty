@@ -162,6 +162,28 @@ final class Store {
         return readOrCreate(at: url, on: date)
     }
 
+    /// Every day that has a markdown file in the folder, parsed from the
+    /// `yyyy-MM-dd.md` DailyFile filenames (Phase 8 CR-01). Lets callers reach
+    /// ANY day's doc without a bounded lookback window — the recurrence pass
+    /// scans these for templates (which persist on their origin day forever),
+    /// and the recurrence UI resolves an instance's template through them.
+    /// Non-matching filenames are skipped; a missing/unreadable folder yields
+    /// an empty array. POSIX-pinned parse (WR-05 idiom): the filename is a
+    /// machine-format key, never locale-rendered.
+    func allDayDates() -> [Date] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else {
+            return []
+        }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = timezone
+        return names.compactMap { name in
+            guard name.hasSuffix(".md") else { return nil }
+            return f.date(from: String(name.dropLast(3)))
+        }
+    }
+
     private func readOrCreate(at url: URL, on date: Date) -> MarkdownDoc {
         if let existing = try? String(contentsOf: url, encoding: .utf8),
            let parsed = try? MarkdownDoc.parse(existing, timezone: timezone) {
