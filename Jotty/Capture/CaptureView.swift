@@ -11,6 +11,13 @@ struct CaptureView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // UX-03: brief "Saved" confirmation shown on both commit paths
+            // (manual fast path and Review commit) just before the VM's
+            // dismiss signal closes the window.
+            if vm.showSavedConfirmation {
+                SavedConfirmationBar()
+            }
+
             // Provider-failure toast (plan 04-10, ROADMAP Phase 4 SC4).
             // Shown in the Review state after a failed extraction (and in
             // input if the user navigates back with the error still set).
@@ -44,14 +51,24 @@ struct CaptureView: View {
                         vm: vm,
                         tasks: tasks,
                         onCommit: {
+                            // commitFromReview sets state back to .input on success
+                            // and raises the saved/dismiss signals (UX-03); stays
+                            // .review on disk error (with lastError set). Dismissal
+                            // flows through the dismissRequested seam below.
                             vm.commitFromReview()
-                            // commitFromReview sets state back to .input on success;
-                            // stays .review on disk error (with lastError set).
-                            if case .input = vm.state { onDismiss() }
                         },
                         onCancel: { vm.returnToInput() }
                     )
                 }
+            }
+        }
+        // UX-03: single dismissal seam for BOTH commit paths. The VM raises
+        // dismissRequested only on a successful commit; give the Saved toast a
+        // beat on screen, then close via CaptureWindow's onDismiss closure.
+        .onChange(of: vm.dismissRequested) { _, requested in
+            guard requested else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                onDismiss()
             }
         }
     }
@@ -60,24 +77,58 @@ struct CaptureView: View {
 
     private var inputView: some View {
         VStack(spacing: 0) {
+            // UX-08: a restored draft is announced, with a one-tap way to drop it.
+            if vm.draftWasRestored {
+                DraftRestoredBar(onClear: { vm.clearRestoredDraft() })
+            }
+
             TextEditor(text: $vm.text)
                 .font(.system(size: 14))
                 .padding(12)
                 .focused($focused)
                 .scrollContentBackground(.hidden)
                 .background(Color(NSColor.textBackgroundColor))
+                // UX-01: freeze the text while extraction is in flight. Scoped to
+                // the editor ONLY — the Esc key monitor attaches via .background
+                // below and Esc-cancel must keep working mid-extraction.
+                .disabled(vm.isExtracting)
 
-            HStack {
-                Spacer()
+            HStack(spacing: 8) {
                 Text("⌘↩ submit  ·  ⎋ cancel")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 6)
+                Spacer()
+                // UX-08: clickable equivalents of the key bindings — Cancel
+                // mirrors ⎋, Submit mirrors ⌘↩; both call the same code paths.
+                Button("Cancel") { onDismiss() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                Button("Submit") { onSubmitInput() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(width: 520, height: 280)
+        // UX-01: extraction progress overlay (RESEARCH Pattern 3). Dimmed cover
+        // while the AI call is in flight; Esc-cancel still works because the key
+        // monitor is an NSEvent local monitor (not hit-tested through the overlay).
+        .overlay {
+            if vm.isExtracting {
+                ZStack {
+                    Color(NSColor.windowBackgroundColor).opacity(0.6)
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Extracting…")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityLabel("Extracting tasks")
+            }
+        }
         .onAppear {
             // Defer focus by one runloop tick: with LSUIElement = true and
             // .accessory activation policy, the window isn't quite settled
@@ -87,6 +138,53 @@ struct CaptureView: View {
         }
         .onSubmitKeyCommand { onSubmitInput() }
         .onCancelKeyCommand { onDismiss() }
+    }
+}
+
+// MARK: - Saved confirmation bar (UX-03, plan 07.1-06)
+
+/// Brief inline "Saved" confirmation shown after a successful commit on either
+/// path (manual fast path or Review commit), just before the window closes via
+/// the VM's dismiss signal. Same inline-bar idiom as the toasts below.
+private struct SavedConfirmationBar: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text("Saved")
+                .font(.system(size: 11))
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.green.opacity(0.12))
+        .accessibilityLabel("Saved")
+    }
+}
+
+// MARK: - Draft restored bar (UX-08, plan 07.1-06)
+
+/// Announces that a previous unsent draft was restored into the editor, with an
+/// inline Clear control (`vm.clearRestoredDraft()`). Shows a fixed label only —
+/// never the draft contents (threat register T-07.1-13).
+private struct DraftRestoredBar: View {
+    let onClear: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundStyle(.secondary)
+            Text("Draft restored")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Button("Clear") { onClear() }
+                .font(.system(size: 11))
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.secondary.opacity(0.10))
     }
 }
 

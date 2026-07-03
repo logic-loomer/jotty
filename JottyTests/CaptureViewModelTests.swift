@@ -475,6 +475,83 @@ final class CaptureViewModelTests: XCTestCase {
                        "conflicted task raised after close must stay uncommitted")
     }
 
+    // MARK: - Manual fast-path saved signal + draft-restored affordance (UX-03/UX-08, plan 07.1-06)
+
+    // UX-03: pure-manual capture commits synchronously and must signal success so
+    // the view can show "Saved" and close the window (same feel as the prose path).
+    func testManualFastPathSignalsSavedAndRequestsDismissal() throws {
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        vm.text = "- [ ] call mom"
+        vm.submit()   // pure-manual fast path is synchronous
+        XCTAssertTrue(vm.showSavedConfirmation, "successful manual commit must show Saved")
+        XCTAssertTrue(vm.dismissRequested, "successful manual commit must request window dismissal")
+        XCTAssertEqual(vm.text, "")
+        XCTAssertNil(vm.lastError)
+    }
+
+    // UX-03: a manual commit that FAILS to write must not claim success.
+    func testFailedManualSubmitDoesNotSignalSaved() throws {
+        // A parent path that is a regular FILE makes Store.appendCapture's
+        // createDirectory(withIntermediateDirectories:) throw.
+        let blocker = folder.appendingPathComponent("blocker")
+        try "not a directory".write(to: blocker, atomically: true, encoding: .utf8)
+        let badStore = Store(folder: blocker.appendingPathComponent("sub"), timezone: .current)
+        let vm = CaptureViewModel(store: badStore, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        vm.text = "- [ ] doomed"
+        vm.submit()
+        XCTAssertNotNil(vm.lastError, "disk failure must surface as lastError")
+        XCTAssertFalse(vm.showSavedConfirmation, "failed commit must not show Saved")
+        XCTAssertFalse(vm.dismissRequested, "failed commit must not dismiss the window")
+    }
+
+    // UX-03: prose input routes to review — no Saved signal until the review commits.
+    func testProseSubmitSignalsSavedOnlyAfterReviewCommit() async throws {
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "a note")))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { Date() })
+        vm.text = "a note"
+        await vm.submitAndWait()
+        XCTAssertFalse(vm.showSavedConfirmation, "entering review must not claim Saved yet")
+        XCTAssertFalse(vm.dismissRequested)
+        vm.commitFromReview()
+        XCTAssertTrue(vm.showSavedConfirmation, "review commit is the other Saved path")
+        XCTAssertTrue(vm.dismissRequested)
+    }
+
+    // UX-08: restoring a non-empty draft is announced.
+    func testInitWithSavedDraftSetsDraftWasRestored() throws {
+        try "leftover".write(to: draftURL, atomically: true, encoding: .utf8)
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        XCTAssertTrue(vm.draftWasRestored)
+        XCTAssertEqual(vm.text, "leftover")
+    }
+
+    // UX-08: no draft on disk → no announcement.
+    func testInitWithoutDraftLeavesDraftWasRestoredFalse() {
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        XCTAssertFalse(vm.draftWasRestored)
+    }
+
+    // UX-08: Clear empties the editor, resets the flag, and removes the on-disk
+    // draft so a relaunch cannot resurrect what the user explicitly discarded.
+    func testClearRestoredDraftEmptiesTextAndResetsFlag() async throws {
+        try "leftover".write(to: draftURL, atomically: true, encoding: .utf8)
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        vm.clearRestoredDraft()
+        XCTAssertEqual(vm.text, "")
+        XCTAssertFalse(vm.draftWasRestored)
+        // Wait past the autosave debounce: the cancelled write must not recreate the file.
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: draftURL.path))
+    }
+
+    // UX-08: editing the restored draft down to nothing also clears the flag.
+    func testEditingTextToEmptyClearsDraftWasRestored() throws {
+        try "leftover".write(to: draftURL, atomically: true, encoding: .utf8)
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
+        vm.text = ""
+        XCTAssertFalse(vm.draftWasRestored)
+    }
+
     /// Polls `condition` on the main actor up to ~2s; fails the test if it never becomes true.
     private func waitUntil(
         timeout: TimeInterval = 2.0,

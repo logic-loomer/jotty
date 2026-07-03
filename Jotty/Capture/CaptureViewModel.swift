@@ -40,13 +40,33 @@ struct CalendarConflict: Equatable {
 @MainActor
 final class CaptureViewModel: ObservableObject {
     @Published var text: String = "" {
-        didSet { scheduleAutosave() }
+        didSet {
+            // UX-08: the "Draft restored" affordance goes away once the user
+            // edits the restored draft down to nothing (or clears it).
+            if draftWasRestored,
+               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                draftWasRestored = false
+            }
+            scheduleAutosave()
+        }
     }
     @Published var state: CaptureState = .input
     /// Indices of rows the user has left checked. All rows checked by default on enterReview.
     @Published var acceptedRowIDs: Set<Int> = []
     @Published var isExtracting: Bool = false
     @Published var lastError: AIProviderError?
+
+    /// UX-03: true once a commit has landed on disk (manual fast path or Review
+    /// commit). The view renders a brief "Saved" toast while set. A fresh VM is
+    /// created per capture-window open, so this never leaks across sessions.
+    @Published var showSavedConfirmation: Bool = false
+    /// UX-03: true when the VM wants the capture window closed after a successful
+    /// commit. CaptureView observes this and calls its onDismiss closure once the
+    /// Saved confirmation has had a beat on screen. Set ONLY on commit success.
+    @Published var dismissRequested: Bool = false
+    /// UX-08: true when init restored a non-empty draft. Cleared when the user
+    /// edits the text to empty or taps the banner's Clear (`clearRestoredDraft()`).
+    @Published var draftWasRestored: Bool = false
 
     /// Non-blocking calendar notice (denied access / write failure). Cleared on each commit.
     @Published var calendarNotice: CalendarNotice?
@@ -99,10 +119,24 @@ final class CaptureViewModel: ObservableObject {
         self.calendar = calendar
         self.clock = clock
 
-        // Restore draft if present.
+        // Restore draft if present. A non-empty restore is announced (UX-08) so
+        // the user knows why the editor isn't blank and can clear it in one tap.
         if let restored = try? String(contentsOf: draftURL, encoding: .utf8) {
             self.text = restored
+            if !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.draftWasRestored = true
+            }
         }
+    }
+
+    /// UX-08: banner action — drop the restored draft entirely: the editor text,
+    /// the announcement flag, and the on-disk draft file (so a relaunch doesn't
+    /// resurrect what the user explicitly discarded).
+    func clearRestoredDraft() {
+        text = ""                       // didSet also resets draftWasRestored
+        draftWasRestored = false
+        autosaveTask?.cancel()          // cancel the write the didSet just queued
+        try? FileManager.default.removeItem(at: draftURL)
     }
 
     // MARK: - Manual syntax detection
@@ -264,6 +298,13 @@ final class CaptureViewModel: ObservableObject {
         text = ""
         autosaveTask?.cancel()
         try? FileManager.default.removeItem(at: draftURL)
+
+        // UX-03: the manual fast path used to clear the editor silently — signal
+        // success so the view shows "Saved" and the window layer closes, matching
+        // the prose path's commit feedback. Only reached when appendCapture didn't
+        // throw, so these fire on genuine commit success only.
+        showSavedConfirmation = true
+        dismissRequested = true
     }
 
     func cancel() {
@@ -337,6 +378,13 @@ final class CaptureViewModel: ObservableObject {
         try? FileManager.default.removeItem(at: draftURL)   // best-effort cleanup; not user-visible
         state = .input
         acceptedRowIDs = []
+
+        // UX-03: both commit paths confirm — show "Saved" and ask the window
+        // layer to close after the toast (replaces the view's old immediate
+        // close-on-commit). The disk-error path above returned early, so this
+        // fires on commit success only.
+        showSavedConfirmation = true
+        dismissRequested = true
 
         // Best-effort, off the synchronous commit: for each time-blocked task run the lazy
         // access gate, the conflict gate (SC5), then create the event and write `cal_event:`
