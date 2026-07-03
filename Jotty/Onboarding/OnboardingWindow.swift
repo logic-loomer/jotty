@@ -71,7 +71,7 @@ struct OnboardingView: View {
     /// The 30-second walkthrough target. The project has no hosted help site yet, so
     /// this points at the GitHub repo README (Claude's discretion per the plan;
     /// documented in the SUMMARY). Swap in one place if a help anchor lands later.
-    static let walkthroughURL = URL(string: "https://github.com/awon/jotty#readme")!
+    static let walkthroughURL = URL(string: "https://github.com/logic-loomer/jotty#readme")!
 
     @State private var launchAtLoginOn = false
     @State private var calendarRequested = false
