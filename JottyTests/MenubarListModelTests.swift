@@ -85,6 +85,31 @@ final class MenubarListModelTests: XCTestCase {
                        "the backing store must be the swapped-in instance")
     }
 
+    // A store swap is never an explicit calendar action: the Settings willClose observer
+    // calls replaceStore, so its reload must NOT re-issue the one-time TCC calendar
+    // prompt while access is notDetermined (same class as WR-06).
+    func testReplaceStoreDoesNotPromptForCalendarAccess() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let fake = FakeCalendarService()
+        fake.accessToReturn = .notDetermined
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        // Init's reload keeps the popover-open default (prompt allowed); whatever it
+        // recorded is the baseline — the swap below must add NOTHING to it.
+        let baseline = fake.requestAccessCallCount
+
+        model.replaceStore(store)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(fake.requestAccessCallCount, baseline,
+                       "store-swap reload must never re-issue the TCC calendar prompt")
+        XCTAssertFalse(model.calendarAccessDenied,
+                       "unprompted notDetermined must not flag denial (a later user action can still ask)")
+    }
+
     // MARK: - Collapse trigger
 
     func testToggleLeftoverCollapsesAndPersists() throws {

@@ -187,10 +187,16 @@ final class MenubarListModel: ObservableObject {
 
     /// WR-09: swaps the backing Store after a Settings → Storage folder change and
     /// reloads so the visible list reflects the NEW folder immediately. Safe to call
-    /// with an unchanged folder — it then behaves exactly like a plain `reload()`.
+    /// with an unchanged folder — it then behaves like a plain `reload()`.
+    ///
+    /// The reload passes `promptIfUndetermined: false`: a store swap is never an explicit
+    /// calendar action (it fires from the Settings willClose observer and the capture-window
+    /// open path), so it must NEVER re-issue the one-time TCC calendar prompt while access
+    /// is notDetermined — same class as WR-06's foreground-activation guard. The one-time
+    /// prompt stays reserved for genuine user-driven calendar paths (popover open, edit).
     func replaceStore(_ newStore: Store) {
         store = newStore
-        reload()
+        reload(promptIfUndetermined: false)
     }
 
     // MARK: - Unified inbox (Phase 7, SC2/SC3)
