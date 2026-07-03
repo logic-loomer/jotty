@@ -52,7 +52,23 @@ final class RolloverService {
             cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
         }
 
-        let instances = try recurrenceInstances(for: today, calendar: cal)
+        // CR-02: instancing is gated to the FIRST run of each calendar day.
+        // run() fires repeatedly within a day (launch, the midnight Timer, and
+        // every applicationDidBecomeActive catch-up); re-instancing on those
+        // re-runs resurrected instances the user had DELETED (the deletion
+        // removes the recur_src marker together with the line) and duplicated
+        // instances the user had MOVED to tomorrow (the marker moves with the
+        // line). Launch-after-midnight and the midnight timer both cross a day
+        // boundary and still instance; same-day re-runs skip instancing, so
+        // user deletions/moves stick. First-launch (no state file) mirrors the
+        // collect loop's existing no-op semantics: nothing is instanced until
+        // a day boundary is crossed (a fresh install has no templates anyway).
+        // The recur_src marker check inside recurrenceInstances stays as a
+        // second belt for a crash between the today-write and writeState.
+        let isFirstRunOfDay = cal.startOfDay(for: lastRollover) < today
+        let instances = isFirstRunOfDay
+            ? try recurrenceInstances(for: today, calendar: cal)
+            : []
 
         // CRITICAL: collected leftovers + recurrence instances merge into ONE
         // today write — a second replaceTasks call would race the first.

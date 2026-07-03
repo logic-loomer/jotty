@@ -91,8 +91,9 @@ final class RolloverServiceTests: XCTestCase {
     }
 
     /// Launch + midnight both call run(now:) for the same today. The
-    /// recur_src marker is the ONLY dup preventer (the state file does not
-    /// block same-day re-runs) — a double run must yield exactly ONE instance.
+    /// first-run-of-day gate (CR-02) skips instancing on the same-day re-run,
+    /// with the recur_src marker as second belt — a double run must yield
+    /// exactly ONE instance.
     func testSameDayDoubleRunIsIdempotent() throws {
         let store = Store(folder: folder, timezone: tz)
         let origin = makeDate(2026, 5, 7, h: 9)   // Thursday
@@ -109,6 +110,67 @@ final class RolloverServiceTests: XCTestCase {
         let todayDoc = try store.readDoc(on: makeDate(2026, 5, 8))
         let instances = todayDoc.tasks.filter { $0.recurSrc == "t_tpl:2026-05-08" }
         XCTAssertEqual(instances.count, 1)
+    }
+
+    /// CR-02 regression: deleting today's instance must STICK. The delete
+    /// removes the recur_src marker with the line, and run() re-fires on every
+    /// app activation — without the first-run-of-day gate the instance was
+    /// re-created (undeletable).
+    func testDeletedInstanceStaysDeletedOnSameDayRerun() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: makeDate(2026, 5, 8, h: 0, m: 1))   // first run of the day
+
+        let instance = try XCTUnwrap(
+            try store.readDoc(on: today).tasks.first { $0.recurSrc == "t_tpl:2026-05-08" })
+        try store.deleteTodo(id: instance.id, on: today)     // user deletes the instance
+
+        try svc.run(now: makeDate(2026, 5, 8, h: 9))         // activation catch-up re-run
+        XCTAssertTrue(try store.readDoc(on: today).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-05-08" }.isEmpty,
+                      "a deleted instance must not resurrect on a same-day re-run")
+
+        // The NEXT day still instances normally (gate re-opens on the day boundary).
+        try svc.run(now: makeDate(2026, 5, 9, h: 9))
+        XCTAssertEqual(try store.readDoc(on: makeDate(2026, 5, 9)).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-05-09" }.count, 1)
+    }
+
+    /// CR-02 regression: moving today's instance to tomorrow takes the marker
+    /// with it — a same-day re-run must not instance a duplicate onto today.
+    func testMovedInstanceDoesNotDuplicateOnSameDayRerun() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: makeDate(2026, 5, 8, h: 0, m: 1))
+
+        let instance = try XCTUnwrap(
+            try store.readDoc(on: today).tasks.first { $0.recurSrc == "t_tpl:2026-05-08" })
+        try store.moveTodoToTomorrow(id: instance.id, from: today,
+                                     now: makeDate(2026, 5, 8, h: 9))
+
+        try svc.run(now: makeDate(2026, 5, 8, h: 10))        // same-day re-run
+        XCTAssertTrue(try store.readDoc(on: today).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-05-08" }.isEmpty,
+                      "the moved instance must not re-instance onto today")
+        XCTAssertEqual(try store.readDoc(on: makeDate(2026, 5, 9)).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-05-08" }.count, 1,
+                       "exactly the one moved copy lives on tomorrow")
     }
 
     /// .weekday rule: no instance on Saturday, one on Monday.
