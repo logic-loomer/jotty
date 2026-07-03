@@ -42,6 +42,7 @@
 		458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */; };
 		46D948FE9F5A83C7781C8428 /* ProviderToleranceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA0678D4109E51D24CFDDA3 /* ProviderToleranceConfig.swift */; };
 		490F738FB25B281F2307DC24 /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */; };
+		4B84A29B9FEA820961120F83 /* CommandBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844D4B65E21DF680B648E59A /* CommandBarView.swift */; };
 		4C1DB8E26E1198F13FCFB086 /* OllamaSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BAD23F9436F343AD92FE459 /* OllamaSettingsSection.swift */; };
 		4D92D119A5DF67335C2570AB /* GitHubReleases.swift in Sources */ = {isa = PBXBuildFile; fileRef = E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */; };
 		52C89360FC3DBEDFFA4741B5 /* CalendarURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81A5F01CD75D09D0DDBC6C3 /* CalendarURL.swift */; };
@@ -103,6 +104,7 @@
 		98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ADA90AE012463DBB0AEA14 /* TimeBlock.swift */; };
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		9B3C881DA280A234D0231A75 /* ClaudePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = A769CD384B54035052E79D20 /* ClaudePrompt.swift */; };
+		A2C208140F0695624710DADF /* CommandBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FFBC5AD3C122C78A8B11811 /* CommandBarPanel.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
 		A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */; };
 		A4915ABA36FC83D6806A1DEF /* ActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C0D58650ECC6E97658E2EB /* ActionDispatcher.swift */; };
@@ -211,6 +213,7 @@
 		2BAD23F9436F343AD92FE459 /* OllamaSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaSettingsSection.swift; sourceTree = "<group>"; };
 		2D1A3C43F920384C287A9C41 /* PersistFailureNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistFailureNotice.swift; sourceTree = "<group>"; };
 		2FE80CD595DDAA8675E4921D /* InboxSourceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalog.swift; sourceTree = "<group>"; };
+		2FFBC5AD3C122C78A8B11811 /* CommandBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarPanel.swift; sourceTree = "<group>"; };
 		30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullProgress.swift; sourceTree = "<group>"; };
 		32D258ED7D377FA81D9B65BC /* InboxServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxServiceTests.swift; sourceTree = "<group>"; };
 		32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPromptTests.swift; sourceTree = "<group>"; };
@@ -275,6 +278,7 @@
 		820791648E6853B1DA48C4FF /* InstalledModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledModel.swift; sourceTree = "<group>"; };
 		8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemClaudeHandoffTests.swift; sourceTree = "<group>"; };
+		844D4B65E21DF680B648E59A /* CommandBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarView.swift; sourceTree = "<group>"; };
 		88B479C8DBBC174CCACF42C1 /* InboxSourceCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalogTests.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
 		8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailability.swift; sourceTree = "<group>"; };
@@ -575,6 +579,8 @@
 				0C9C26C070750595C1262771 /* CommandActionRegistry.swift */,
 				D90AB6AF42D0F8421E392BEF /* CommandBarIndex.swift */,
 				01FFEB95E1FA359DD4BA867B /* CommandBarModel.swift */,
+				2FFBC5AD3C122C78A8B11811 /* CommandBarPanel.swift */,
+				844D4B65E21DF680B648E59A /* CommandBarView.swift */,
 				C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */,
 			);
 			path = CommandBar;
@@ -960,6 +966,8 @@
 				3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */,
 				774E8ADCFBCCF5F8B9AF26F8 /* CommandBarIndex.swift in Sources */,
 				C336A67E18F9C5C296283BCE /* CommandBarModel.swift in Sources */,
+				A2C208140F0695624710DADF /* CommandBarPanel.swift in Sources */,
+				4B84A29B9FEA820961120F83 /* CommandBarView.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
