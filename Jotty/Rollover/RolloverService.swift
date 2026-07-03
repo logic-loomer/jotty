@@ -169,19 +169,13 @@ final class RolloverService {
 
     /// The SHARED fixed-format day formatter for every machine-readable key this
     /// service writes or reads: the `recur_src` day key (`todayKey`) and the
-    /// rollover state file. Pinned to `en_US_POSIX` (WR-05): under a user region
-    /// with a non-Gregorian calendar (Buddhist/Japanese era) an unpinned
-    /// formatter renders shifted years, and a region-settings CHANGE makes
-    /// previously written markers/state unmatchable — defeating the idempotency
-    /// guard (duplicate instances) and invalidating the state date. Same idiom
-    /// as the menubar `collapseKey`. One shared builder so the three call sites
-    /// can never drift.
+    /// rollover state file. Delegates to `DailyFile.dayFormatter` — the ONE
+    /// POSIX/Gregorian-pinned builder also used for day-file NAMES and the
+    /// filename parse (`Store.allDayDates`) — so no pair of the four surfaces
+    /// can ever drift (WR-05 + iteration-3 WR). See that helper's doc for the
+    /// era-shift hazard the pin closes; same idiom as the menubar `collapseKey`.
     private func dayFormatter() -> DateFormatter {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = timezone
-        return f
+        DailyFile.dayFormatter(timezone: timezone)
     }
 
     private func calendar() -> Calendar {

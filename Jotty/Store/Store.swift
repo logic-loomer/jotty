@@ -168,16 +168,22 @@ final class Store {
     /// scans these for templates (which persist on their origin day forever),
     /// and the recurrence UI resolves an instance's template through them.
     /// Non-matching filenames are skipped; a missing/unreadable folder yields
-    /// an empty array. POSIX-pinned parse (WR-05 idiom): the filename is a
-    /// machine-format key, never locale-rendered.
+    /// an empty array. Parses with the SHARED POSIX/Gregorian day formatter
+    /// (`DailyFile.dayFormatter`) — the same builder that NAMED the files — so
+    /// the write/parse pair can never drift (iteration-3 WR: an unpinned
+    /// `DailyFile.url` under a Thai Buddhist region wrote era-shifted names
+    /// this parse could not map back, silently killing recurrence). Filenames
+    /// that do not parse under the pinned formatter are skipped defensively,
+    /// never a crash. Known limitation: an era-shifted legacy filename written
+    /// by a pre-pin build under a non-Gregorian region (e.g. `2569-07-03.md`)
+    /// still parses — as Gregorian year 2569 — and surfaces as a far-future
+    /// day; the template scan's `< today` filter ignores it, and such files
+    /// are not migrated.
     func allDayDates() -> [Date] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else {
             return []
         }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = timezone
+        let f = DailyFile.dayFormatter(timezone: timezone)
         return names.compactMap { name in
             guard name.hasSuffix(".md") else { return nil }
             return f.date(from: String(name.dropLast(3)))
