@@ -14,7 +14,8 @@ final class MenubarController {
          calendar: (any CalendarService)? = nil,
          configStore: ConfigStore? = nil,
          claudeHandoff: (any ClaudeHandoff)? = nil,
-         inboxService: InboxService? = nil) {
+         inboxService: InboxService? = nil,
+         keybindings: KeybindingsStore? = nil) {
         // Model timezone must match the Store's so leftover partitioning and
         // collapse keys agree with the daily-file midnight boundary. `calendar`
         // (default nil) is threaded through so plan 08 injects the real EventKit
@@ -23,15 +24,28 @@ final class MenubarController {
         // (default nil) is the Send-to-Claude seam (SC1) injected from AppDelegate.
         // `inboxService` (default nil) is the Phase 7 unified-inbox coordinator;
         // when wired, `showPopover()` triggers a lazy, self-guarded refresh (SC3).
+        // `keybindings` (default nil) is the SHARED user store so the Send-to-Claude
+        // menu item shows the LIVE key equivalent (UX-07).
         self.listModel = MenubarListModel(store: store, timezone: store.timezone,
                                           calendar: calendar, configStore: configStore,
                                           claudeHandoff: claudeHandoff,
-                                          inboxService: inboxService)
+                                          inboxService: inboxService,
+                                          keybindings: keybindings)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "📝"
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.target = self
+        // UX-04: native template SF Symbol status icon (adapts to menubar tint and
+        // dark mode) with an accessibility label — replaces the raw emoji title
+        // (RESEARCH Pattern 2; leaving both image and title would render both).
+        if let button = statusItem.button {
+            let image = NSImage(systemSymbolName: "square.and.pencil",
+                                accessibilityDescription: "Jotty")
+            image?.isTemplate = true
+            button.image = image
+            button.title = ""
+            button.setAccessibilityLabel("Jotty")
+            button.action = #selector(togglePopover)
+            button.target = self
+        }
 
         popover.behavior = .transient
         popover.animates = true

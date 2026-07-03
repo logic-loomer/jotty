@@ -75,6 +75,16 @@ final class MenubarListModel: ObservableObject {
     /// `InboxService([GitHubInboxSource], …)`. Exposed (not private) so the view can
     /// `@ObservedObject` it directly for `suggestions` updates.
     let inboxService: InboxService?
+    /// Optional SHARED user keybindings store (UX-07). nil-defaulted like the other
+    /// seams so existing tests/callers construct the model without it; when nil the
+    /// Send-to-Claude item simply shows no key equivalent. AppDelegate injects the
+    /// SAME store the Keybindings tab mutates, so the displayed equivalent always
+    /// matches the live binding (the popover view is rebuilt on every open).
+    private let keybindings: KeybindingsStore?
+
+    /// The LIVE Send-to-Claude combo for the visible key equivalent (UX-07);
+    /// nil when unbound or no store is injected.
+    var sendToClaudeCombo: KeyCombo? { keybindings?.combo(for: .sendToClaude) }
 
     /// One-line, transient notice shown when Code-mode Send-to-Claude finds no `claude`
     /// binary (D-SC1 graceful degrade): points the user to Web mode. Cleared by the view
@@ -99,7 +109,8 @@ final class MenubarListModel: ObservableObject {
          calendar: (any CalendarService)? = nil,
          configStore: ConfigStore? = nil,
          claudeHandoff: (any ClaudeHandoff)? = nil,
-         inboxService: InboxService? = nil) {
+         inboxService: InboxService? = nil,
+         keybindings: KeybindingsStore? = nil) {
         self.store = store
         self.timezone = timezone
         self.defaults = defaults
@@ -108,6 +119,7 @@ final class MenubarListModel: ObservableObject {
         self.configStore = configStore
         self.claudeHandoff = claudeHandoff
         self.inboxService = inboxService
+        self.keybindings = keybindings
         reload()
     }
 
@@ -610,6 +622,21 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
+    /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
+    /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
+    func originLabel(for task: Todo) -> String? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: now())
+        guard let yesterdayStart = cal.date(byAdding: .day, value: -1, to: todayStart),
+              cal.startOfDay(for: task.createdAt) != yesterdayStart else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.timeZone = timezone
+        return f.string(from: task.createdAt)
+    }
+
     private func collapseKey(for date: Date) -> String {
         let f = DateFormatter()
         // Fixed-format machine-readable key: pin POSIX locale so region
@@ -678,7 +705,8 @@ struct MenubarListView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        // Yesterday's leftovers — dedicated section above today's tasks.
+                        // Earlier leftovers (everything older than today, not just
+                        // yesterday — UX-05 honest labelling) above today's tasks.
                         if !model.leftovers.isEmpty {
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -688,7 +716,7 @@ struct MenubarListView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: model.leftoversCollapsed ? "chevron.right" : "chevron.down")
                                         .font(.system(size: 9, weight: .semibold))
-                                    Text("Yesterday · \(model.leftovers.count)")
+                                    Text("Earlier · \(model.leftovers.count)")
                                         .font(.system(size: 11, weight: .semibold))
                                     Spacer()
                                 }
@@ -709,7 +737,15 @@ struct MenubarListView: View {
                                         }
                                         .buttonStyle(.plain)
                                         rowTitle(task, isLeftover: true)
+                                        // UX-05: origin date for rows older than yesterday
+                                        // (the "Earlier" header already implies yesterday).
+                                        if let origin = model.originLabel(for: task) {
+                                            Text(origin)
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.tertiary)
+                                        }
                                         Spacer()
+                                        rowOverflowMenu(task)
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 3)
@@ -730,6 +766,7 @@ struct MenubarListView: View {
                                 .buttonStyle(.plain)
                                 rowTitle(task, isLeftover: false)
                                 Spacer()
+                                rowOverflowMenu(task)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
@@ -807,13 +844,15 @@ struct MenubarListView: View {
     /// Per-row context menu (SC1 + SC3 + SC4): the full four-item set —
     /// Delete · Move to tomorrow · Open day file · Send to Claude — plus the
     /// Phase-5 edit-time "Move +30 min" affordance for linked tasks (kept so SC3
-    /// edit-time does not regress).
+    /// edit-time does not regress). SINGLE shared builder (UX-11): both the hidden
+    /// `.contextMenu` and the visible per-row overflow `Menu` render THIS content,
+    /// so the two surfaces can never drift.
     @ViewBuilder
     private func taskRowMenu(_ task: Todo) -> some View {
         Button("Delete", role: .destructive) { model.delete(task) }
         Button("Move to tomorrow") { model.moveToTomorrow(task) }
         Button("Open day file") { model.openDayFile(task) }
-        Button("Send to Claude") { model.sendToClaude(task) }
+        sendToClaudeItem(task)
         if task.calEventID != nil, let tb = task.timeBlock {
             Divider()
             // Edit-time affordance: nudge the linked event +30m as a discoverable
@@ -824,6 +863,43 @@ struct MenubarListView: View {
                 model.editTime(task, to: newBlock)
             }
         }
+    }
+
+    /// The Send-to-Claude item with its key equivalent visible (UX-07 menubar half).
+    /// The LIVE `.sendToClaude` combo (rebindable in Settings → Keybindings) renders
+    /// natively via `.keyboardShortcut` for character keys, or as a displayString
+    /// suffix for special keys the SwiftUI shortcut cannot carry. No bound combo (or
+    /// no injected store) degrades to the plain item — never a hardcoded literal.
+    @ViewBuilder
+    private func sendToClaudeItem(_ task: Todo) -> some View {
+        if let combo = model.sendToClaudeCombo {
+            if let shortcut = combo.swiftUIShortcut {
+                Button("Send to Claude") { model.sendToClaude(task) }
+                    .keyboardShortcut(shortcut)
+            } else {
+                Button("Send to Claude (\(combo.displayString))") { model.sendToClaude(task) }
+            }
+        } else {
+            Button("Send to Claude") { model.sendToClaude(task) }
+        }
+    }
+
+    /// UX-11: visible, VoiceOver-labelled entry point to the row's actions — the
+    /// SAME `taskRowMenu` builder the hidden `.contextMenu` uses, so the overflow
+    /// menu and the context menu carry identical items by construction.
+    @ViewBuilder
+    private func rowOverflowMenu(_ task: Todo) -> some View {
+        Menu {
+            taskRowMenu(task)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Task actions")
     }
 
     // MARK: - Inline rename (SC4)
@@ -1003,6 +1079,24 @@ struct MenubarListView: View {
         if let url = CalendarURL.show(for: event.start) {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+// MARK: - Key-equivalent rendering (UX-07)
+
+private extension KeyCombo {
+    /// SwiftUI shortcut for single-character keys (e.g. K + cmd renders the native
+    /// key-equivalent column in the menu item); nil for special keys (Space, F-keys,
+    /// arrows…), which fall back to a displayString-suffixed label instead.
+    var swiftUIShortcut: KeyboardShortcut? {
+        let name = KeyCombo.keyName(for: keyCode)
+        guard name.count == 1, let ch = name.lowercased().first else { return nil }
+        var mods: EventModifiers = []
+        if modifiers.contains(.cmd)   { mods.insert(.command) }
+        if modifiers.contains(.shift) { mods.insert(.shift) }
+        if modifiers.contains(.opt)   { mods.insert(.option) }
+        if modifiers.contains(.ctrl)  { mods.insert(.control) }
+        return KeyboardShortcut(KeyEquivalent(ch), modifiers: mods)
     }
 }
 
