@@ -9,11 +9,15 @@ import Foundation
 /// parallel switch — so a case without a registered handler is observable
 /// (`dispatch` returns false / `hasHandler(for:)` is false), not silently dead.
 ///
-/// NOTE: the `appLevelActions` routing set for the local key-down monitor is added
-/// in plan 09-02 WITH the new Action cases it names (Pitfall 6: enum cases and
-/// their routing metadata land together).
 @MainActor
 final class ActionDispatcher {
+
+    /// Actions routed by the AppDelegate LOCAL key monitor (09-05). Never the global
+    /// hotkeys (Carbon-routed) and never the SwiftUI-handled capture/sendToClaude combos.
+    static let appLevelActions: Set<Action> = [.openCalendarCanvas, .openTodayFile,
+        .openSettingsGeneral, .openSettingsStorage, .openSettingsAI, .openSettingsCalendar,
+        .openSettingsIntegrations, .openSettingsKeybindings, .openSettingsAdvanced,
+        .toggleLaunchAtLogin, .replayOnboarding]
 
     private var handlers: [Action: () -> Void] = [:]
 

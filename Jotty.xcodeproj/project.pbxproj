@@ -31,6 +31,7 @@
 		3477567BEFA4C82E03320B2E /* SMAppLaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF369BD5FB25AF56FD74547 /* SMAppLaunchAtLoginService.swift */; };
 		36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
+		3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9C26C070750595C1262771 /* CommandActionRegistry.swift */; };
 		3A7B97E8267549450599D9AE /* ProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */; };
 		3B3F9C348BF60C997586949D /* InboxItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */; };
 		3E41425FB0D8104549F26DB9 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */; };
@@ -182,6 +183,7 @@
 		09D99CCA3CCAA25B705C12E9 /* KeybindingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsTab.swift; sourceTree = "<group>"; };
 		0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandActionRegistryTests.swift; sourceTree = "<group>"; };
 		0BCE7D5AC91D983DE35836C5 /* CrossProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossProviderTests.swift; sourceTree = "<group>"; };
+		0C9C26C070750595C1262771 /* CommandActionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandActionRegistry.swift; sourceTree = "<group>"; };
 		11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapper.swift; sourceTree = "<group>"; };
 		148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionResult.swift; sourceTree = "<group>"; };
 		1779948226E7290A4141189D /* ExtractedTaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskAI.swift; sourceTree = "<group>"; };
@@ -560,6 +562,7 @@
 		8A5746CB071F1A7FBC201B4E /* CommandBar */ = {
 			isa = PBXGroup;
 			children = (
+				0C9C26C070750595C1262771 /* CommandActionRegistry.swift */,
 				C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */,
 			);
 			path = CommandBar;
@@ -940,6 +943,7 @@
 				9B3C881DA280A234D0231A75 /* ClaudePrompt.swift in Sources */,
 				5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */,
 				011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */,
+				3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
