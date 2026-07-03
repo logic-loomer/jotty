@@ -394,6 +394,101 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(task.calEventID, "fake-event-1")
     }
 
+    // MARK: - Review edit-in-place rename (UX-10, plan 07.1-11)
+
+    // UX-10: rename rewrites ONLY the target row's title; every other field on that
+    // row (dueDate, timeBlock, calendarBlock) and every other row carry over intact.
+    func testRenameReviewRowChangesOnlyTargetTitle() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let due = dateFor("2026-06-14T00:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                           end: dateFor("2026-06-13T10:00:00+10:00"))
+        let original = [
+            ExtractedTask(title: "blocked one", dueDate: due, timeBlock: tb, calendarBlock: true),
+            ExtractedTask(title: "plain task"),
+        ]
+        let vm = await makeVMInReview(withTasks: original, calendar: nil, now: now)
+        vm.renameReviewRow(0, title: "renamed block")
+
+        guard case .review(let tasks, _, _) = vm.state else {
+            return XCTFail("expected Review state, got \(vm.state)")
+        }
+        XCTAssertEqual(tasks[0].title, "renamed block")
+        XCTAssertEqual(tasks[0].dueDate, due, "dueDate must carry over")
+        XCTAssertEqual(tasks[0].timeBlock, tb, "timeBlock must carry over")
+        XCTAssertTrue(tasks[0].calendarBlock, "calendarBlock must carry over")
+        XCTAssertEqual(tasks[1], original[1], "untouched rows are identical")
+    }
+
+    // UX-10 / Pitfall 6: a row the user UNchecked stays unchecked across a rename —
+    // renameReviewRow must never route through enterReview (which re-checks all rows).
+    func testRenamePreservesUncheckedAcceptedRows() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tasks = [
+            ExtractedTask(title: "keep me"),
+            ExtractedTask(title: "unchecked row"),
+            ExtractedTask(title: "rename me"),
+        ]
+        let vm = await makeVMInReview(withTasks: tasks, calendar: nil, now: now)
+        vm.toggleRow(1)   // user unchecks row 1
+        XCTAssertEqual(vm.acceptedRowIDs, [0, 2])
+
+        vm.renameReviewRow(2, title: "renamed")
+
+        XCTAssertEqual(vm.acceptedRowIDs, [0, 2],
+                       "rename must not reset the accepted set (Pitfall 6)")
+    }
+
+    // UX-10: calendarEnabledRowIDs (plan 07.1-09) is a separate published property —
+    // a rename's state reassignment must leave the user's calendar toggles untouched.
+    func testRenamePreservesCalendarEnabledRowIDs() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb1 = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                            end: dateFor("2026-06-13T10:00:00+10:00"))
+        let tb2 = TimeBlock(start: dateFor("2026-06-13T11:00:00+10:00"),
+                            end: dateFor("2026-06-13T12:00:00+10:00"))
+        let tasks = [
+            ExtractedTask(title: "blocked one", timeBlock: tb1, calendarBlock: true),
+            ExtractedTask(title: "blocked two", timeBlock: tb2, calendarBlock: true),
+        ]
+        let vm = await makeVMInReview(withTasks: tasks, calendar: FakeCalendarService(), now: now)
+        vm.toggleCalendarRow(1)   // user opts row 1 out of calendar creation
+        XCTAssertEqual(vm.calendarEnabledRowIDs, [0])
+
+        vm.renameReviewRow(0, title: "renamed block")
+
+        XCTAssertEqual(vm.calendarEnabledRowIDs, [0],
+                       "rename must not re-seed the calendar toggles")
+    }
+
+    // UX-10: whitespace-only titles revert — nothing changes (menubar empty-after-trim rule).
+    func testRenameWithWhitespaceOnlyTitleIsNoOp() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let vm = await makeVMInReview(with: ExtractedTask(title: "original"),
+                                      calendar: nil, now: now)
+        vm.renameReviewRow(0, title: "   \n  ")
+
+        guard case .review(let tasks, _, _) = vm.state else {
+            return XCTFail("expected Review state, got \(vm.state)")
+        }
+        XCTAssertEqual(tasks[0].title, "original", "whitespace-only rename reverts")
+    }
+
+    // UX-10: an out-of-bounds index is a safe no-op (nothing mutates, nothing crashes).
+    func testRenameWithOutOfBoundsIndexIsNoOp() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let vm = await makeVMInReview(with: ExtractedTask(title: "only row"),
+                                      calendar: nil, now: now)
+        vm.renameReviewRow(5, title: "ghost")
+        vm.renameReviewRow(-1, title: "ghost")
+
+        guard case .review(let tasks, _, _) = vm.state else {
+            return XCTFail("expected Review state, got \(vm.state)")
+        }
+        XCTAssertEqual(tasks.count, 1)
+        XCTAssertEqual(tasks[0].title, "only row", "out-of-bounds rename is a no-op")
+    }
+
     // MARK: - Conflict gate (SC5, plan 05-05 task 2)
 
     private func cannedEvent(_ title: String, _ startISO: String, _ endISO: String) -> CalendarEvent {
