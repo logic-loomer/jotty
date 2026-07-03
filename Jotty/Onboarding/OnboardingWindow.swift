@@ -166,7 +166,14 @@ struct OnboardingView: View {
             HStack {
                 Spacer()
                 Button("Get started") {
-                    try? configStore.update { $0.hasCompletedOnboarding = true }
+                    // IN-05: don't silently swallow the config write (the CQ-01
+                    // invariant everywhere else). Failure is benign — onboarding
+                    // just replays next launch — so a log suffices here.
+                    do {
+                        try configStore.update { $0.hasCompletedOnboarding = true }
+                    } catch {
+                        NSLog("[Jotty] onboarding flag persist failed: \(error.localizedDescription)")
+                    }
                     onGetStarted()
                 }
                 .keyboardShortcut(.defaultAction)
