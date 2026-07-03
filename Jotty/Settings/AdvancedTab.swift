@@ -21,13 +21,17 @@ struct AdvancedTab: View {
     let configStore: ConfigStore
 
     @State private var resetConfirm = false
-    @State private var isAppleFMDefault: Bool
     /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
     @State private var persistFailed = false
 
+    /// IN-09: computed on every body evaluation (a config read is cheap) instead of
+    /// cached in @State — switching providers on the AI tab and returning here must
+    /// never leave the privacy posture sentence describing the wrong provider
+    /// (tab switches don't reliably re-fire onAppear for retained tab views).
+    private var isAppleFMDefault: Bool { ProviderFactory.isAppleFM(configStore.config) }
+
     init(configStore: ConfigStore) {
         self.configStore = configStore
-        _isAppleFMDefault = State(initialValue: ProviderFactory.isAppleFM(configStore.config))
     }
 
     private static let endpoints: [(provider: String, endpoint: String)] = [
@@ -79,7 +83,6 @@ struct AdvancedTab: View {
         }
         .formStyle(.grouped)
         .frame(width: 560, height: 640)
-        .onAppear { isAppleFMDefault = ProviderFactory.isAppleFM(configStore.config) }
         .alert("Reset all settings to defaults?", isPresented: $resetConfirm) {
             Button("Reset", role: .destructive) { resetToDefaults() }
             Button("Cancel", role: .cancel) {}
@@ -100,7 +103,8 @@ struct AdvancedTab: View {
 
     private func resetToDefaults() {
         persist { $0 = AppConfig.defaultValue }
-        isAppleFMDefault = ProviderFactory.isAppleFM(configStore.config)
+        // IN-09: isAppleFMDefault is now computed from the live config — no
+        // manual re-sync needed here.
     }
 
     /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
