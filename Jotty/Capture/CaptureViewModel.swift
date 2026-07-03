@@ -73,6 +73,11 @@ final class CaptureViewModel: ObservableObject {
     /// Continuation the view fulfils via `resolveConflict(commitAnyway:)` to unblock a paused
     /// time-blocked write. Stored so the awaiting commit task can resume on the user's decision.
     private var conflictContinuation: CheckedContinuation<Bool, Never>?
+    /// Set once by `teardown()` when the capture window goes away (CQ-02). A conflict raised
+    /// AFTER teardown — the post-commit close leg, where the window closes immediately on
+    /// commit and the calendar pass hits an overlap with no UI left to resolve it — must not
+    /// suspend forever; `awaitConflictDecision` checks this flag and auto-cancels instead.
+    private var isTornDown = false
 
     /// The prose that was in-flight when the provider threw, stashed so
     /// retryWithAppleFM() can re-run the SAME input through the fallback.
@@ -237,14 +242,12 @@ final class CaptureViewModel: ObservableObject {
         let now = clock()
         var noteLines: [String] = []
         var tasks: [Todo] = []
-        let taskRegex = /^\s*[-*]\s\[([ xX])\]\s+(.+)$/
 
         for line in input.components(separatedBy: "\n") {
-            if let match = line.firstMatch(of: taskRegex) {
+            if let match = line.firstMatch(of: Self.manualTaskRegex) {
                 let done = match.1 != " "
                 let title = String(match.2).trimmingCharacters(in: .whitespaces)
-                let id = "t_" + String(UUID().uuidString.prefix(8)).lowercased()
-                tasks.append(Todo(id: id, text: title, createdAt: now,
+                tasks.append(Todo(id: Todo.newID(), text: title, createdAt: now,
                                   done: done,
                                   completedAt: done ? now : nil))
             } else {
@@ -254,7 +257,7 @@ final class CaptureViewModel: ObservableObject {
 
         let noteBody = noteLines.joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let noteId = noteBody.isEmpty ? nil : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+        let noteId = noteBody.isEmpty ? nil : Note.newID()
 
         try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: tasks, at: now)
 
@@ -297,7 +300,7 @@ final class CaptureViewModel: ObservableObject {
 
         let noteId: String? = noteBody.isEmpty
             ? nil
-            : "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+            : Note.newID()
 
         // Split accepted tasks: time-blocked tasks are conflict-gated and committed one at a
         // time inside the async calendar pass (so a cancel can leave that task uncommitted, SC5);
@@ -312,7 +315,7 @@ final class CaptureViewModel: ObservableObject {
             ? accepted.filter { $0.timeBlock == nil }
             : accepted
         let plainTodos: [Todo] = synchronousTasks.map { t in
-            Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+            Todo(id: Todo.newID(),
                  text: t.title, createdAt: now, done: false,
                  dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
         }
@@ -386,7 +389,7 @@ final class CaptureViewModel: ObservableObject {
             // Denied: tasks still commit (disk wins); surface a one-line degraded notice,
             // never block. They commit WITHOUT a calendar event.
             for t in tasks {
-                let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+                let todo = Todo(id: Todo.newID(),
                                 text: t.title, createdAt: now, done: false,
                                 dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
                 appendSingle(todo, at: now)
@@ -416,7 +419,7 @@ final class CaptureViewModel: ObservableObject {
             }
 
             // Confirmed (or no conflict): commit the task to markdown, then create the event.
-            let todo = Todo(id: "t_" + String(UUID().uuidString.prefix(8)).lowercased(),
+            let todo = Todo(id: Todo.newID(),
                             text: t.title, createdAt: now, done: false,
                             dueDate: t.dueDate, sourceNote: noteId, timeBlock: tb)
             appendSingle(todo, at: now)
@@ -467,6 +470,9 @@ final class CaptureViewModel: ObservableObject {
 
     /// Publishes a pending conflict and suspends until the view calls `resolveConflict(...)`.
     private func awaitConflictDecision(title: String) async -> Bool {
+        // CQ-02: the window is already gone — no UI can resolve a prompt, so cancel
+        // (the task stays uncommitted) instead of suspending the calendar pass forever.
+        guard !isTornDown else { return false }
         pendingConflict = CalendarConflict(conflictTitle: title)
         let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             conflictContinuation = c
@@ -482,6 +488,19 @@ final class CaptureViewModel: ObservableObject {
         guard let c = conflictContinuation else { return }
         conflictContinuation = nil
         c.resume(returning: commitAnyway)
+    }
+
+    /// Called when the capture window goes away (CQ-02): a pending calendar-conflict prompt
+    /// resolves to cancel — the safe default — so the suspended calendar pass finishes and
+    /// that time-blocked task stays uncommitted.
+    ///
+    /// Safe to call unconditionally: `resolveConflict` nil-guards and nils the continuation
+    /// before resuming, so teardown with nothing pending is a no-op and double-resume is
+    /// structurally impossible. Also flags the VM so a conflict raised AFTER the window is
+    /// gone (the post-commit close leg) auto-cancels instead of suspending forever.
+    func teardown() {
+        isTornDown = true
+        resolveConflict(commitAnyway: false)
     }
 
     private static func describe(_ e: CalendarError) -> String {

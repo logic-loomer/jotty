@@ -1,6 +1,15 @@
 import Foundation
 
 struct Note: Equatable {
+    /// Single authority for note-ID generation (CQ-09), parallel to `Todo.newID()`.
+    ///
+    /// The format is REQUIREMENTS-pinned (decision 2026-05-08): `n_<8 hex>` —
+    /// "n_" plus the first 8 characters of a UUID string, lowercased. Same
+    /// derivation the capture paths used inline before centralization.
+    static func newID() -> String {
+        "n_" + String(UUID().uuidString.prefix(8)).lowercased()
+    }
+
     let id: String
     let time: Date     // wall time of capture
     let text: String

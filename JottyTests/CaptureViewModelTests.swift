@@ -423,6 +423,58 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(task.calEventID, "fake-event-1")
     }
 
+    // MARK: - Continuation teardown on window close (CQ-02, plan 07.1-05)
+
+    // Window close with a conflict prompt PENDING: teardown() resumes the suspended
+    // calendar pass with cancel — awaitCalendarWork() must return (not hang) and the
+    // time-blocked task must stay uncommitted (the continuation must not leak).
+    func testTeardownWithPendingConflictResumesCancelAndLeavesTaskUncommitted() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:30:00+10:00"),
+                           end: dateFor("2026-06-13T10:30:00+10:00"))
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [cannedEvent("Existing Standup",
+                                         "2026-06-13T09:00:00+10:00",
+                                         "2026-06-13T10:00:00+10:00")]
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+                                      calendar: fake, now: now)
+        vm.commitFromReview()
+        try await waitUntil { vm.pendingConflict != nil }
+
+        vm.teardown()                    // window going away with the prompt showing
+        await vm.awaitCalendarWork()     // must complete — continuation resumed with cancel
+
+        XCTAssertNil(vm.pendingConflict, "teardown must clear the pending conflict")
+        XCTAssertTrue(fake.createdEvents.isEmpty, "cancel default must not create an event")
+        let doc = try store.readDoc(on: now)
+        XCTAssertFalse(doc.tasks.contains(where: { $0.text == "Planning" }),
+                       "cancelled time-blocked task must be absent from markdown")
+    }
+
+    // Post-commit close leg: the window closes immediately on commit, so teardown()
+    // can fire BEFORE the calendar pass raises its conflict. A conflict raised after
+    // teardown auto-cancels (no UI exists to resolve it) instead of suspending forever.
+    func testConflictRaisedAfterTeardownAutoCancels() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:30:00+10:00"),
+                           end: dateFor("2026-06-13T10:30:00+10:00"))
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [cannedEvent("Existing Standup",
+                                         "2026-06-13T09:00:00+10:00",
+                                         "2026-06-13T10:00:00+10:00")]
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+                                      calendar: fake, now: now)
+        vm.commitFromReview()
+        vm.teardown()                    // window closed post-commit, before the pass ran
+        await vm.awaitCalendarWork()     // must complete — conflict auto-cancels
+
+        XCTAssertNil(vm.pendingConflict, "no prompt may surface after teardown")
+        XCTAssertTrue(fake.createdEvents.isEmpty, "auto-cancel must not create an event")
+        let doc = try store.readDoc(on: now)
+        XCTAssertFalse(doc.tasks.contains(where: { $0.text == "Planning" }),
+                       "conflicted task raised after close must stay uncommitted")
+    }
+
     /// Polls `condition` on the main actor up to ~2s; fails the test if it never becomes true.
     private func waitUntil(
         timeout: TimeInterval = 2.0,
