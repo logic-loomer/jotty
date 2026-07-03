@@ -1,3 +1,14 @@
+// Jotty/Settings/StorageTab.swift
+// Settings → Storage (UX-09, plan 07.1-08): the daily-files folder picker,
+// aligned to the grouped-Form 560x640 idiom every other tab uses.
+//
+// - Folder picks are validated with FileManager.isWritableFile BEFORE
+//   persisting: a non-writable folder is rejected with an inline red notice
+//   and the stored folder is left untouched (no test-write-then-delete dance).
+// - Persistence goes through the CQ-01 persist{} wrapper so a failed config
+//   write surfaces via the shared PersistFailureNotice instead of silently
+//   reverting on next launch.
+
 import SwiftUI
 
 struct StorageTab: View {
@@ -5,6 +16,8 @@ struct StorageTab: View {
     @State private var folder: URL
     /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
     @State private var persistFailed = false
+    /// UX-09: set when the picked folder is not writable; drives the inline notice.
+    @State private var folderNotWritable = false
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -13,16 +26,33 @@ struct StorageTab: View {
 
     var body: some View {
         Form {
-            HStack {
-                Text("Daily files folder:")
-                Text(folder.path).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Button("Choose…") { pickFolder() }
+            Section(header: Text("Daily files")) {
+                HStack {
+                    Text("Folder")
+                    Spacer()
+                    Text(folder.path)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                    Button("Choose…") { pickFolder() }
+                }
+
+                if folderNotWritable {
+                    Text("Jotty can't write to that folder — choose another.")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+
+                Text("Jotty keeps one markdown file per day in this folder.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                PersistFailureNotice(visible: persistFailed)
             }
-            PersistFailureNotice(visible: persistFailed)
         }
-        .padding(20)
-        .frame(width: 520, height: 120)
+        .formStyle(.grouped)
+        .frame(width: 560, height: 640)
     }
 
     private func pickFolder() {
@@ -31,6 +61,13 @@ struct StorageTab: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
+            // UX-09: validate BEFORE persisting — a non-writable pick is rejected
+            // outright and the stored folder stays as it was.
+            guard FileManager.default.isWritableFile(atPath: url.path) else {
+                folderNotWritable = true
+                return
+            }
+            folderNotWritable = false
             persist { $0.storageFolder = url }
             folder = url
         }
