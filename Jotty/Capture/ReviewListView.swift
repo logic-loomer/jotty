@@ -50,7 +50,9 @@ struct ReviewListView: View {
                             task: tasks[index],
                             isChecked: vm.acceptedRowIDs.contains(index),
                             isFocused: focusedRow == index,
-                            onToggle: { vm.toggleRow(index) }
+                            isCalendarOn: vm.calendarEnabledRowIDs.contains(index),
+                            onToggle: { vm.toggleRow(index) },
+                            onCalendarToggle: { vm.toggleCalendarRow(index) }
                         )
                         .focused($focusedRow, equals: index)
                         .contentShape(Rectangle())
@@ -97,7 +99,11 @@ private struct ReviewRowView: View {
     let task: ExtractedTask
     let isChecked: Bool
     let isFocused: Bool
+    /// UX-06: whether this row's per-item calendar toggle is ON (event will be created).
+    let isCalendarOn: Bool
     let onToggle: () -> Void
+    /// UX-06: flips this row's calendar toggle (vm.toggleCalendarRow).
+    let onCalendarToggle: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -111,7 +117,7 @@ private struct ReviewRowView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(isChecked ? Color.primary : Color.secondary)
 
-                if !badges.isEmpty {
+                if !badges.isEmpty || task.timeBlock != nil {
                     HStack(spacing: 6) {
                         ForEach(badges, id: \.self) { badge in
                             Text(badge)
@@ -121,6 +127,33 @@ private struct ReviewRowView: View {
                                 .padding(.vertical, 2)
                                 .background(Color(NSColor.controlBackgroundColor))
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+
+                        // UX-06: interactive per-row calendar toggle — replaces the old
+                        // non-interactive string badge. Only rows with a time block can
+                        // create an event, so only they show it.
+                        // Direct button action on @Published state; no onChange needed.
+                        if task.timeBlock != nil {
+                            Button(action: onCalendarToggle) {
+                                HStack(spacing: 3) {
+                                    Image(systemName: isCalendarOn
+                                          ? "calendar.badge.checkmark" : "calendar")
+                                        .foregroundStyle(isCalendarOn
+                                                         ? Color.accentColor : Color.secondary)
+                                    Text(isCalendarOn ? "calendar event" : "no event")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(isCalendarOn
+                                                         ? Color.accentColor : Color.secondary)
+                                }
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color(NSColor.controlBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Creates a calendar event")
+                            .accessibilityLabel(isCalendarOn
+                                                ? "Calendar event on" : "Calendar event off")
                         }
                     }
                 }
@@ -139,9 +172,6 @@ private struct ReviewRowView: View {
             result.append("📅 " + formatTimeBlock(tb))
         } else if let due = task.dueDate {
             result.append("📅 due " + formatDue(due))
-        }
-        if task.calendarBlock {
-            result.append("[✓] block calendar")
         }
         return result
     }
