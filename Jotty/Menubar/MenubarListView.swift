@@ -844,6 +844,16 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
+    /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
+    /// the private `now()` so the canvas never needs its own clock and its
+    /// positions agree with the partitioning above by construction.
+    var startOfToday: Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        return cal.startOfDay(for: now())
+    }
+
     /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
     /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
     /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
