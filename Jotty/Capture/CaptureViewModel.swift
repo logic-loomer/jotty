@@ -436,19 +436,26 @@ final class CaptureViewModel: ObservableObject {
         // close-on-commit). The disk-error path above returned early, so this
         // fires on commit success only.
         showSavedConfirmation = true
-        dismissRequested = true
 
         // Best-effort, off the synchronous commit: for each time-blocked task run the lazy
         // access gate, the conflict gate (SC5), then create the event and write `cal_event:`
         // back. A failure/denial NEVER rolls back the markdown commit above and never blocks
         // capture (CONTEXT). `calendarTask` lets `commitAndWait()` await this deterministically.
+        //
+        // CR-01: dismissal is requested only AFTER the calendar pass resolves. The pass can
+        // raise a conflict prompt (SC5) that owns the window — arming the timed close BEFORE
+        // the pass ran raced that prompt: the window closed ~0.6s after "Saved", teardown
+        // auto-cancelled the pending conflict, and the user-accepted time-blocked task was
+        // silently dropped. With no calendar work there is nothing to wait for.
         if calendarPresent, !timeBlockedTasks.isEmpty {
             calendarTask = Task { [weak self] in
                 guard let self else { return }
                 await self.processTimeBlockedTasks(timeBlockedTasks, noteId: noteId, at: now)
+                self.dismissRequested = true
             }
         } else {
             calendarTask = nil
+            dismissRequested = true
         }
     }
 

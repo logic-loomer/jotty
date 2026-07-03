@@ -39,7 +39,13 @@ struct CaptureView: View {
 
             // Non-blocking degraded-calendar notice (denied access / write failure).
             if let notice = vm.calendarNotice {
-                CalendarNoticeBar(notice: notice, onDismiss: { vm.calendarNotice = nil })
+                CalendarNoticeBar(notice: notice, onDismiss: {
+                    vm.calendarNotice = nil
+                    // CR-01: acknowledging the notice completes a deferred commit
+                    // dismissal (the onChange seam below held the window open so
+                    // the degradation stayed visible).
+                    if vm.dismissRequested { onDismiss() }
+                })
             }
 
             Group {
@@ -63,11 +69,18 @@ struct CaptureView: View {
             }
         }
         // UX-03: single dismissal seam for BOTH commit paths. The VM raises
-        // dismissRequested only on a successful commit; give the Saved toast a
-        // beat on screen, then close via CaptureWindow's onDismiss closure.
+        // dismissRequested only on a successful commit — and, since CR-01, only
+        // AFTER any calendar pass has resolved (so a conflict prompt can never be
+        // raced by this timer). Give the Saved toast a beat on screen, then close
+        // via CaptureWindow's onDismiss closure.
         .onChange(of: vm.dismissRequested) { _, requested in
             guard requested else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                // CR-01: a pending conflict owns the window (defense in depth —
+                // the VM sequencing should make this unreachable), and a degraded-
+                // calendar notice must stay readable until the user acknowledges
+                // it (its dismiss control then completes the close above).
+                guard vm.pendingConflict == nil, vm.calendarNotice == nil else { return }
                 onDismiss()
             }
         }

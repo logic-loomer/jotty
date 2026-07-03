@@ -610,9 +610,13 @@ final class CaptureViewModelTests: XCTestCase {
                        "cancelled time-blocked task must be absent from markdown")
     }
 
-    // Post-commit close leg: the window closes immediately on commit, so teardown()
-    // can fire BEFORE the calendar pass raises its conflict. A conflict raised after
-    // teardown auto-cancels (no UI exists to resolve it) instead of suspending forever.
+    // User-initiated close (Esc / red button) racing the calendar pass: teardown()
+    // can fire BEFORE the pass raises its conflict. A conflict raised after teardown
+    // auto-cancels (no UI exists to resolve it) instead of suspending forever.
+    // NOTE (CR-01): the NORMAL commit flow can no longer reach this leg — dismissal
+    // is deferred until the calendar pass resolves (see the regression test below) —
+    // so this covers only a genuine user-close while the pass is in flight, where
+    // cancel remains the safe default for a truly-closed window.
     func testConflictRaisedAfterTeardownAutoCancels() async throws {
         let now = dateFor("2026-06-13T08:00:00+10:00")
         let tb = TimeBlock(start: dateFor("2026-06-13T09:30:00+10:00"),
@@ -632,6 +636,53 @@ final class CaptureViewModelTests: XCTestCase {
         let doc = try store.readDoc(on: now)
         XCTAssertFalse(doc.tasks.contains(where: { $0.text == "Planning" }),
                        "conflicted task raised after close must stay uncommitted")
+    }
+
+    // CR-01 regression: the commit-path dismissal must WAIT for the calendar pass.
+    // A conflicted, user-accepted time-blocked task surfaces its prompt while the
+    // window is still owned by the VM (dismissRequested stays false), and confirming
+    // commits the task. The old design armed a 0.6s close BEFORE the pass ran, so the
+    // window closed over the prompt and teardown silently dropped the accepted task.
+    func testCommitDismissalDefersUntilConflictResolvedAndTaskSurvives() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:30:00+10:00"),
+                           end: dateFor("2026-06-13T10:30:00+10:00"))
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [cannedEvent("Existing Standup",
+                                         "2026-06-13T09:00:00+10:00",
+                                         "2026-06-13T10:00:00+10:00")]
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
+                                      calendar: fake, now: now)
+        vm.commitFromReview()
+
+        XCTAssertTrue(vm.showSavedConfirmation, "the synchronous commit still confirms")
+        XCTAssertFalse(vm.dismissRequested,
+                       "dismissal must NOT be requested while the calendar pass is pending (CR-01)")
+
+        try await waitUntil { vm.pendingConflict != nil }
+        XCTAssertFalse(vm.dismissRequested,
+                       "a pending conflict owns the window — no dismissal may be armed")
+
+        vm.resolveConflict(commitAnyway: true)   // the user accepts the overlap
+        await vm.awaitCalendarWork()
+
+        XCTAssertTrue(vm.dismissRequested,
+                      "dismissal resumes once the calendar pass has fully resolved")
+        XCTAssertEqual(fake.createdEvents.count, 1, "confirm must create the event")
+        let doc = try store.readDoc(on: now)
+        XCTAssertTrue(doc.tasks.contains(where: { $0.text == "Planning" }),
+                      "the user-accepted conflicted task must survive the commit (CR-01)")
+    }
+
+    // CR-01 companion: with NO conflict (and no calendar work at all) the dismissal
+    // still fires promptly — deferral applies only while calendar work is in flight.
+    func testCommitDismissalFiresImmediatelyWithoutCalendarWork() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let vm = await makeVMInReview(with: ExtractedTask(title: "plain task"),
+                                      calendar: nil, now: now)
+        vm.commitFromReview()
+        XCTAssertTrue(vm.dismissRequested,
+                      "no calendar pass → dismissal is requested synchronously")
     }
 
     // MARK: - Manual fast-path saved signal + draft-restored affordance (UX-03/UX-08, plan 07.1-06)
