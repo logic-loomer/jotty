@@ -12,6 +12,12 @@ struct ReviewListView: View {
 
     @FocusState private var focusedRow: Int?
 
+    // UX-10: edit-in-place state (menubar inline-rename idiom transplant, SC4).
+    // One row edits at a time; the list owns the shared draft + focus.
+    @State private var editingIndex: Int?
+    @State private var renameDraft: String = ""
+    @FocusState private var renameFieldFocused: Bool
+
     private func errorMessage(for error: AIProviderError) -> String {
         switch error {
         case .guardrail:
@@ -51,8 +57,14 @@ struct ReviewListView: View {
                             isChecked: vm.acceptedRowIDs.contains(index),
                             isFocused: focusedRow == index,
                             isCalendarOn: vm.calendarEnabledRowIDs.contains(index),
+                            isEditing: editingIndex == index,
+                            renameDraft: $renameDraft,
+                            renameFieldFocused: $renameFieldFocused,
                             onToggle: { vm.toggleRow(index) },
-                            onCalendarToggle: { vm.toggleCalendarRow(index) }
+                            onCalendarToggle: { vm.toggleCalendarRow(index) },
+                            onBeginEdit: { beginRename(index) },
+                            onCommitEdit: { commitRename(index: index) },
+                            onCancelEdit: { cancelRename() }
                         )
                         .focused($focusedRow, equals: index)
                         .contentShape(Rectangle())
@@ -79,9 +91,17 @@ struct ReviewListView: View {
             }
         }
         // ⌘↩ — commit
-        .onSubmitKeyCommand { onCommit() }
-        // ⌫ — return to input
-        .background(KeyMonitorReview(onDelete: onCancel, onDown: {
+        .onSubmitKeyCommand {
+            // UX-10: a mid-edit ⌘↩ lands the in-flight rename FIRST so the review
+            // commits the title the user can see, not the stale pre-edit one.
+            if let index = editingIndex { commitRename(index: index) }
+            onCommit()
+        }
+        // ⌫ — return to input. While a title is being edited (UX-10) the monitor
+        // passes every key through so ⌫/space/↑/↓ type into the TextField instead
+        // of cancelling the review or toggling rows.
+        .background(KeyMonitorReview(isEditingTitle: { editingIndex != nil },
+                                     onDelete: onCancel, onDown: {
             let next = (focusedRow ?? -1) + 1
             if next < tasks.count { focusedRow = next }
         }, onUp: {
@@ -90,6 +110,34 @@ struct ReviewListView: View {
         }, onSpace: {
             if let row = focusedRow { vm.toggleRow(row) }
         }))
+    }
+
+    // MARK: - Inline rename (UX-10) — menubar SC4 idiom transplant
+
+    /// Enters edit mode for `index`, seeding the shared draft with the current title.
+    private func beginRename(_ index: Int) {
+        renameDraft = tasks[index].title
+        editingIndex = index
+    }
+
+    /// Commits the draft for `index`, guarded on still-editing-that-row so the
+    /// post-commit focus flip cannot double-fire (mirrors the menubar commit-by-id
+    /// guard). Empty-after-trim reverts inside the VM (renameReviewRow no-ops).
+    private func commitRename(index: Int) {
+        guard editingIndex == index else { return }
+        let draft = renameDraft
+        editingIndex = nil
+        renameFieldFocused = false
+        renameDraft = ""
+        vm.renameReviewRow(index, title: draft)
+    }
+
+    /// Cancels edit mode without writing (Esc): the extracted title stays as-is.
+    /// Clears the shared draft so a later edit never inherits a stale value.
+    private func cancelRename() {
+        editingIndex = nil
+        renameFieldFocused = false
+        renameDraft = ""
     }
 }
 
@@ -101,9 +149,21 @@ private struct ReviewRowView: View {
     let isFocused: Bool
     /// UX-06: whether this row's per-item calendar toggle is ON (event will be created).
     let isCalendarOn: Bool
+    /// UX-10: whether this row is in title-edit mode (list-level `editingIndex`).
+    let isEditing: Bool
+    /// UX-10: shared rename draft owned by the list (one edit at a time).
+    @Binding var renameDraft: String
+    /// UX-10: list-owned focus for the rename field (Pitfall 8 nudge applies).
+    var renameFieldFocused: FocusState<Bool>.Binding
     let onToggle: () -> Void
     /// UX-06: flips this row's calendar toggle (vm.toggleCalendarRow).
     let onCalendarToggle: () -> Void
+    /// UX-10: enters edit mode for this row (list seeds the draft).
+    let onBeginEdit: () -> Void
+    /// UX-10: commits the draft (list guards on still-editing-this-row).
+    let onCommitEdit: () -> Void
+    /// UX-10: cancels edit mode without writing (Esc).
+    let onCancelEdit: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -113,9 +173,7 @@ private struct ReviewRowView: View {
                 .onTapGesture { onToggle() }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(task.title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isChecked ? Color.primary : Color.secondary)
+                titleView
 
                 if !badges.isEmpty || task.timeBlock != nil {
                     HStack(spacing: 6) {
@@ -166,6 +224,42 @@ private struct ReviewRowView: View {
         .background(isFocused ? Color.accentColor.opacity(0.12) : Color.clear)
     }
 
+    /// UX-10: the row title — a tappable `Text` normally, an editable `TextField`
+    /// while this row is in edit mode (the verified menubar inline-rename idiom:
+    /// commit on Return AND focus loss, Esc cancels, empty-after-trim reverts in
+    /// the VM). Title tap EDITS; the checkbox tap TOGGLES — separate gestures.
+    @ViewBuilder
+    private var titleView: some View {
+        if isEditing {
+            TextField("", text: $renameDraft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused(renameFieldFocused)
+                .onAppear {
+                    renameDraft = task.title
+                    // RESEARCH Pitfall 8: the floating capture window is not key
+                    // when SwiftUI applies the assignment — nudge first-responder
+                    // on the next runloop so the field reliably gets the caret.
+                    DispatchQueue.main.async { renameFieldFocused.wrappedValue = true }
+                }
+                .onSubmit { onCommitEdit() }
+                .onExitCommand { onCancelEdit() }   // Esc → cancel, no write
+                .onChange(of: renameFieldFocused.wrappedValue) { _, focused in
+                    // Blur commits (mirrors Return); the list's commitRename(index:)
+                    // guards on still-editing-this-row so a post-commit focus flip
+                    // cannot double-fire.
+                    if !focused { onCommitEdit() }
+                }
+        } else {
+            Text(task.title)
+                .font(.system(size: 13))
+                .foregroundStyle(isChecked ? Color.primary : Color.secondary)
+                .contentShape(Rectangle())
+                .onTapGesture { onBeginEdit() }
+                .accessibilityHint("Double-tap to edit title")
+        }
+    }
+
     private var badges: [String] {
         var result: [String] = []
         if let tb = task.timeBlock {
@@ -214,17 +308,22 @@ private struct ReviewRowView: View {
 // MARK: - Keyboard monitor for review state
 
 /// Monitors ⌫, ↑, ↓, space keys while in Review state.
+/// UX-10: while a title is being edited, EVERY key passes through untouched so the
+/// rename TextField receives ⌫/space/↑/↓ as text editing instead of review actions.
 private struct KeyMonitorReview: NSViewRepresentable {
+    let isEditingTitle: () -> Bool
     let onDelete: () -> Void
     let onDown: () -> Void
     let onUp: () -> Void
     let onSpace: () -> Void
 
     func makeNSView(context: Context) -> NSView {
-        _ReviewKeyView(onDelete: onDelete, onDown: onDown, onUp: onUp, onSpace: onSpace)
+        _ReviewKeyView(isEditingTitle: isEditingTitle,
+                       onDelete: onDelete, onDown: onDown, onUp: onUp, onSpace: onSpace)
     }
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let v = nsView as? _ReviewKeyView else { return }
+        v.isEditingTitle = isEditingTitle
         v.onDelete = onDelete
         v.onDown = onDown
         v.onUp = onUp
@@ -233,16 +332,19 @@ private struct KeyMonitorReview: NSViewRepresentable {
 }
 
 private final class _ReviewKeyView: NSView {
+    var isEditingTitle: () -> Bool
     var onDelete: () -> Void
     var onDown: () -> Void
     var onUp: () -> Void
     var onSpace: () -> Void
     private nonisolated(unsafe) var monitor: Any?
 
-    init(onDelete: @escaping () -> Void,
+    init(isEditingTitle: @escaping () -> Bool,
+         onDelete: @escaping () -> Void,
          onDown: @escaping () -> Void,
          onUp: @escaping () -> Void,
          onSpace: @escaping () -> Void) {
+        self.isEditingTitle = isEditingTitle
         self.onDelete = onDelete
         self.onDown = onDown
         self.onUp = onUp
@@ -257,6 +359,8 @@ private final class _ReviewKeyView: NSView {
         guard let window = self.window else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === window else { return event }
+            // UX-10: an in-flight title edit owns the keyboard — pass through.
+            if self.isEditingTitle() { return event }
             let noMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
             switch event.keyCode {
             case 51 where noMods:   // ⌫ (delete/backspace)
