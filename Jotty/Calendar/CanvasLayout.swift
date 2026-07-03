@@ -23,7 +23,8 @@ enum CanvasLayout {
     static let defaultSnapMinutes = 15
 
     /// Default duration (minutes) applied when an unscheduled task is dropped
-    /// onto a slot (drag-to-time-block, SC1).
+    /// onto a slot (drag-to-time-block, SC1). The SINGLE source of truth:
+    /// `MenubarListModel.defaultDropDuration` derives from this (IN-04).
     static let defaultDropDurationMinutes = 30
 
     /// Minimum rendered block height in points. `height(start:end:)` never

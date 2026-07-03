@@ -804,8 +804,11 @@ final class MenubarListModel: ObservableObject {
     // MARK: - Drag-to-time-block (Phase 8 SC1 / CALX-01)
 
     /// Default duration of a block created by dropping an unscheduled task onto a
-    /// canvas time slot (RESEARCH A2: 30 min — Claude discretion).
-    static let defaultDropDuration: TimeInterval = 30 * 60
+    /// canvas time slot (RESEARCH A2: 30 min — Claude discretion). Derived from
+    /// the CanvasLayout constant so the layout math and the model can never
+    /// disagree on the drop duration (IN-04: single source of truth).
+    static let defaultDropDuration: TimeInterval =
+        TimeInterval(CanvasLayout.defaultDropDurationMinutes * 60)
 
     /// The canvas rail source (plan 05): visible, not-done tasks with no `time:`
     /// block — the draggable "unscheduled" set. Built from the SAME partitions the
