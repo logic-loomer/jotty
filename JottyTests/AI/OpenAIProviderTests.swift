@@ -298,4 +298,17 @@ final class OpenAIProviderTests: XCTestCase {
         let error = await extractError(provider)
         XCTAssertEqual(error, .underlying(message: "Provider returned invalid schema"))
     }
+
+    // MARK: Test 10 — request timeout is bounded (CQ-08)
+
+    func testRequestTimeoutIntervalIsSixtySeconds() async throws {
+        StubURLProtocol.responses.append { [body = happyPathJSON()] _ in (200, body, [:]) }
+        let provider = try makeProvider()
+
+        _ = try await provider.extractTasks(from: "email Jamie", now: Date(), timezone: sydney)
+
+        let request = try XCTUnwrap(StubURLProtocol.receivedRequests.first)
+        XCTAssertEqual(request.timeoutInterval, 60,
+                       "cloud requests must bound hang time at 60s (CQ-08)")
+    }
 }

@@ -315,4 +315,17 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertTrue(content.contains("Bare duration NEVER"),
                       "rules block must come from the shared ExtractionPrompt, not a copy")
     }
+
+    // MARK: Test 11 — request timeout is bounded (CQ-08)
+
+    func testRequestTimeoutIntervalIsSixtySeconds() async throws {
+        StubURLProtocol.responses.append { [body = happyPathJSON()] _ in (200, body, [:]) }
+        let provider = try makeProvider()
+
+        _ = try await provider.extractTasks(from: "email Jamie", now: Date(), timezone: sydney)
+
+        let request = try XCTUnwrap(StubURLProtocol.receivedRequests.first)
+        XCTAssertEqual(request.timeoutInterval, 60,
+                       "cloud requests must bound hang time at 60s (CQ-08)")
+    }
 }

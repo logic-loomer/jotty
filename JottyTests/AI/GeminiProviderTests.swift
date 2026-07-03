@@ -386,4 +386,17 @@ final class GeminiProviderTests: XCTestCase {
         XCTAssertFalse(embeddedMessage(of: error).contains("SUPERSECRET"),
                        "key leaked into retry-exhausted error message: \(embeddedMessage(of: error))")
     }
+
+    // MARK: Test 12 — request timeout is bounded (CQ-08)
+
+    func testRequestTimeoutIntervalIsSixtySeconds() async throws {
+        StubURLProtocol.responses.append { [body = happyPathJSON()] _ in (200, body, [:]) }
+        let provider = try makeProvider()
+
+        _ = try await provider.extractTasks(from: "email Jamie", now: Date(), timezone: sydney)
+
+        let request = try XCTUnwrap(StubURLProtocol.receivedRequests.first)
+        XCTAssertEqual(request.timeoutInterval, 60,
+                       "cloud requests must bound hang time at 60s (CQ-08)")
+    }
 }
