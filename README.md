@@ -4,7 +4,7 @@
 
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
-**Status:** v1.0 shipped, plus Phase 7 (Unified Inbox) and Phase 8 (Calendar Power-UX). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default, and calendar power-UX: recurring tasks, snooze, drag-to-time-block, and an optional calendar canvas window. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
+**Status:** v1.0 shipped, plus Phase 7 (Unified Inbox), Phase 8 (Calendar Power-UX), and Phase 9 (Command Bar). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default, calendar power-UX: recurring tasks, snooze, drag-to-time-block, and an optional calendar canvas window, and a ⌘K command bar with fuzzy search across tasks, day files, inbox suggestions, and settings actions. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.
 
 ## Build from source
 
@@ -32,13 +32,19 @@ xattr -d com.apple.quarantine /Applications/Jotty.app
 | Action | Default |
 |---|---|
 | Open capture popup (global) | ⌘N |
+| Open command bar (global) | ⌘K |
 | Submit captured note | ⌘↩ |
 | Cancel capture (autosaves draft) | ⎋ |
-| Send task to Claude | ⌘K |
+| Send task to Claude | ⌘⇧K |
 
 Rebind any action in **Settings → Keybindings** (record a new combo, with conflict
 warnings and reset-to-defaults), or edit
 `~/Library/Application Support/Jotty/keybindings.json` directly.
+
+**Note:** Send task to Claude moved from ⌘K to ⌘⇧K in Phase 9 to free ⌘K for the
+command bar. The change is applied once, on the first launch after upgrading, and
+only if you never customized the Send to Claude binding - a customized combo is
+left untouched. See [Command Bar](#command-bar-phase-9).
 
 ## Storage
 
@@ -262,8 +268,9 @@ to Claude as a prompt. The prompt is the task text wrapped in a small template
   your PATH, Jotty shows a one-line notice pointing you back to Web mode instead of
   failing silently.
 
-Send to Claude also has a default keybinding (**⌘K**), rebindable in
-**Settings → Keybindings**.
+Send to Claude also has a default keybinding (**⌘⇧K** - it was ⌘K before Phase 9
+freed that combo for the command bar; see the migration note under
+[Command Bar](#command-bar-phase-9)), rebindable in **Settings → Keybindings**.
 
 **Web prefill caveat:** the `claude.ai/new?q=` prefill behaviour can change on
 Anthropic's side. If you pick Web mode and land on an empty chat, the `q=` prefill
@@ -425,6 +432,67 @@ pixels per hour, plus a rail of unscheduled tasks to drag from. Open it from the
 calendar icon in the menubar popover header. As with all calendar features, access is
 requested lazily on first use, never at launch.
 
+## Command Bar (Phase 9)
+
+Press ⌘K from anywhere and a Spotlight-shaped bar drops in near the top of the
+active screen. The panel is non-activating: the app you were in keeps focus and
+its menu bar, so the bar never yanks you out of your work. Esc, clicking
+outside, or losing focus closes it; pressing ⌘K again toggles it closed. Open
+it twice in a row and you still get a single instance with a fresh query.
+
+### What it searches
+
+Typing fuzzy-matches (subsequence scoring with a word-prefix boost - "dmn"
+finds "domain renewal") across four corpora:
+
+- **Today's tasks** - the live menubar list.
+- **All historical day files** - every day file in your storage folder, plus
+  the tasks inside them. Historical hits show their origin date, and tasks that
+  were rolled forward are deduplicated (only the live copy matches).
+- **Inbox suggestions** - already-fetched items from the Unified Inbox.
+- **Settings actions** - a registry of runnable app actions (new capture, open
+  a specific Settings tab, open the calendar canvas, toggle launch at login,
+  replay onboarding, open today's file).
+
+Results are grouped in a fixed section order - **Actions → Today → Inbox →
+Earlier → Days** - with the top 8 per section and 40 overall. Empty sections
+hide; an empty query shows an empty bar (Spotlight parity). Matching re-scores
+synchronously on every keystroke - the corpus is in-memory, so there is no
+debounce and no spinner.
+
+### What Enter does
+
+Enter acts per result kind:
+
+| Result | Enter |
+|---|---|
+| Today task | Opens the menubar dropdown with that row highlighted (scrolled into view, brief accent wash) |
+| Earlier task | Opens its day file in your default editor |
+| Day file | Opens the file in your default editor |
+| Inbox item | Accepts it as a today task (same write path as the inbox Accept button) |
+| Settings action | Runs it directly |
+
+### Keyboard model
+
+↑↓ move the selection (clamped, never wraps), Enter activates it, ⌘1-9 jumps
+straight to visible row N, Esc closes. Every row is reachable without the
+mouse, and row clicks route through the same code path as ⌘1-9.
+
+### Rebinding and the ⌘K migration
+
+"Open command bar" appears in **Settings → Keybindings** like any other action
+and is rebindable live (no restart). To free ⌘K, Send to Claude's default moved
+to ⌘⇧K - a one-time migration applied on the first launch after upgrading, and
+only if you never customized the Send to Claude binding. A customized combo is
+never touched; any residual clash surfaces in the Keybindings tab's conflict
+warnings.
+
+### Zero-network
+
+Opening the bar never fetches anything. The search index is rebuilt in memory
+on each open from disk plus the already-fetched inbox state - no network
+request, no AI call, consistent with the app's zero-network default.
+
 ## Testing
 
 ```bash
@@ -441,7 +509,7 @@ xcodebuild -scheme Jotty -destination 'platform=macOS' test
 - **Phase 6:** Send-to-Claude, launch-at-login, full settings UI, onboarding, privacy audit — **v1.0 shipped**
 - **Phase 7:** Unified inbox (GitHub shipped via PAT; Gmail / Slack / Linear / Notion documented extension points) (shipped)
 - **Phase 8:** Calendar power-UX (recurring tasks, snooze, drag-to-time-block, calendar canvas) (shipped)
-- **Phase 9:** Command bar (global search, quick actions)
+- **Phase 9:** Command bar (⌘K palette, fuzzy search across tasks / days / inbox / settings) (shipped)
 
 ## License
 
