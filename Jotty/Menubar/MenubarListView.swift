@@ -30,6 +30,12 @@ final class MenubarListModel: ObservableObject {
     /// time-blocked task instead of leaving it pointing at a dead (and recyclable, WR-05) id
     /// forever. Set by `reloadCalendar`; cleared on confirm/dismiss and reset each reload.
     @Published var missingLinkPrompt: MissingLinkPrompt?
+    /// Pending drop conflict (Phase 8 SC1 / T-8-10): set when a drop's
+    /// `overlappingEvents` gate finds an overlap, mirroring the capture flow's
+    /// SC5 semantics — the canvas UI (plan 05) resolves it via
+    /// `resolveDropConflict(commitAnyway:)`. Cancel skips the create (the
+    /// time: block is already on disk, disk wins); commit creates the event.
+    @Published var pendingDropConflict: CalendarConflict?
 
     /// Convenience count for the one-line affordance copy.
     var missingLinkCount: Int { missingLinkPrompt?.tasks.count ?? 0 }
@@ -106,6 +112,15 @@ final class MenubarListModel: ObservableObject {
     private var editTask: Task<Void, Never>?
     /// In-flight delete-event best-effort work, awaited by tests.
     private var deleteTask: Task<Void, Never>?
+    /// In-flight drop-to-time-block calendar work spawned by `dropTask()` (Phase 8 SC1).
+    /// A DEDICATED handle (WR-03): `dropTask` ends by triggering a reload (which sets
+    /// `refreshTask`) and a drop on an already-scheduled task delegates to `editTime`
+    /// (which sets `editTask`) — sharing any of those handles would let one overwrite
+    /// the other before a test could await it.
+    private var dropHandle: Task<Void, Never>?
+    /// Suspends the drop's calendar pass while a conflict decision is pending
+    /// (mirrors `CaptureViewModel.conflictContinuation`).
+    private var dropConflictContinuation: CheckedContinuation<Bool, Never>?
 
     init(store: Store,
          timezone: TimeZone = .current,
@@ -696,6 +711,135 @@ final class MenubarListModel: ObservableObject {
         cal.timeZone = timezone
         let todayStart = cal.startOfDay(for: now())
         return cal.date(byAdding: .day, value: days, to: todayStart) ?? todayStart
+    }
+
+    // MARK: - Drag-to-time-block (Phase 8 SC1 / CALX-01)
+
+    /// Default duration of a block created by dropping an unscheduled task onto a
+    /// canvas time slot (RESEARCH A2: 30 min — Claude discretion).
+    static let defaultDropDuration: TimeInterval = 30 * 60
+
+    /// The canvas rail source (plan 05): visible, not-done tasks with no `time:`
+    /// block — the draggable "unscheduled" set. Built from the SAME partitions the
+    /// menubar list renders, so a future-snoozed task never appears in the rail
+    /// (CALX-03) and leftovers stay draggable onto today's canvas.
+    var unscheduledTasks: [Todo] {
+        (leftovers + todayTasks).filter { $0.timeBlock == nil && !$0.done }
+    }
+
+    /// Drops the task with `id` onto the canvas slot `slot` (SC1 / CALX-01).
+    ///
+    /// Unscheduled task: sets `time:` = [slot, slot + `defaultDropDuration`) on disk
+    /// FIRST (`store.updateTodoTime`, T-5-09), then — best-effort, mirroring
+    /// `editTime`'s shape — runs the EXACT Phase-5 create path on a dedicated handle:
+    /// conflict gate (`overlappingEvents` → decision, T-8-10), `createEvent` with the
+    /// SANITIZED title (T-8-08), `cal_event:` write-back (mirrors `writeCalEventID` /
+    /// `recreateAndRelink`), ending in `reloadOnMain(clearMissingLinks: false)` so
+    /// the CR-02 self-heal never races the just-written id. A calendar failure logs
+    /// and leaves the time-blocked task on disk with no `cal_event:` (T-8-09).
+    ///
+    /// Already-scheduled task (CONTEXT "unscheduled only"): the drop is a MOVE —
+    /// delegate to `editTime`, which updates a linked event in place (or recreates a
+    /// missing one) and never creates a duplicate. Unknown id: no-op.
+    func dropTask(id: String, atSlot slot: Date) {
+        guard let task = tasks.first(where: { $0.id == id }) else { return }
+        let block = TimeBlock(start: slot,
+                              end: slot.addingTimeInterval(Self.defaultDropDuration))
+
+        if task.timeBlock != nil {
+            editTime(task, to: block)
+            return
+        }
+
+        let snapshot = now()
+        do {
+            // Disk first (T-5-09): the block lands even if every calendar step fails.
+            try store.updateTodoTime(id: id, timeBlock: block, on: snapshot)
+        } catch {
+            NSLog("[Jotty] dropTask time write failed: \(error.localizedDescription)")
+        }
+
+        guard let calendar else {
+            reload()   // pure task tool: time-blocked on disk, no event.
+            return
+        }
+
+        // Sanitize BEFORE the event write so task text cannot smuggle control
+        // chars / markdown into the EKEvent title (T-8-08 — shared create/compare
+        // function, same as capture + editTime).
+        let title = CalendarDrift.sanitize(title: task.text)
+        dropHandle = Task { [weak self] in
+            guard let self else { return }
+            // Conflict gate (Phase-5 SC5 semantics, T-8-10): a read failure is
+            // non-fatal — fall through to create, exactly like the capture pass.
+            var commitAnyway = true
+            if let overlap = try? await calendar.overlappingEvents(start: block.start,
+                                                                   end: block.end),
+               let first = overlap.first {
+                commitAnyway = await self.awaitDropConflictDecision(title: first.title)
+            }
+            if commitAnyway {
+                do {
+                    let eventID = try await calendar.createEvent(title: title,
+                                                                 start: block.start,
+                                                                 end: block.end)
+                    self.writeDropCalEventID(eventID, forTaskID: id, on: snapshot)
+                } catch {
+                    // Best-effort (T-8-09): the time-blocked task stays on disk,
+                    // just without a cal_event link.
+                    NSLog("[Jotty] dropTask createEvent failed: \(error.localizedDescription)")
+                }
+            }
+            // Skip the dead-link self-heal on the trailing reload: the id was just
+            // written and a stale fetch must not clear it (same as editTime, CR-02).
+            await self.reloadOnMain(clearMissingLinks: false)
+        }
+    }
+
+    /// Sets `cal_event:<id>` on the just-dropped task line and re-persists the day's
+    /// tasks (mirrors `CaptureViewModel.writeCalEventID` + `recreateAndRelink`).
+    private func writeDropCalEventID(_ eventID: String, forTaskID id: String, on date: Date) {
+        do {
+            var doc = try store.readDoc(on: date)
+            if let idx = doc.tasks.firstIndex(where: { $0.id == id }) {
+                doc.tasks[idx].calEventID = eventID
+                try store.replaceTasks(doc.tasks, on: date)
+            }
+        } catch {
+            NSLog("[Jotty] dropTask cal_event write-back failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Publishes a pending drop conflict and suspends until the canvas UI calls
+    /// `resolveDropConflict(...)` (mirrors `CaptureViewModel.awaitConflictDecision`).
+    private func awaitDropConflictDecision(title: String) async -> Bool {
+        pendingDropConflict = CalendarConflict(conflictTitle: title)
+        let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            dropConflictContinuation = c
+        }
+        pendingDropConflict = nil
+        dropConflictContinuation = nil
+        return decision
+    }
+
+    /// Resolves a pending drop conflict (plan 05's canvas alert calls this).
+    /// `true` = create the event anyway; `false` = skip the create — the time:
+    /// block is already on disk either way (disk wins). No-op if nothing pends;
+    /// nil-before-resume makes double-resume structurally impossible (same
+    /// pattern as `CaptureViewModel.resolveConflict`).
+    func resolveDropConflict(commitAnyway: Bool) {
+        guard let c = dropConflictContinuation else { return }
+        dropConflictContinuation = nil
+        c.resume(returning: commitAnyway)
+    }
+
+    /// Awaits all in-flight drop work (test hook, mirrors `awaitCalendarRefresh`):
+    /// the drop's calendar pass first, then the edit handle (a drop on a scheduled
+    /// task delegates to `editTime`), then the trailing refresh either spawned.
+    func awaitDropWork() async {
+        if let t = dropHandle { _ = await t.value }
+        if let t = editTask { _ = await t.value }
+        if let t = refreshTask { _ = await t.value }
     }
 
     var doneCount: Int { tasks.filter(\.done).count }
