@@ -347,6 +347,18 @@ private extension CommandBarView {
 
 // MARK: - Window-scoped key monitor (CaptureView KeyMonitor idiom)
 
+/// Phase 9 review WR-03: while an input-method composition is in progress
+/// (Japanese/Chinese/Korean marked text), Return must confirm the composition,
+/// ↑↓ must navigate the candidate window, and Esc must cancel it — the palette
+/// monitor must NOT swallow those keys. Pure decision seam so the bypass rule
+/// is unit-testable; the live monitor feeds it `NSTextInputContext.current?.client`.
+/// The full IME interaction (candidate window in the real panel) stays HUMAN-UAT.
+enum CommandBarIMEGuard {
+    static func shouldDeferToInputMethod(client: (any NSTextInputClient)?) -> Bool {
+        client?.hasMarkedText() ?? false
+    }
+}
+
 /// Mirror of the CaptureView `KeyMonitor` NSViewRepresentable: a local NSEvent
 /// keyDown monitor scoped to THIS view's window — the AppKit-reliable route for
 /// panel keys (resolves RESEARCH A2/A3; pinned by UI-SPEC §Keyboard Model).
@@ -374,6 +386,10 @@ private struct CommandBarKeyMonitor: NSViewRepresentable {
             guard let window = self.window else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, event.window === window else { return event }
+                // WR-03: an active IME composition owns Return/↑↓/Esc — pass
+                // the event through to the field editor's input context.
+                if CommandBarIMEGuard.shouldDeferToInputMethod(
+                    client: NSTextInputContext.current?.client) { return event }
                 return self.handler(event) ? nil : event
             }
         }
