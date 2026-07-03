@@ -191,7 +191,7 @@ final class CaptureViewModelTests: XCTestCase {
         let tb = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
                            end: dateFor("2026-06-13T10:00:00+10:00"))
         let fake = FakeCalendarService()
-        let vm = await makeVMInReview(with: ExtractedTask(title: "**Standup**", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "**Standup**", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
 
@@ -227,7 +227,7 @@ final class CaptureViewModelTests: XCTestCase {
                            end: dateFor("2026-06-13T12:00:00+10:00"))
         let fake = FakeCalendarService()
         fake.errorToThrow = .underlying(message: "calendar save failed")
-        let vm = await makeVMInReview(with: ExtractedTask(title: "deep work", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "deep work", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
 
@@ -245,13 +245,16 @@ final class CaptureViewModelTests: XCTestCase {
         let now = dateFor("2026-06-13T08:00:00+10:00")
         let t1 = ExtractedTask(title: "task one",
                                timeBlock: TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
-                                                    end: dateFor("2026-06-13T10:00:00+10:00")))
+                                                    end: dateFor("2026-06-13T10:00:00+10:00")),
+                               calendarBlock: true)
         let t2 = ExtractedTask(title: "task two",
                                timeBlock: TimeBlock(start: dateFor("2026-06-13T11:00:00+10:00"),
-                                                    end: dateFor("2026-06-13T12:00:00+10:00")))
+                                                    end: dateFor("2026-06-13T12:00:00+10:00")),
+                               calendarBlock: true)
         let t3 = ExtractedTask(title: "task three",
                                timeBlock: TimeBlock(start: dateFor("2026-06-13T13:00:00+10:00"),
-                                                    end: dateFor("2026-06-13T14:00:00+10:00")))
+                                                    end: dateFor("2026-06-13T14:00:00+10:00")),
+                               calendarBlock: true)
         let fake = FakeCalendarService()
         fake.errorToThrow = .underlying(message: "save failed")   // every createEvent fails
         let vm = await makeVMInReview(withTasks: [t1, t2, t3], calendar: fake, now: now)
@@ -273,7 +276,7 @@ final class CaptureViewModelTests: XCTestCase {
                            end: dateFor("2026-06-13T10:00:00+10:00"))
         let fake = FakeCalendarService()
         fake.errorToThrow = .underlying(message: "calendar save failed")
-        let vm = await makeVMInReview(with: ExtractedTask(title: "solo", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "solo", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
         XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "calendar save failed"))
@@ -286,7 +289,7 @@ final class CaptureViewModelTests: XCTestCase {
                            end: dateFor("2026-06-13T14:00:00+10:00"))
         let fake = FakeCalendarService()
         fake.accessToReturn = .denied
-        let vm = await makeVMInReview(with: ExtractedTask(title: "lunch block", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "lunch block", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
 
@@ -305,7 +308,7 @@ final class CaptureViewModelTests: XCTestCase {
                            end: dateFor("2026-06-13T16:00:00+10:00"))
         let fake = FakeCalendarService()
         fake.accessToReturn = .notDetermined   // requestAccess() also returns .notDetermined → !authorized
-        let vm = await makeVMInReview(with: ExtractedTask(title: "review PR", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "review PR", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
 
@@ -320,7 +323,7 @@ final class CaptureViewModelTests: XCTestCase {
         let tb = TimeBlock(start: dateFor("2026-06-13T17:00:00+10:00"),
                            end: dateFor("2026-06-13T18:00:00+10:00"))
         // calendar: nil (default).
-        let vm = await makeVMInReview(with: ExtractedTask(title: "gym", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "gym", timeBlock: tb, calendarBlock: true),
                                       calendar: nil, now: now)
         await vm.commitAndWait()
 
@@ -328,6 +331,67 @@ final class CaptureViewModelTests: XCTestCase {
         let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "gym" }))
         XCTAssertNil(task.calEventID, "no calendar → no cal_event")
         XCTAssertNil(vm.calendarNotice)
+    }
+
+    // MARK: - Per-row calendar toggle (UX-06, plan 07.1-09)
+
+    // UX-06: enterReview seeds the toggle set from each task's calendarBlock —
+    // a row starts ON iff the AI flagged it for calendar blocking.
+    func testEnterReviewSeedsCalendarEnabledRowIDsFromCalendarBlock() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb1 = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                            end: dateFor("2026-06-13T10:00:00+10:00"))
+        let tb2 = TimeBlock(start: dateFor("2026-06-13T11:00:00+10:00"),
+                            end: dateFor("2026-06-13T12:00:00+10:00"))
+        let tasks = [
+            ExtractedTask(title: "blocked one", timeBlock: tb1, calendarBlock: true),
+            ExtractedTask(title: "plain task"),
+            ExtractedTask(title: "blocked two", timeBlock: tb2, calendarBlock: true),
+        ]
+        let vm = await makeVMInReview(withTasks: tasks, calendar: FakeCalendarService(), now: now)
+        XCTAssertEqual(vm.calendarEnabledRowIDs, [0, 2],
+                       "rows seed ON iff their task's calendarBlock is true")
+    }
+
+    // UX-06: toggled OFF → the time-blocked task still commits WITH its timeBlock,
+    // but the calendar service is never asked to create an event.
+    func testCalendarToggleOffCommitsTimeBlockWithoutEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                           end: dateFor("2026-06-13T10:00:00+10:00"))
+        let fake = FakeCalendarService()
+        let vm = await makeVMInReview(
+            with: ExtractedTask(title: "quiet block", timeBlock: tb, calendarBlock: true),
+            calendar: fake, now: now)
+        vm.toggleCalendarRow(0)   // user opts this row out of calendar creation
+        XCTAssertFalse(vm.calendarEnabledRowIDs.contains(0))
+        await vm.commitAndWait()
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "quiet block" }))
+        XCTAssertEqual(task.timeBlock, tb, "toggled-off commit keeps the time block")
+        XCTAssertNil(task.calEventID, "toggled-off commit writes no cal_event")
+        XCTAssertTrue(fake.createdEvents.isEmpty, "toggle OFF → zero events created")
+        XCTAssertFalse(fake.calls.contains(.createEvent))
+    }
+
+    // UX-06: toggled ON (the seeded default for AI time-blocked tasks) → exactly
+    // one event is created, as before the toggle existed.
+    func testCalendarToggleOnCreatesExactlyOneEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T09:00:00+10:00"),
+                           end: dateFor("2026-06-13T10:00:00+10:00"))
+        let fake = FakeCalendarService()
+        let vm = await makeVMInReview(
+            with: ExtractedTask(title: "loud block", timeBlock: tb, calendarBlock: true),
+            calendar: fake, now: now)
+        XCTAssertTrue(vm.calendarEnabledRowIDs.contains(0), "seeded ON from calendarBlock")
+        await vm.commitAndWait()
+
+        XCTAssertEqual(fake.createdEvents.count, 1, "toggle ON → exactly one event")
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "loud block" }))
+        XCTAssertEqual(task.calEventID, "fake-event-1")
     }
 
     // MARK: - Conflict gate (SC5, plan 05-05 task 2)
@@ -346,7 +410,7 @@ final class CaptureViewModelTests: XCTestCase {
         fake.cannedEvents = [cannedEvent("Existing Standup",
                                          "2026-06-13T09:00:00+10:00",
                                          "2026-06-13T10:00:00+10:00")]
-        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         vm.commitFromReview()
         // Spin until the conflict is published (the calendar task suspends on it).
@@ -368,7 +432,7 @@ final class CaptureViewModelTests: XCTestCase {
         fake.cannedEvents = [cannedEvent("Existing Standup",
                                          "2026-06-13T09:00:00+10:00",
                                          "2026-06-13T10:00:00+10:00")]
-        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         vm.commitFromReview()
         try await waitUntil { vm.pendingConflict != nil }
@@ -391,7 +455,7 @@ final class CaptureViewModelTests: XCTestCase {
         fake.cannedEvents = [cannedEvent("Existing Standup",
                                          "2026-06-13T09:00:00+10:00",
                                          "2026-06-13T10:00:00+10:00")]
-        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         vm.commitFromReview()
         try await waitUntil { vm.pendingConflict != nil }
@@ -412,7 +476,7 @@ final class CaptureViewModelTests: XCTestCase {
         let fake = FakeCalendarService()
         // Canned event is in the morning; the task is in the afternoon → no overlap.
         fake.cannedEvents = []   // overlappingEvents returns [] (FakeCalendarService returns canned)
-        let vm = await makeVMInReview(with: ExtractedTask(title: "afternoon focus", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "afternoon focus", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         await vm.commitAndWait()
 
@@ -436,7 +500,7 @@ final class CaptureViewModelTests: XCTestCase {
         fake.cannedEvents = [cannedEvent("Existing Standup",
                                          "2026-06-13T09:00:00+10:00",
                                          "2026-06-13T10:00:00+10:00")]
-        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         vm.commitFromReview()
         try await waitUntil { vm.pendingConflict != nil }
@@ -462,7 +526,7 @@ final class CaptureViewModelTests: XCTestCase {
         fake.cannedEvents = [cannedEvent("Existing Standup",
                                          "2026-06-13T09:00:00+10:00",
                                          "2026-06-13T10:00:00+10:00")]
-        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb),
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Planning", timeBlock: tb, calendarBlock: true),
                                       calendar: fake, now: now)
         vm.commitFromReview()
         vm.teardown()                    // window closed post-commit, before the pass ran
