@@ -157,7 +157,9 @@ private struct SavedConfirmationBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.green.opacity(0.12))
+        // UX-13: system material adapts to dark mode; the green checkmark stays
+        // a foreground accent (semantic status color, not a background tint).
+        .background(.regularMaterial)
         .accessibilityLabel("Saved")
     }
 }
@@ -184,7 +186,8 @@ private struct DraftRestoredBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.secondary.opacity(0.10))
+        // UX-13: material background instead of a hardcoded secondary tint.
+        .background(.regularMaterial)
     }
 }
 
@@ -219,10 +222,14 @@ private struct ProviderErrorToast: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            // A11Y-01: icon-only control needs an explicit VoiceOver label.
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.yellow.opacity(0.12))
+        // UX-13: material background; the yellow warning triangle stays a
+        // foreground accent.
+        .background(.regularMaterial)
     }
 
     /// UI-safe copy: `modelUnavailable.reason` and `guardrail.message` are
@@ -265,7 +272,9 @@ private struct ConflictConfirmBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.14))
+        // UX-13: material background instead of a hardcoded orange tint; the
+        // "⚠️" glyph in the copy carries the warning accent.
+        .background(.regularMaterial)
     }
 }
 
@@ -293,10 +302,13 @@ private struct CalendarNoticeBar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            // A11Y-01: icon-only control needs an explicit VoiceOver label.
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.10))
+        // UX-13: material background instead of a hardcoded secondary tint.
+        .background(.regularMaterial)
     }
 
     private var message: String {

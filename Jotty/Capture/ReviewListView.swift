@@ -46,7 +46,9 @@ struct ReviewListView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color.yellow.opacity(0.12))
+                // UX-13: material background adapts to dark mode; the yellow
+                // warning triangle stays a foreground accent.
+                .background(.regularMaterial)
             }
 
             ScrollView {
@@ -69,6 +71,10 @@ struct ReviewListView: View {
                         .focused($focusedRow, equals: index)
                         .contentShape(Rectangle())
                         .onTapGesture { focusedRow = index }
+                        // A11Y-01: the row's tap gesture is invisible to VoiceOver
+                        // without the button trait; hint explains what it does.
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Selects this task row")
                     }
                 }
                 .padding(.vertical, 8)
@@ -167,10 +173,15 @@ private struct ReviewRowView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
-                .font(.system(size: 16))
-                .onTapGesture { onToggle() }
+            // A11Y-01: a real Button (was Image + .onTapGesture) so VoiceOver
+            // sees an actionable control; label is state-dynamic.
+            Button(action: onToggle) {
+                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
+                    .font(.system(size: 16))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isChecked ? "Uncheck task" : "Check task")
 
             VStack(alignment: .leading, spacing: 3) {
                 titleView
@@ -256,6 +267,9 @@ private struct ReviewRowView: View {
                 .foregroundStyle(isChecked ? Color.primary : Color.secondary)
                 .contentShape(Rectangle())
                 .onTapGesture { onBeginEdit() }
+                // A11Y-01: tap-gesture text needs the button trait so VoiceOver
+                // treats it as actionable (hint was added in plan 11).
+                .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Double-tap to edit title")
         }
     }
