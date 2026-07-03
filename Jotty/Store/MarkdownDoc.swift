@@ -92,6 +92,25 @@ struct MarkdownDoc: Equatable {
                !su.contains(where: { $0.isWhitespace }) {
                 meta += " source_url:\(su)"
             }
+            if let r = task.recur {
+                // T-8-01: recur values are structurally space-free
+                // (daily/weekly/weekday/custom:1,3,5) — guard anyway per the
+                // established defensive pattern (Pitfall 4).
+                let value = r.serialize()
+                if !value.contains(where: { $0.isWhitespace }) {
+                    meta += " recur:\(value)"
+                }
+            }
+            if let rs = task.recurSrc,
+               // T-8-01: the marker is "<templateId>:<yyyy-MM-dd>" (space-free);
+               // a whitespace-bearing value would split into bogus tokens — skip
+               // rather than corrupt.
+               !rs.contains(where: { $0.isWhitespace }) {
+                meta += " recur_src:\(rs)"
+            }
+            if let sn = task.snooze {
+                meta += " snooze:\(dateOnlyFmt.string(from: sn))"
+            }
             // IN-01: the task line is `- [x] <text> <!-- <meta> -->`; a `text` containing
             // `<!--`/`-->` would shift the comment boundary and corrupt the round-trip
             // (calendar-sourced titles can now reach `task.text` via SC4 sync). Neutralize the
@@ -162,6 +181,9 @@ struct MarkdownDoc: Equatable {
             var calEventID: String? = nil
             var source: String? = nil
             var sourceURL: String? = nil
+            var recur: Recurrence? = nil
+            var recurSrc: String? = nil
+            var snooze: Date? = nil
 
             let tokens = metaBlob.split(separator: " ", omittingEmptySubsequences: true)
             for token in tokens {
@@ -198,6 +220,14 @@ struct MarkdownDoc: Equatable {
                     source = value
                 case "source_url":
                     sourceURL = value
+                case "recur":
+                    // T-8-02: a hand-edited malformed rule parses to nil — the
+                    // task degrades to non-recurring rather than crashing.
+                    recur = Recurrence.parse(value)
+                case "recur_src":
+                    recurSrc = value
+                case "snooze":
+                    snooze = dateOnlyFmt.date(from: value)
                 default:
                     break
                 }
@@ -209,7 +239,8 @@ struct MarkdownDoc: Equatable {
                             done: done, completedAt: completedAt,
                             dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote,
                             timeBlock: timeBlock, calEventID: calEventID,
-                            source: source, sourceURL: sourceURL)
+                            source: source, sourceURL: sourceURL,
+                            recur: recur, recurSrc: recurSrc, snooze: snooze)
             doc.tasks.append(todo)
         }
 

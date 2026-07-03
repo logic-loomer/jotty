@@ -23,6 +23,9 @@ struct Todo: Equatable {
     var calEventID: String?    // linked calendar event identifier (Phase 5)
     var source: String?        // inbox provenance: composite "<sourceID>:<itemID>" (Phase 7)
     var sourceURL: String?     // canonical link to the originating inbox item (Phase 7)
+    var recur: Recurrence?     // recurrence rule; non-nil marks a template (Phase 8)
+    var recurSrc: String?      // instance marker "<templateId>:<yyyy-MM-dd>" (Phase 8)
+    var snooze: Date?          // hidden from today's list until this date (Phase 8)
 
     init(id: String,
          text: String,
@@ -35,7 +38,10 @@ struct Todo: Equatable {
          timeBlock: TimeBlock? = nil,
          calEventID: String? = nil,
          source: String? = nil,
-         sourceURL: String? = nil) {
+         sourceURL: String? = nil,
+         recur: Recurrence? = nil,
+         recurSrc: String? = nil,
+         snooze: Date? = nil) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
@@ -48,5 +54,8 @@ struct Todo: Equatable {
         self.calEventID = calEventID
         self.source = source
         self.sourceURL = sourceURL
+        self.recur = recur
+        self.recurSrc = recurSrc
+        self.snooze = snooze
     }
 }
