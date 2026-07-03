@@ -900,24 +900,34 @@ final class MenubarListModel: ObservableObject {
 
     /// Publishes a pending drop conflict and suspends until the canvas UI calls
     /// `resolveDropConflict(...)` (mirrors `CaptureViewModel.awaitConflictDecision`).
+    ///
+    /// WR-02: conflicts are SERIALIZED — a second drop reaching this gate while
+    /// an earlier decision is still pending would otherwise overwrite the
+    /// stored continuation without resuming it, suspending the first drop's
+    /// task forever (Swift logs CONTINUATION MISUSE) and orphaning its handle.
+    /// The stale pending drop is pre-empted as a cancel (the same safe default
+    /// as the capture window's teardown, CQ-02): its time: block is already on
+    /// disk, only its event create is skipped.
     private func awaitDropConflictDecision(title: String) async -> Bool {
+        resolveDropConflict(commitAnyway: false)   // pre-empt a stale pending drop
         pendingDropConflict = CalendarConflict(conflictTitle: title)
-        let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             dropConflictContinuation = c
         }
-        pendingDropConflict = nil
-        dropConflictContinuation = nil
-        return decision
     }
 
     /// Resolves a pending drop conflict (plan 05's canvas alert calls this).
     /// `true` = create the event anyway; `false` = skip the create — the time:
     /// block is already on disk either way (disk wins). No-op if nothing pends;
     /// nil-before-resume makes double-resume structurally impossible (same
-    /// pattern as `CaptureViewModel.resolveConflict`).
+    /// pattern as `CaptureViewModel.resolveConflict`). `pendingDropConflict`
+    /// is cleared HERE — not after the await in `awaitDropConflictDecision` —
+    /// so a pre-empted drop's later resumption can never clobber a newer
+    /// pending conflict's published state (WR-02).
     func resolveDropConflict(commitAnyway: Bool) {
         guard let c = dropConflictContinuation else { return }
         dropConflictContinuation = nil
+        pendingDropConflict = nil
         c.resume(returning: commitAnyway)
     }
 

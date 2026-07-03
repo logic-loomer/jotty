@@ -1466,6 +1466,59 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(stored.calEventID, "fake-event-1")
     }
 
+    func testConcurrentDropsPreemptEarlierConflictAsCancelNeverLeak() async throws {
+        // WR-02: a second drop reaching the conflict gate while the first is
+        // still pending must PRE-EMPT the first (auto-cancel) instead of
+        // overwriting — and leaking — its continuation. Exactly one decision
+        // is pending at a time; only the second drop's decision creates.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_a", text: "first", createdAt: makeDate(2026, 6, 12, h: 8)),
+            Todo(id: "t_b", text: "second", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-x", title: "First Meeting",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        // Drop A reaches the gate and suspends.
+        let slotA = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_a", atSlot: slotA)
+        try await waitUntil { model.pendingDropConflict?.conflictTitle == "First Meeting" }
+
+        // Retitle the canned overlap so drop B's pending conflict is
+        // distinguishable from A's, then drop B while A is still pending.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-x", title: "Second Meeting",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let slotB = makeDate(2026, 6, 12, h: 14, min: 30)
+        model.dropTask(id: "t_b", atSlot: slotB)
+        try await waitUntil { model.pendingDropConflict?.conflictTitle == "Second Meeting" }
+
+        // Only B pends now; resolving commits B. A was pre-empted as cancel —
+        // its resumption can never create (its decision was already false).
+        model.resolveDropConflict(commitAnyway: true)
+        await model.awaitDropWork()
+
+        try await waitUntil { fake.createdEvents.count == 1 }
+        XCTAssertEqual(fake.createdEvents.first?.start, slotB,
+                       "only the second (still-pending) drop's event is created")
+        let doc = try store.readDoc(on: today)
+        let taskA = try XCTUnwrap(doc.tasks.first { $0.id == "t_a" })
+        XCTAssertEqual(taskA.timeBlock?.start, slotA,
+                       "the pre-empted drop keeps its disk-first time: block")
+        XCTAssertNil(taskA.calEventID, "pre-empted-as-cancel: no event for drop A")
+        let taskB = try XCTUnwrap(doc.tasks.first { $0.id == "t_b" })
+        XCTAssertEqual(taskB.calEventID, "fake-event-1")
+        XCTAssertNil(model.pendingDropConflict, "no orphaned pending decision remains")
+    }
+
     func testDropTaskUnknownIdIsNoOp() async throws {
         let (store, today) = try seed(tasks: [
             Todo(id: "t_other", text: "unrelated", createdAt: makeDate(2026, 6, 12, h: 8))
