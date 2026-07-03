@@ -284,8 +284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Refresh store in case folder changed in settings.
         store = Store(folder: configStore.config.storageFolder, timezone: .current)
 
-        // Reload list now so any config-folder change is reflected before the popover opens.
-        menubar.listModel.reload()
+        // WR-09: hand the menubar model the SAME refreshed store (its own reference is
+        // otherwise captured at launch and Store.folder is immutable) and reload, so the
+        // list/rollover/toggle paths follow a Settings → Storage folder change instead of
+        // operating on the old folder for the rest of the session.
+        menubar.listModel.replaceStore(store)
 
         // CQ-06: fail soft — without Application Support there is nowhere to persist
         // the draft, so skip opening capture rather than crashing on a force-unwrap.
@@ -374,9 +377,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.registerGlobalHotkey()
+                    guard let self else { return }
+                    self.registerGlobalHotkey()
                     // A Settings → Integrations toggle/interval change takes effect live.
-                    self?.scheduleInboxTimer()
+                    self.scheduleInboxTimer()
+                    // WR-09: a Settings → Storage folder change takes effect live too —
+                    // rebuild the delegate's store (rollover uses it) and swap it into
+                    // the menubar model, whose own Store is otherwise fixed at launch.
+                    self.store = Store(folder: self.configStore.config.storageFolder,
+                                       timezone: .current)
+                    self.menubar.listModel.replaceStore(self.store)
                 }
             }
         }

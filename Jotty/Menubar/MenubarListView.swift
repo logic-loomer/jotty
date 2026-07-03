@@ -52,7 +52,12 @@ final class MenubarListModel: ObservableObject {
         let drifted: [(task: Todo, event: CalendarEvent)]
     }
 
-    let store: Store
+    /// WR-09: `var` (not `let`) — the storage folder can change in Settings → Storage
+    /// while the app runs, and `Store.folder` is immutable, so AppDelegate swaps in a
+    /// freshly built Store via `replaceStore(_:)`. A launch-time capture would leave the
+    /// menubar list, rollover reload, toggle/delete/rename, and the drift pass operating
+    /// on the OLD folder for the rest of the session while capture writes to the new one.
+    private(set) var store: Store
     /// Exposed so the view can build a timezone-pinned HH:mm formatter that matches
     /// the model's date partitioning (the calendar section renders event start times).
     let timezone: TimeZone
@@ -178,6 +183,14 @@ final class MenubarListModel: ObservableObject {
                                            clearMissingLinks: clearMissingLinks)
             }
         }
+    }
+
+    /// WR-09: swaps the backing Store after a Settings → Storage folder change and
+    /// reloads so the visible list reflects the NEW folder immediately. Safe to call
+    /// with an unchanged folder — it then behaves exactly like a plain `reload()`.
+    func replaceStore(_ newStore: Store) {
+        store = newStore
+        reload()
     }
 
     // MARK: - Unified inbox (Phase 7, SC2/SC3)

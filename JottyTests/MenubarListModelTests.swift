@@ -55,6 +55,36 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.todayTasks.map(\.id), ["t_a", "t_b"])
     }
 
+    // WR-09: after a storage-folder change, replaceStore must swap the backing Store
+    // and reload — the visible list reflects the NEW folder, not the launch-time one.
+    func testReplaceStoreReloadsFromNewFolder() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let storeA = Store(folder: folder, timezone: tz)
+        try storeA.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_old_folder", text: "old folder task", createdAt: today)
+        ], at: today)
+        let model = MenubarListModel(store: storeA, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertEqual(model.tasks.map(\.id), ["t_old_folder"])
+
+        // The user picks a new folder in Settings → Storage.
+        let folderB = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderB) }
+        let storeB = Store(folder: folderB, timezone: tz)
+        try storeB.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_new_folder", text: "new folder task", createdAt: today)
+        ], at: today)
+
+        model.replaceStore(storeB)
+
+        XCTAssertEqual(model.tasks.map(\.id), ["t_new_folder"],
+                       "the list must read the NEW folder after replaceStore")
+        XCTAssertEqual(model.store.folder, folderB,
+                       "the backing store must be the swapped-in instance")
+    }
+
     // MARK: - Collapse trigger
 
     func testToggleLeftoverCollapsesAndPersists() throws {
