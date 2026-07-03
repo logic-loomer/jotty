@@ -157,8 +157,18 @@ final class MenubarListModel: ObservableObject {
         } catch {
             tasks = []
         }
-        leftovers = tasks.filter { cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done }
-        todayTasks = tasks.filter { !(cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done) }
+        // Phase 8 SC3 (CALX-03): a task snoozed to a FUTURE date is hidden from
+        // BOTH partitions until that date. The @Published `tasks` array stays the
+        // FULL list (doneCount + the calendar drift linkage read it); only the
+        // partitions filter. Reappearance is automatic: on/after the snooze day
+        // the predicate is false — the token stays on disk, merely ignored
+        // (T-8-07: a snoozed task is never permanently hidden).
+        let visible = tasks.filter { task in
+            guard let snooze = task.snooze else { return true }
+            return cal.startOfDay(for: snooze) <= todayStart
+        }
+        leftovers = visible.filter { cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done }
+        todayTasks = visible.filter { !(cal.startOfDay(for: $0.createdAt) < todayStart && !$0.done) }
 
         let todayKey = collapseKey(for: snapshot)
         leftoversCollapsed = defaults.bool(forKey: todayKey)
@@ -643,6 +653,49 @@ final class MenubarListModel: ObservableObject {
             NSLog("[Jotty] rename failed: \(error.localizedDescription)")
         }
         reload()
+    }
+
+    // MARK: - Snooze + recurrence (Phase 8 SC2/SC3)
+
+    /// Snoozes the task until `date` (SC3 / CALX-03): the Store writes the
+    /// `snooze:` token in place on the file the task lives in — visibility only,
+    /// the task is never relocated (distinct from move-to-tomorrow) — then the
+    /// reload drops it from today's partitions until the date arrives. A failure
+    /// logs, never crashes (mirrors `moveToTomorrow`/`rename`).
+    func snooze(_ task: Todo, to date: Date) {
+        do {
+            try store.snoozeTodo(id: task.id, to: date, on: fileDay(of: task))
+        } catch {
+            NSLog("[Jotty] snooze failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    /// Sets the task's recurrence rule (SC2 / CALX-02 UI surface); `nil` clears
+    /// it (the Repeat "None" choice). Persists the `recur:` token via the Store,
+    /// then reloads. A failure logs, never crashes.
+    func setRecurrence(_ task: Todo, to recurrence: Recurrence?) {
+        do {
+            try store.setTodoRecurrence(id: task.id, to: recurrence, on: fileDay(of: task))
+        } catch {
+            NSLog("[Jotty] setRecurrence failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    /// The Snooze-to "Tomorrow" target: startOfDay(now()) + 1 day. Anchored on
+    /// `now()`, NEVER task.createdAt (CR-01) — snoozing a stale leftover must
+    /// target the real tomorrow, not a day in the past.
+    var snoozeTomorrowDate: Date { snoozeDate(daysFromToday: 1) }
+
+    /// The Snooze-to "Next week" target: startOfDay(now()) + 7 days (CR-01).
+    var snoozeNextWeekDate: Date { snoozeDate(daysFromToday: 7) }
+
+    private func snoozeDate(daysFromToday days: Int) -> Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: now())
+        return cal.date(byAdding: .day, value: days, to: todayStart) ?? todayStart
     }
 
     var doneCount: Int { tasks.filter(\.done).count }
