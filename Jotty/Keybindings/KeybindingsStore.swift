@@ -22,6 +22,12 @@ final class KeybindingsStore {
 
     private static let version = 1
 
+    /// The pre-Phase-9 sendToClaude default (⌘K). NAMED constant (Pitfall 7): the
+    /// one-shot migration below identifies an "uncustomized" pre-P9 file by
+    /// value-equality with THIS combo — never a literal at the call site. Frozen
+    /// forever; it describes historical files, not the current seed.
+    static let legacySendToClaudeDefault = KeyCombo(keyCode: 40, modifiers: [.cmd])
+
     private var bindings: [Action: KeyCombo]
     /// User-writable persistence path. `nil` for the in-memory `init(data:)`
     /// construction (bundled-default reads), which never persists.
@@ -60,11 +66,27 @@ final class KeybindingsStore {
                 self.bindings = Self.decode(defaultData)
                 try persist()
             } else {
+                var backfilled = false
+
+                // One-shot sendToClaude ⌘K → ⌘⇧K migration (Phase 9). A pre-P9 file is
+                // identified by the ABSENCE of global.commandBar (the WR-02 backfill
+                // below adds it, so after the first Phase-9 launch the key exists and
+                // this rewrite can never re-fire — even if the user later sets
+                // sendToClaude back to ⌘K). "Uncustomized" = value-equality with the
+                // named legacy constant; a customized combo is never touched. The new
+                // value comes from the SEED (never a literal) so seed and migration
+                // cannot diverge.
+                if resolved[.globalCommandBar] == nil,
+                   resolved[.sendToClaude] == Self.legacySendToClaudeDefault,
+                   let seeded = Self.decode(defaultData)[.sendToClaude] {
+                    resolved[.sendToClaude] = seeded
+                    backfilled = true
+                }
+
                 // WR-02 forward-compat: a valid pre-upgrade file is missing actions added
                 // in a later version (e.g. sendToClaude). Backfill those from the default
                 // seed so the new action keeps its default combo instead of resolving to
                 // nil ("Not set"), and persist so the file is complete on the next launch.
-                var backfilled = false
                 for (action, combo) in Self.decode(defaultData) where resolved[action] == nil {
                     resolved[action] = combo
                     backfilled = true

@@ -2,8 +2,9 @@
   "version": 1,
   "bindings": {
     "global.toggleCapture": { "keyCode": 45, "modifiers": ["cmd"] },
+    "global.commandBar":    { "keyCode": 40, "modifiers": ["cmd"] },
     "capture.submit":       { "keyCode": 36, "modifiers": ["cmd"] },
     "capture.cancel":       { "keyCode": 53, "modifiers": [] },
-    "send.toClaude":        { "keyCode": 40, "modifiers": ["cmd"] }
+    "send.toClaude":        { "keyCode": 40, "modifiers": ["cmd", "shift"] }
   }
 }
