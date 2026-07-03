@@ -155,6 +155,7 @@
 		F6CC91638497397B5F90C67F /* CalendarCanvasModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AE255E7F61DE901F24F8B45 /* CalendarCanvasModel.swift */; };
 		FA9753E9A723FFBE84D5BE54 /* CalendarEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5212E65936B5489A73151E30 /* CalendarEventMapper.swift */; };
 		FB97C70BF9671EBD8AD985DB /* OnboardingFlagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79CB05965D620D8258EB4091 /* OnboardingFlagTests.swift */; };
+		FBE7142A79C5FDE8826EBF13 /* FuzzyScorerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */; };
 		FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -215,6 +216,7 @@
 		43923E183E14DDBEBB793B89 /* MenubarListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListView.swift; sourceTree = "<group>"; };
 		4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleFMProviderFixturesTests.swift; sourceTree = "<group>"; };
 		45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModel.swift; sourceTree = "<group>"; };
+		461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyScorerTests.swift; sourceTree = "<group>"; };
 		48DE6791E1CC55312AC80D3E /* GeneralTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralTab.swift; sourceTree = "<group>"; };
 		49657BD3B4A790B6E76F2286 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		49ACA01BC670AD43D28F2B65 /* KeyCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCombo.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 				989392B9AE0158984B8094BF /* ClaudePromptTests.swift */,
 				006FA2D88232464A90253AFC /* ConfigStoreTests.swift */,
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
+				461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */,
 				1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */,
 				08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */,
 				EF21C8F9A39D7BE6531516DF /* LaunchAtLoginTests.swift */,
@@ -844,6 +847,7 @@
 				5858C556D6D4A6B141134BA7 /* FakeInboxSource.swift in Sources */,
 				63702B888DBB2625DFB04D63 /* FakeLaunchAtLoginService.swift in Sources */,
 				E4447D28FA66F03D1BDC5339 /* FixtureComparator.swift in Sources */,
+				FBE7142A79C5FDE8826EBF13 /* FuzzyScorerTests.swift in Sources */,
 				E3A30F2247865922A7DD2338 /* GeminiProviderTests.swift in Sources */,
 				301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */,
 				FBEF13AB8BE6325536AB0361 /* ISOTaskMapperTests.swift in Sources */,
