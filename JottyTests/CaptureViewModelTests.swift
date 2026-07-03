@@ -28,7 +28,11 @@ final class CaptureViewModelTests: XCTestCase {
     func testDraftPersistsOnTextChange() async throws {
         let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
         vm.text = "in progress"
-        try await Task.sleep(nanoseconds: 50_000_000)   // allow autosave debounce
+        // IN-08: poll instead of a fixed sleep — the 30ms debounce plus CI
+        // scheduler load made a hard 50ms wait a flake magnet.
+        try await waitUntil {
+            (try? String(contentsOf: self.draftURL, encoding: .utf8)) == "in progress"
+        }
         let saved = try String(contentsOf: draftURL, encoding: .utf8)
         XCTAssertEqual(saved, "in progress")
     }
