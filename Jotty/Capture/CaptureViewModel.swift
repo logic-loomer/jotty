@@ -53,6 +53,12 @@ final class CaptureViewModel: ObservableObject {
     @Published var state: CaptureState = .input
     /// Indices of rows the user has left checked. All rows checked by default on enterReview.
     @Published var acceptedRowIDs: Set<Int> = []
+    /// UX-06: row indices whose per-item calendar toggle is ON. Seeded in `enterReview`
+    /// from each ExtractedTask's `calendarBlock` (the AI's intent — ISOTaskMapper sets it
+    /// true for every time-blocked task). `commitFromReview` routes a time-blocked task
+    /// through the async calendar pass ONLY if its row is in this set; toggled-off rows
+    /// commit synchronously WITH their timeBlock but create no event.
+    @Published var calendarEnabledRowIDs: Set<Int> = []
     @Published var isExtracting: Bool = false
     @Published var lastError: AIProviderError?
 
@@ -317,6 +323,9 @@ final class CaptureViewModel: ObservableObject {
         let saved = self.text
         self.state = .review(tasks: tasks, noteBody: noteBody, savedInput: saved)
         self.acceptedRowIDs = Set(tasks.indices)   // all checked by default
+        // UX-06: seed the calendar toggle from the AI's intent — a row starts ON
+        // iff its task arrived with calendarBlock (mapper sets it for time-blocked tasks).
+        self.calendarEnabledRowIDs = Set(tasks.indices.filter { tasks[$0].calendarBlock })
     }
 
     func toggleRow(_ index: Int) {
@@ -324,6 +333,17 @@ final class CaptureViewModel: ObservableObject {
             acceptedRowIDs.remove(index)
         } else {
             acceptedRowIDs.insert(index)
+        }
+    }
+
+    /// UX-06: flips a row's per-item calendar toggle. Membership in
+    /// `calendarEnabledRowIDs` decides whether that row's time-blocked task goes
+    /// through the calendar pass on commit.
+    func toggleCalendarRow(_ index: Int) {
+        if calendarEnabledRowIDs.contains(index) {
+            calendarEnabledRowIDs.remove(index)
+        } else {
+            calendarEnabledRowIDs.insert(index)
         }
     }
 
@@ -337,7 +357,7 @@ final class CaptureViewModel: ObservableObject {
     func commitFromReview() {
         guard case .review(let tasks, let noteBody, _) = state else { return }
         let now = clock()
-        let accepted = acceptedRowIDs.sorted().compactMap { tasks.indices.contains($0) ? tasks[$0] : nil }
+        let acceptedIndices = acceptedRowIDs.sorted().filter { tasks.indices.contains($0) }
 
         let noteId: String? = noteBody.isEmpty
             ? nil
@@ -351,16 +371,27 @@ final class CaptureViewModel: ObservableObject {
         // commit synchronously (carrying their timeBlock, no event) so they never silently
         // vanish (back-compat). Only gate time-blocked tasks through the async pass when a
         // calendar exists.
+        //
+        // UX-06: the per-row calendar toggle further narrows the calendar pass — a
+        // time-blocked task enters it ONLY when its row's toggle is ON
+        // (calendarEnabledRowIDs). Toggled-off rows take the same synchronous path as the
+        // calendar-nil case: committed WITH their timeBlock, no event ever created.
         let calendarPresent = (self.calendar != nil)
-        let synchronousTasks = calendarPresent
-            ? accepted.filter { $0.timeBlock == nil }
-            : accepted
+        var synchronousTasks: [ExtractedTask] = []
+        var timeBlockedTasks: [ExtractedTask] = []
+        for index in acceptedIndices {
+            let t = tasks[index]
+            if calendarPresent, t.timeBlock != nil, calendarEnabledRowIDs.contains(index) {
+                timeBlockedTasks.append(t)
+            } else {
+                synchronousTasks.append(t)
+            }
+        }
         let plainTodos: [Todo] = synchronousTasks.map { t in
             Todo(id: Todo.newID(),
                  text: t.title, createdAt: now, done: false,
                  dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
         }
-        let timeBlockedTasks = calendarPresent ? accepted.filter { $0.timeBlock != nil } : []
 
         do {
             // Disk is source of truth — note + non-time-blocked tasks land FIRST, never gated
@@ -378,6 +409,7 @@ final class CaptureViewModel: ObservableObject {
         try? FileManager.default.removeItem(at: draftURL)   // best-effort cleanup; not user-visible
         state = .input
         acceptedRowIDs = []
+        calendarEnabledRowIDs = []
 
         // UX-03: both commit paths confirm — show "Saved" and ask the window
         // layer to close after the toast (replaces the view's old immediate
