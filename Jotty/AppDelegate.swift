@@ -121,7 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // inbox service drives the Suggested section + lazy refresh-on-open (Phase 7).
         menubar = MenubarController(store: store, calendar: calendar,
                                     configStore: configStore, claudeHandoff: claudeHandoff,
-                                    inboxService: inboxService)
+                                    inboxService: inboxService,
+                                    // The SAME user store the Keybindings tab mutates, so
+                                    // the Send-to-Claude key equivalent stays live (UX-07).
+                                    keybindings: keybindings)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
