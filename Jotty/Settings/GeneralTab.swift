@@ -59,13 +59,13 @@ struct GeneralTab: View {
 
                 if let hint = statusHint {
                     Text(hint)
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 if toggleFailed {
                     Text("Couldn't update the login item. Try again, or set it in System Settings > Login Items.")
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundStyle(.red)
                 }
             }
@@ -74,7 +74,7 @@ struct GeneralTab: View {
                 Button("Replay welcome screen") { replayOnboarding() }
                 if onboardingReset {
                     Text("The welcome screen will appear next time you launch Jotty.")
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 

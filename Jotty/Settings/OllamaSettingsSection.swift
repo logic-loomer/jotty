@@ -76,9 +76,9 @@ struct OllamaSettingsSection: View {
 
     private var notInstalledRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Ollama — not installed").font(.system(size: 13, weight: .medium))
+            Text("Ollama — not installed").font(.body.weight(.medium))
             Text("~250 MB. Runs locally on your Mac.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
             Button("Download Ollama") {
                 installTask = Task { await installer.install() }
             }
@@ -92,7 +92,7 @@ struct OllamaSettingsSection: View {
         VStack(alignment: .leading, spacing: 6) {
             ProgressView(value: progress) {
                 Text("Downloading Ollama… \(Int(progress * 100))%")
-                    .font(.system(size: 12))
+                    .font(.callout)
             }
             Button("Cancel") {
                 installTask?.cancel()
@@ -106,7 +106,7 @@ struct OllamaSettingsSection: View {
     private var startDaemonRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Ollama installed. Daemon stopped.")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
             installSourceBadge
             Button("Start Ollama") {
                 Task { await installer.startDaemon() }
@@ -128,13 +128,13 @@ struct OllamaSettingsSection: View {
                 NSWorkspace.shared.activateFileViewerSelecting([dir])
             }
             .buttonStyle(.link)
-            .font(.system(size: 11))
+            .font(.subheadline)
         case .systemHomebrew(let url):
             Text("Using Ollama from \(url.path)")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
         case .appBundle(let url):
             Text("Using Ollama from \(url.path)")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
         case .notFound:
             EmptyView()
         }
@@ -146,16 +146,16 @@ struct OllamaSettingsSection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Daemon ready", systemImage: "circle.fill")
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(.green)
                 Spacer()
                 Button("Stop Ollama") { installer.stopDaemon() }
-                    .font(.system(size: 11))
+                    .font(.subheadline)
             }
 
             if models.isEmpty {
                 Text("No models installed yet.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
 
             ForEach(models) { model in
@@ -168,10 +168,10 @@ struct OllamaSettingsSection: View {
                               ? "largecircle.fill.circle" : "circle")
                     }
                     .buttonStyle(.plain)
-                    Text(model.name).font(.system(size: 12, design: .monospaced))
+                    Text(model.name).font(.system(.callout, design: .monospaced))
                     Text(ByteCountFormatter.string(fromByteCount: model.size,
                                                    countStyle: .file))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
                     Button("Delete") {
                         Task {
@@ -183,7 +183,7 @@ struct OllamaSettingsSection: View {
                             await refreshModels()
                         }
                     }
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                 }
             }
 
@@ -191,19 +191,19 @@ struct OllamaSettingsSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ProgressView(value: pullFraction ?? 0) {
                         Text("Pulling \(pulling)… \(pullStatus)")
-                            .font(.system(size: 11))
+                            .font(.subheadline)
                     }
                     Button("Cancel") {
                         Task { await OllamaModelManager.shared.cancelPull(model: pulling) }
                     }
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                 }
             } else {
                 addModelControls
             }
 
             if let pullError {
-                Text(pullError).font(.system(size: 11)).foregroundStyle(.red)
+                Text(pullError).font(.subheadline).foregroundStyle(.red)
             }
 
             PersistFailureNotice(visible: persistFailed)
@@ -234,7 +234,7 @@ struct OllamaSettingsSection: View {
                 TextField("Advanced: any ollama.com model tag",
                           text: $advancedModelName)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                 Button("Pull") {
                     let name = advancedModelName.trimmingCharacters(in: .whitespaces)
                     guard !name.isEmpty else { return }
@@ -251,7 +251,7 @@ struct OllamaSettingsSection: View {
         VStack(alignment: .leading, spacing: 6) {
             Label(err.errorDescription ?? "Ollama failed.",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundStyle(.red)
             Button("Retry") {
                 Task { await installer.bootstrap() }

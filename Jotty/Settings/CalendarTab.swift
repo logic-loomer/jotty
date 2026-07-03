@@ -115,13 +115,13 @@ struct CalendarTab: View {
 
                 if calendar == nil {
                     Text("Calendar service unavailable.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 } else if didLoadCalendars && writableCalendars.isEmpty {
                     Text("No writable calendars yet — grant calendar access (Jotty asks on the first calendar action), then reopen Settings.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     Text("New time-blocked tasks create events on this calendar.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
             }
 
@@ -137,7 +137,7 @@ struct CalendarTab: View {
                 }
 
                 Text("Controls whether deleting a linked task also removes its calendar event.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
 
                 PersistFailureNotice(visible: persistFailed)
             }

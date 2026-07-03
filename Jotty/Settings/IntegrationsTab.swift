@@ -60,21 +60,21 @@ struct IntegrationsTab: View {
                             }
                         }
                     Text("Off by default — suggestions refresh when you open the menubar. Turn this on to also check on a timer.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
 
                     if checkPeriodically {
                         Stepper(value: $intervalMinutes,
                                 in: Self.minIntervalMinutes...120,
                                 step: 5) {
                             Text("Every \(intervalMinutes) min")
-                                .font(.system(size: 12))
+                                .font(.callout)
                         }
                         .onChange(of: intervalMinutes) { _, mins in
                             let floored = max(Self.minIntervalMinutes, mins)
                             persist { $0.inboxCheckIntervalMinutes = floored }
                         }
                         Text("Minimum 5 minutes.")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(.subheadline, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
 
@@ -85,7 +85,7 @@ struct IntegrationsTab: View {
             // (c) Transparency table — every planned source + its endpoint (SC4).
             Section(header: Text("All integrations")) {
                 Text("Every source Jotty can reach. Only built sources make any network call, and only after you configure them.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
                 ForEach(InboxSourceCatalog.all, id: \.id) { entry in
                     IntegrationRow(entry: entry)
                 }
@@ -142,26 +142,26 @@ private struct GitHubTokenRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text("Personal access token").font(.system(size: 13, weight: .medium))
+                Text("Personal access token").font(.body.weight(.medium))
                 Spacer()
                 if tokenSaved {
                     Label("Token saved", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundStyle(.green)
                 }
             }
             Text("Needs read access to issues and pull requests. Surfaces your assigned issues and review-requested PRs as suggestions.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
             Text(InboxSourceCatalog.all.first { $0.id == "github" }?.endpoint
                  ?? "https://api.github.com")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(.subheadline, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
 
             HStack(spacing: 8) {
                 SecureField("ghp_… / github_pat_…", text: $draftToken)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .onChange(of: draftToken) { _, _ in
                         // UX-12: a probe result describes the exact text it
                         // tested — clear it the moment the field changes.
@@ -195,21 +195,21 @@ private struct GitHubTokenRow: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("Testing token…")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
             case .done(.valid):
                 Label("Key works", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.green)
+                    .font(.subheadline).foregroundStyle(.green)
             case .done(.rejected):
                 Label("Key rejected", systemImage: "xmark.circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .font(.subheadline).foregroundStyle(.red)
             case .done(.unreachable(let host)):
                 Label("Couldn't reach \(host)", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
+                    .font(.subheadline).foregroundStyle(.orange)
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")
-                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .font(.subheadline).foregroundStyle(.red)
             }
         }
         .onAppear { refreshSavedStatus() }
@@ -273,12 +273,12 @@ private struct IntegrationRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text(entry.name).font(.system(size: 13, weight: .medium))
+                Text(entry.name).font(.body.weight(.medium))
                 builtBadge
                 Spacer()
             }
             Text(entry.endpoint)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(.subheadline, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
         }
@@ -286,7 +286,7 @@ private struct IntegrationRow: View {
 
     private var builtBadge: some View {
         Text(entry.built ? "Built" : "Planned")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.caption.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background((entry.built ? Color.green : Color.secondary).opacity(0.15),

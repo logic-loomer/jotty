@@ -41,24 +41,24 @@ struct AdvancedTab: View {
         Form {
             Section(header: Text("Privacy")) {
                 Text(privacySummary)
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Section(header: Text("Network endpoints")) {
                 Text("These are the only endpoints Jotty can reach, and only when you select the matching provider in the AI tab. The default on-device provider makes none of these requests.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 ForEach(Self.endpoints, id: \.provider) { row in
                     HStack(alignment: .top) {
                         Text(row.provider)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.callout.weight(.medium))
                             .frame(width: 110, alignment: .leading)
                         Text(row.endpoint)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(.subheadline, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
                         Spacer()
@@ -70,7 +70,7 @@ struct AdvancedTab: View {
                 Button("Reveal config.json in Finder") { revealConfig() }
                 Button("Reset all settings to defaults") { resetConfirm = true }
                 Text("Reset only affects config.json (provider, folder, calendar prefs). API keys and shortcuts are untouched.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 

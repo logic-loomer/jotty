@@ -72,28 +72,28 @@ struct AITab: View {
                     persist { $0.claudeAction = newValue }
                 }
                 Text("\"Send to Claude\" opens the selected task in claude.ai, or hands it to the local Claude Code CLI.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
 
             Section(header: Text("On-device")) {
                 // Apple FM row: posture badge + availability pill.
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text("Apple Foundation Models").font(.system(size: 13, weight: .medium))
+                        Text("Apple Foundation Models").font(.body.weight(.medium))
                         PostureBadge(onDevice: true)
                         Spacer()
                         HStack(spacing: 6) {
                             Circle().fill(pillColor).frame(width: 9, height: 9)
-                            Text(pillText).font(.system(size: 12))
+                            Text(pillText).font(.callout)
                         }
                     }
                     Text("Capture text never leaves your Mac.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Text("Runs entirely on this Mac — no endpoint.")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(.subheadline, design: .monospaced))
                         .foregroundStyle(.tertiary)
                     if case .unavailable(let reason) = availability {
-                        Text(reason).font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(reason).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
 
@@ -102,13 +102,13 @@ struct AITab: View {
                 // Ollama row: posture badge + local endpoint + runtime section.
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text("Ollama").font(.system(size: 13, weight: .medium))
+                        Text("Ollama").font(.body.weight(.medium))
                         PostureBadge(onDevice: true)
                     }
                     Text("Capture text never leaves your Mac. Inference happens locally via Ollama.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Text(ProviderEndpoints.ollama)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(.subheadline, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -180,7 +180,7 @@ struct PostureBadge: View {
     var body: some View {
         Label(onDevice ? "On-device" : "Cloud",
               systemImage: onDevice ? "lock.fill" : "cloud.fill")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.caption.weight(.semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -225,26 +225,26 @@ private struct CloudProviderKeyRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(title).font(.system(size: 13, weight: .medium))
+                Text(title).font(.body.weight(.medium))
                 PostureBadge(onDevice: false)
                 Spacer()
                 if keySaved {
                     Label("Key saved", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                         .foregroundStyle(.green)
                 }
             }
             Text(vendorCopy)
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
             Text(endpoint)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(.subheadline, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
 
             HStack(spacing: 8) {
                 SecureField("API key", text: $draftKey)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .onChange(of: draftKey) { _, _ in
                         // UX-12: a probe result describes the exact text it
                         // tested — clear it the moment the field changes.
@@ -278,21 +278,21 @@ private struct CloudProviderKeyRow: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("Testing key…")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
             case .done(.valid):
                 Label("Key works", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.green)
+                    .font(.subheadline).foregroundStyle(.green)
             case .done(.rejected):
                 Label("Key rejected", systemImage: "xmark.circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .font(.subheadline).foregroundStyle(.red)
             case .done(.unreachable(let host)):
                 Label("Couldn't reach \(host)", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
+                    .font(.subheadline).foregroundStyle(.orange)
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")
-                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .font(.subheadline).foregroundStyle(.red)
             }
         }
         .onAppear { refreshSavedStatus() }

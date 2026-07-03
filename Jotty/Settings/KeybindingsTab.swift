@@ -69,7 +69,7 @@ struct KeybindingsTab: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.yellow)
                             Text("\(conflict.combo.displayString) is bound to \(conflictActionLabels(conflict)). Each shortcut should be unique.")
-                                .font(.system(size: 11))
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -79,7 +79,7 @@ struct KeybindingsTab: View {
             Section {
                 Button("Reset to defaults") { resetConfirm = true }
                 Text("Click a shortcut, then press a new key combination to rebind it.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 PersistFailureNotice(visible: persistFailed)

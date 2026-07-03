@@ -676,10 +676,10 @@ struct MenubarListView: View {
             // Header
             HStack {
                 Text("Jotty · \(model.dateLabel)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.callout.weight(.semibold))
                 Spacer()
                 Text("\(model.doneCount) of \(model.tasks.count) done")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 12)
@@ -699,7 +699,7 @@ struct MenubarListView: View {
             // Task list
             if model.tasks.isEmpty {
                 Text("No tasks today. ⌘N to capture.")
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(12)
             } else {
@@ -715,9 +715,9 @@ struct MenubarListView: View {
                             }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: model.leftoversCollapsed ? "chevron.right" : "chevron.down")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.caption.weight(.semibold))
                                     Text("Earlier · \(model.leftovers.count)")
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .font(.subheadline.weight(.semibold))
                                     Spacer()
                                 }
                                 .foregroundStyle(.secondary)
@@ -744,7 +744,7 @@ struct MenubarListView: View {
                                         // (the "Earlier" header already implies yesterday).
                                         if let origin = model.originLabel(for: task) {
                                             Text(origin)
-                                                .font(.system(size: 10))
+                                                .font(.caption)
                                                 .foregroundStyle(.tertiary)
                                         }
                                         Spacer()
@@ -805,7 +805,7 @@ struct MenubarListView: View {
                 Button("Quit") { NSApp.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)
             }
-            .font(.system(size: 12))
+            .font(.callout)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
@@ -899,7 +899,7 @@ struct MenubarListView: View {
             taskRowMenu(task)
         } label: {
             Image(systemName: "ellipsis.circle")
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
@@ -919,7 +919,7 @@ struct MenubarListView: View {
         if editingTaskID == task.id {
             TextField("", text: $renameDraft)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.callout)
                 .focused($renameFieldFocused)
                 .onAppear {
                     renameDraft = task.text
@@ -1003,11 +1003,11 @@ struct MenubarListView: View {
             Button(action: { model.confirmClearMissingLinks() }) {
                 HStack(spacing: 6) {
                     Image(systemName: "calendar.badge.exclamationmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.caption.weight(.semibold))
                     Text(model.missingLinkCount == 1
                          ? "1 linked event was deleted in Calendar. Clear the dead link?"
                          : "\(model.missingLinkCount) linked events were deleted in Calendar. Clear the dead links?")
-                        .font(.system(size: 11))
+                        .font(.subheadline)
                     Spacer()
                 }
                 .foregroundStyle(.secondary)
@@ -1038,9 +1038,9 @@ struct MenubarListView: View {
             // Graceful degradation: a single non-crashing line, no rows.
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                 Text("Calendar access not granted — enable in System Settings")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                 Spacer()
             }
             .foregroundStyle(.secondary)
@@ -1050,7 +1050,7 @@ struct MenubarListView: View {
             Divider()
             VStack(alignment: .leading, spacing: 4) {
                 Text("Calendar")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
@@ -1061,13 +1061,13 @@ struct MenubarListView: View {
                         HStack(spacing: 8) {
                             // `·` bullet — read-only, visually distinct from task checkboxes.
                             Text("·")
-                                .font(.system(size: 12, weight: .bold))
+                                .font(.callout.weight(.bold))
                                 .foregroundStyle(.secondary)
                             Text(timeFormatter.string(from: event.start))
-                                .font(.system(size: 12).monospacedDigit())
+                                .font(.callout.monospacedDigit())
                                 .foregroundStyle(.secondary)
                             Text(event.title)
-                                .font(.system(size: 12))
+                                .font(.callout)
                                 .lineLimit(1)
                             Spacer()
                         }
@@ -1122,11 +1122,16 @@ private struct SuggestedSection: View {
     let onAccept: (InboxItem) -> Void
     let onDismiss: (InboxItem) -> Void
 
+    /// A11Y-02: the source-glyph column is a fixed DIMENSION (14pt at default
+    /// size) that aligns rows in the 300pt popover — scale it with the user's
+    /// text preference instead of hardcoding the width.
+    @ScaledMetric(relativeTo: .subheadline) private var sourceGlyphWidth: CGFloat = 14
+
     var body: some View {
         if !service.suggestions.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Suggested")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
@@ -1135,11 +1140,11 @@ private struct SuggestedSection: View {
                 ForEach(service.suggestions) { item in
                     HStack(spacing: 8) {
                         Image(systemName: Self.glyph(for: item.sourceID))
-                            .font(.system(size: 11))
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .frame(width: 14)
+                            .frame(width: sourceGlyphWidth)
                         Text(item.title.isEmpty ? item.rawText : item.title)
-                            .font(.system(size: 12))
+                            .font(.callout)
                             .lineLimit(1)
                             .help(item.url)
                         Spacer(minLength: 4)
