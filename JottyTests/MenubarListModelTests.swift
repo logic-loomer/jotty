@@ -1858,4 +1858,40 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.highlightedTaskID, "t_ghost")
         XCTAssertFalse(model.leftoversCollapsed, "an unknown id never flips collapse state")
     }
+
+    // MARK: - Highlight fade race (review WR-04)
+
+    func testStaleFadeTimerCannotClearNewerHighlight() throws {
+        // Two overlapping triggers: the FIRST trigger's 1.5 s timer fires after
+        // the SECOND highlight began — its generation-scoped clear must be a
+        // no-op, leaving the newer highlight alone. Only the second trigger's
+        // own timer may clear it.
+        let model = try makeHighlightModel()
+
+        model.highlight(taskID: "t_old")
+        let firstGeneration = model.highlightGeneration
+        model.highlight(taskID: "t_new")        // supersedes within the fade window
+        let secondGeneration = model.highlightGeneration
+
+        model.clearHighlight(ifGeneration: firstGeneration)   // stale timer fires
+        XCTAssertEqual(model.highlightedTaskID, "t_new",
+                       "an older trigger's timer must never wipe the newer highlight")
+
+        model.clearHighlight(ifGeneration: secondGeneration)  // its own timer fires
+        XCTAssertNil(model.highlightedTaskID,
+                     "the current trigger's timer still clears exactly once")
+    }
+
+    func testEveryHighlightTriggerMintsANewGeneration() throws {
+        let model = try makeHighlightModel()
+        let before = model.highlightGeneration
+        model.highlight(taskID: "t_new")
+        let first = model.highlightGeneration
+        model.highlight(taskID: "t_new")        // same id — still a NEW trigger
+        let second = model.highlightGeneration
+
+        XCTAssertNotEqual(before, first)
+        XCTAssertNotEqual(first, second,
+                          "re-highlighting the same task is a new trigger with its own token")
+    }
 }

@@ -448,11 +448,28 @@ final class MenubarListModel: ObservableObject {
         if leftoversCollapsed, leftovers.contains(where: { $0.id == taskID }) {
             setCollapsed(false)
         }
+        highlightGeneration += 1
         highlightedTaskID = taskID
     }
 
+    /// Monotonic token minted per `highlight(taskID:)` trigger (review WR-04).
+    /// The view captures the value at trigger time and passes it back through
+    /// `clearHighlight(ifGeneration:)` from its 1.5 s fade timer, so an OLDER
+    /// trigger's timer can never wipe a NEWER highlight mid-fade. Lives on the
+    /// shared model (not view @State) so a stale timer from a torn-down view
+    /// instance is also superseded by the next trigger.
+    private(set) var highlightGeneration = 0
+
     /// Removes the spotlight; the view calls this once its fade completes.
     func clearHighlight() {
+        highlightedTaskID = nil
+    }
+
+    /// Trigger-scoped clear for the fade timer (WR-04): a no-op when a newer
+    /// `highlight(taskID:)` superseded `generation` — THAT trigger's timer owns
+    /// the clear. The unconditional `clearHighlight()` stays for explicit paths.
+    func clearHighlight(ifGeneration generation: Int) {
+        guard generation == highlightGeneration else { return }
         highlightedTaskID = nil
     }
 
@@ -1459,17 +1476,22 @@ struct MenubarListView: View {
 
     /// Scrolls the highlighted row to center and runs the one-shot wash fade:
     /// full opacity, easing out over ~1.5 s (snapped away with no animation when
-    /// Reduce Motion is on), then `clearHighlight()` exactly once per trigger —
-    /// the asyncAfter is the single clear site (CaptureView dismiss-timer idiom).
+    /// Reduce Motion is on), then a generation-scoped clear (review WR-04): the
+    /// asyncAfter captures THIS trigger's `model.highlightGeneration`, so a
+    /// timer whose trigger was superseded — a second ⌘K → Enter within 1.5 s,
+    /// or a timer surviving a torn-down view instance — is a total no-op and
+    /// can never snap away or clear the newer highlight mid-fade.
     private func beginHighlight(_ id: String, proxy: ScrollViewProxy) {
+        let generation = model.highlightGeneration
         proxy.scrollTo(id, anchor: .center)
         highlightOpacity = 1
         if !reduceMotion {
             withAnimation(.easeOut(duration: 1.5)) { highlightOpacity = 0 }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard generation == model.highlightGeneration else { return }
             highlightOpacity = 0   // reduce-motion path: snap, no fade
-            model.clearHighlight()
+            model.clearHighlight(ifGeneration: generation)
         }
     }
 
