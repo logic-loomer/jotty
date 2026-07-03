@@ -109,11 +109,20 @@ struct IntegrationsTab: View {
 
 // MARK: - GitHub PAT row
 
+/// UX-12: per-field probe state for the inline Test result. `done` renders one
+/// of three distinct outcomes; the state clears whenever the field text changes
+/// so a result always describes exactly the text it probed.
+private enum KeyTestState: Equatable {
+    case idle
+    case testing
+    case done(APIKeyValidator.ValidationResult)
+}
+
 /// GitHub Personal Access Token entry. Save/Remove route through
 /// KeychainAPIKeyStore (account "github") ONLY — the saved PAT is never read
 /// back into the UI and never reaches any on-disk preference/settings file
 /// (T-7-10). Mirrors AITab's CloudProviderKeyRow idiom (SecureField, draft
-/// cleared after save).
+/// cleared after save, UX-12 Test probe).
 private struct GitHubTokenRow: View {
     /// Keychain account under which the PAT is stored; matches GitHubInboxSource's
     /// `patAccount` default so a token saved here is read by the source.
@@ -124,8 +133,11 @@ private struct GitHubTokenRow: View {
     @State private var saveFailed: Bool = false
     /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
     @State private var confirmRemove: Bool = false
+    /// UX-12: inline result of the last explicit PAT probe.
+    @State private var testState: KeyTestState = .idle
 
     private let keyStore = KeychainAPIKeyStore()
+    private let validator = APIKeyValidator()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -150,6 +162,17 @@ private struct GitHubTokenRow: View {
                 SecureField("ghp_… / github_pat_…", text: $draftToken)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
+                    .onChange(of: draftToken) { _, _ in
+                        // UX-12: a probe result describes the exact text it
+                        // tested — clear it the moment the field changes.
+                        // (Mutates only testState, never draftToken — no
+                        // onChange re-entrancy.)
+                        if testState != .idle { testState = .idle }
+                    }
+                Button("Test") { runTokenTest() }
+                    .disabled(draftToken.trimmingCharacters(in: .whitespaces).isEmpty
+                              || testState == .testing)
+                    .help("Paste the token to test it — saved tokens are never read back into the app.")
                 Button("Save") { saveToken() }
                     .disabled(draftToken.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button("Remove") { confirmRemove = true }
@@ -163,12 +186,52 @@ private struct GitHubTokenRow: View {
                         Text("GitHub inbox suggestions stop until you save a new token.")
                     }
             }
+            // UX-12: inline probe outcome. Copy shows status or bare host —
+            // never the token value (T-07.1-19).
+            switch testState {
+            case .idle:
+                EmptyView()
+            case .testing:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Testing token…")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            case .done(.valid):
+                Label("Key works", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.green)
+            case .done(.rejected):
+                Label("Key rejected", systemImage: "xmark.circle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.red)
+            case .done(.unreachable(let host)):
+                Label("Couldn't reach \(host)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.orange)
+            }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")
                     .font(.system(size: 11)).foregroundStyle(.red)
             }
         }
         .onAppear { refreshSavedStatus() }
+    }
+
+    /// UX-12: probes the PAT currently in the field. Explicit user action ONLY
+    /// (T-07.1-20) — never fires on save, appear, or text change. The saved PAT
+    /// is never read back (invariant), so Test requires a non-empty field.
+    private func runTokenTest() {
+        let token = draftToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        testState = .testing
+        Task {
+            let result = await validator.validate(.githubPAT, key: token)
+            // Apply only if the field still holds the text that was probed;
+            // otherwise the result is stale (user edited or saved mid-flight).
+            if draftToken.trimmingCharacters(in: .whitespacesAndNewlines) == token {
+                testState = .done(result)
+            } else {
+                testState = .idle
+            }
+        }
     }
 
     private func saveToken() {

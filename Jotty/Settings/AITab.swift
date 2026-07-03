@@ -120,18 +120,21 @@ struct AITab: View {
                 CloudProviderKeyRow(
                     title: "Claude",
                     account: "claude",
+                    vendor: .anthropic,
                     vendorCopy: "Capture text is sent to Anthropic.",
                     endpoint: ProviderEndpoints.claude)
                 Divider()
                 CloudProviderKeyRow(
                     title: "OpenAI",
                     account: "openai",
+                    vendor: .openai,
                     vendorCopy: "Capture text is sent to OpenAI.",
                     endpoint: ProviderEndpoints.openai)
                 Divider()
                 CloudProviderKeyRow(
                     title: "Gemini",
                     account: "gemini",
+                    vendor: .gemini,
                     vendorCopy: "Capture text is sent to Google.",
                     endpoint: ProviderEndpoints.gemini)
             }
@@ -189,12 +192,22 @@ struct PostureBadge: View {
 
 // MARK: - Cloud key row
 
+/// UX-12: per-field probe state for the inline Test result. `done` renders one
+/// of three distinct outcomes; the state clears whenever the field text changes
+/// so a result always describes exactly the text it probed.
+private enum KeyTestState: Equatable {
+    case idle
+    case testing
+    case done(APIKeyValidator.ValidationResult)
+}
+
 /// One cloud provider's row: posture badge, vendor copy, literal endpoint URL,
-/// and SecureField key entry. Save/Remove route through KeychainAPIKeyStore
-/// ONLY — the saved key value is never read back into the UI.
+/// SecureField key entry, and a UX-12 Test probe. Save/Remove route through
+/// KeychainAPIKeyStore ONLY — the saved key value is never read back into the UI.
 private struct CloudProviderKeyRow: View {
     let title: String
     let account: String
+    let vendor: APIKeyValidator.Vendor
     let vendorCopy: String
     let endpoint: String
 
@@ -203,8 +216,11 @@ private struct CloudProviderKeyRow: View {
     @State private var saveFailed: Bool = false
     /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
     @State private var confirmRemove: Bool = false
+    /// UX-12: inline result of the last explicit key probe.
+    @State private var testState: KeyTestState = .idle
 
     private let keyStore = KeychainAPIKeyStore()
+    private let validator = APIKeyValidator()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -229,6 +245,17 @@ private struct CloudProviderKeyRow: View {
                 SecureField("API key", text: $draftKey)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
+                    .onChange(of: draftKey) { _, _ in
+                        // UX-12: a probe result describes the exact text it
+                        // tested — clear it the moment the field changes.
+                        // (Mutates only testState, never draftKey — no
+                        // onChange re-entrancy.)
+                        if testState != .idle { testState = .idle }
+                    }
+                Button("Test") { runKeyTest() }
+                    .disabled(draftKey.trimmingCharacters(in: .whitespaces).isEmpty
+                              || testState == .testing)
+                    .help("Paste the key to test it — saved keys are never read back into the app.")
                 Button("Save") { saveKey() }
                     .disabled(draftKey.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button("Remove") { confirmRemove = true }
@@ -242,12 +269,52 @@ private struct CloudProviderKeyRow: View {
                         Text("Cloud extraction with \(title) stops until you save a new key.")
                     }
             }
+            // UX-12: inline probe outcome. Copy shows status or bare host —
+            // never the key value (T-07.1-19).
+            switch testState {
+            case .idle:
+                EmptyView()
+            case .testing:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Testing key…")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            case .done(.valid):
+                Label("Key works", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.green)
+            case .done(.rejected):
+                Label("Key rejected", systemImage: "xmark.circle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.red)
+            case .done(.unreachable(let host)):
+                Label("Couldn't reach \(host)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.orange)
+            }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")
                     .font(.system(size: 11)).foregroundStyle(.red)
             }
         }
         .onAppear { refreshSavedStatus() }
+    }
+
+    /// UX-12: probes the key currently in the field. Explicit user action ONLY
+    /// (T-07.1-20) — never fires on save, appear, or text change. The saved key
+    /// is never read back (invariant), so Test requires a non-empty field.
+    private func runKeyTest() {
+        let key = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        testState = .testing
+        Task {
+            let result = await validator.validate(vendor, key: key)
+            // Apply only if the field still holds the text that was probed;
+            // otherwise the result is stale (user edited or saved mid-flight).
+            if draftKey.trimmingCharacters(in: .whitespacesAndNewlines) == key {
+                testState = .done(result)
+            } else {
+                testState = .idle
+            }
+        }
     }
 
     private func saveKey() {
