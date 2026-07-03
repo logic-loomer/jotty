@@ -610,6 +610,21 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
+    /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
+    /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
+    func originLabel(for task: Todo) -> String? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: now())
+        guard let yesterdayStart = cal.date(byAdding: .day, value: -1, to: todayStart),
+              cal.startOfDay(for: task.createdAt) != yesterdayStart else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.timeZone = timezone
+        return f.string(from: task.createdAt)
+    }
+
     private func collapseKey(for date: Date) -> String {
         let f = DateFormatter()
         // Fixed-format machine-readable key: pin POSIX locale so region
@@ -678,7 +693,8 @@ struct MenubarListView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        // Yesterday's leftovers — dedicated section above today's tasks.
+                        // Earlier leftovers (everything older than today, not just
+                        // yesterday — UX-05 honest labelling) above today's tasks.
                         if !model.leftovers.isEmpty {
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -688,7 +704,7 @@ struct MenubarListView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: model.leftoversCollapsed ? "chevron.right" : "chevron.down")
                                         .font(.system(size: 9, weight: .semibold))
-                                    Text("Yesterday · \(model.leftovers.count)")
+                                    Text("Earlier · \(model.leftovers.count)")
                                         .font(.system(size: 11, weight: .semibold))
                                     Spacer()
                                 }
@@ -709,6 +725,13 @@ struct MenubarListView: View {
                                         }
                                         .buttonStyle(.plain)
                                         rowTitle(task, isLeftover: true)
+                                        // UX-05: origin date for rows older than yesterday
+                                        // (the "Earlier" header already implies yesterday).
+                                        if let origin = model.originLabel(for: task) {
+                                            Text(origin)
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.tertiary)
+                                        }
                                         Spacer()
                                     }
                                     .padding(.horizontal, 12)
