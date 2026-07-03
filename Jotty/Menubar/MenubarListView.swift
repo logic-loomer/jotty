@@ -844,6 +844,16 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
+    /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
+    /// the private `now()` so the canvas never needs its own clock and its
+    /// positions agree with the partitioning above by construction.
+    var startOfToday: Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        return cal.startOfDay(for: now())
+    }
+
     /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
     /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
     /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
@@ -874,6 +884,10 @@ struct MenubarListView: View {
     @ObservedObject var model: MenubarListModel
     let onCapture: () -> Void
     let onSettings: () -> Void
+    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) via the
+    /// `Action.openCalendarCanvas` handler in AppDelegate. The canvas is an
+    /// OPTIONAL alternative surface — this popover stays the default.
+    let onOpenCanvas: () -> Void
 
     /// The "+30 min" nudge interval used by the discoverable edit-time affordance (IN-04).
     private static let nudgeSeconds: TimeInterval = 30 * 60
@@ -912,6 +926,17 @@ struct MenubarListView: View {
                 Text("\(model.doneCount) of \(model.tasks.count) done")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                // Phase 8 SC4: the "Calendar canvas" item — opens the optional
+                // canvas window through Action.openCalendarCanvas's handler.
+                Button(action: onOpenCanvas) {
+                    Image(systemName: "calendar.day.timeline.left")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Calendar canvas")
+                .accessibilityLabel("Open calendar canvas")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

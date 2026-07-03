@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyManager!
     private var settingsController: SettingsWindowController?
     private var captureController: CaptureWindowController?
+    /// The calendar canvas window (Phase 8 SC4 / CALX-04). Created lazily on the
+    /// first `Action.openCalendarCanvas` dispatch and retained (mirror of the
+    /// Settings controller idiom) so repeated opens re-show one window.
+    private var canvasController: CalendarCanvasWindowController?
 
     private var configStore: ConfigStore!
     /// The user-writable keybindings store, SHARED with the Settings → Keybindings tab
@@ -127,6 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     keybindings: keybindings)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
+        // Phase 8 SC4: the popover's "Calendar canvas" item routes here — the
+        // same handler `Action.openCalendarCanvas` dispatches to.
+        menubar.onOpenCanvas = { [weak self] in self?.openCalendarCanvas() }
 
         scheduleMidnightRollover()
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
@@ -355,6 +362,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.menubar.listModel.reload()
             }
         }
+    }
+
+    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) — the handler
+    /// `Action.openCalendarCanvas` routes to (dispatched from the menubar item;
+    /// the case deliberately ships with no default key combo). The window wraps
+    /// the SHARED menubar list model, so the canvas reads the same store +
+    /// calendar seam as the dropdown and a drop's trailing reload refreshes
+    /// both surfaces. OPTIONAL surface: the dropdown stays the default.
+    ///
+    /// Calendar access stays LAZY (T-8-12 / Phase 5 decision): constructing the
+    /// window never prompts; the `reload()` below is an explicit user action,
+    /// so it keeps `promptIfUndetermined: true` — the one-time TCC prompt fires
+    /// on the FIRST canvas open (if still undetermined), never at launch.
+    private func openCalendarCanvas() {
+        if canvasController == nil {
+            canvasController = CalendarCanvasWindowController(list: menubar.listModel)
+        }
+        menubar.listModel.reload()
+        canvasController?.show()
     }
 
     private func openSettings() {
