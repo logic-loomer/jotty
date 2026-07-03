@@ -80,6 +80,7 @@
 		801CA78BF6ABDEF41D978B70 /* InboxRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D482654C24AD57A66053CBCE /* InboxRefreshPolicyTests.swift */; };
 		8143A8E0BBB908899A089519 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */; };
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
+		8399D513FDA08BCCC8E17D47 /* ActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */; };
 		86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */; };
 		8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */; };
 		887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */; };
@@ -182,6 +183,7 @@
 		148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionResult.swift; sourceTree = "<group>"; };
 		1779948226E7290A4141189D /* ExtractedTaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskAI.swift; sourceTree = "<group>"; };
 		18377DDC107B9C57993CF7A0 /* IntegrationsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsTab.swift; sourceTree = "<group>"; };
+		18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionDispatcherTests.swift; sourceTree = "<group>"; };
 		1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingConflictsTests.swift; sourceTree = "<group>"; };
 		1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 		0F2A3FDA3E2F92EF6C208F8D /* JottyTests */ = {
 			isa = PBXGroup;
 			children = (
+				18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */,
 				D2C9EAB970D1B8AD1DE9AFCA /* CalendarCanvasModelTests.swift */,
 				E0F52135146AD473AE108B77 /* CanvasLayoutTests.swift */,
 				3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */,
@@ -835,6 +838,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				451772011FFE44F7BB96AC46 /* APIKeyValidatorTests.swift in Sources */,
+				8399D513FDA08BCCC8E17D47 /* ActionDispatcherTests.swift in Sources */,
 				C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */,
 				2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */,
 				92D6F54BDCB50E9AB913BF3F /* CalendarCanvasModelTests.swift in Sources */,
