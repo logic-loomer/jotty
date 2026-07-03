@@ -21,6 +21,12 @@ on:
     # Sunday 0200 UTC (AI-SPEC §7.5).
     - cron: "0 2 * * 0"
 
+# IN-01: pin the token to read-only (mirrors ci.yml) — this is the one workflow
+# that handles repo secrets, so it must not inherit a potentially read-write
+# repository default.
+permissions:
+  contents: read
+
 jobs:
   eval-cloud-providers:
     name: Cloud provider eval sweep
