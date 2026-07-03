@@ -8,7 +8,7 @@ Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land i
 
 ## Build from source
 
-Requires macOS 26+ and Xcode 16+ (Xcode 26 recommended).
+Requires macOS 26.0+ (the default on-device AI extraction uses Apple Intelligence / FoundationModels, which is macOS 26-only) and Xcode 16+ (Xcode 26 recommended).
 
 ```bash
 git clone <repo>            # location TBD

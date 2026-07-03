@@ -117,6 +117,12 @@ actor ClaudeProvider: AIProvider {
         ]
 
         var request = URLRequest(url: endpoint)
+        // Bound the wait (CQ-08): a hung cloud connection must not leave
+        // capture stuck in "Extracting…" at the URLSession default. Cloud
+        // extraction typically completes in 2-15s; 60s bounds a hang without
+        // failing slow-but-alive responses. Per-request idiom mirrors
+        // OllamaProvider (which keeps 120s for local model cold-load).
+        request.timeoutInterval = 60
         request.httpMethod = "POST"
         request.setValue(key, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
