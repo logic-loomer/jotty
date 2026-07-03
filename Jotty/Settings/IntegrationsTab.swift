@@ -122,6 +122,8 @@ private struct GitHubTokenRow: View {
     @State private var draftToken: String = ""
     @State private var tokenSaved: Bool = false
     @State private var saveFailed: Bool = false
+    /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
+    @State private var confirmRemove: Bool = false
 
     private let keyStore = KeychainAPIKeyStore()
 
@@ -150,8 +152,16 @@ private struct GitHubTokenRow: View {
                     .font(.system(size: 12))
                 Button("Save") { saveToken() }
                     .disabled(draftToken.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button("Remove") { removeToken() }
+                Button("Remove") { confirmRemove = true }
                     .disabled(!tokenSaved)
+                    .confirmationDialog("Remove GitHub token?",
+                                        isPresented: $confirmRemove,
+                                        titleVisibility: .visible) {
+                        Button("Remove", role: .destructive) { removeToken() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("GitHub inbox suggestions stop until you save a new token.")
+                    }
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")

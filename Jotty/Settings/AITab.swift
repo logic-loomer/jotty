@@ -201,6 +201,8 @@ private struct CloudProviderKeyRow: View {
     @State private var draftKey: String = ""
     @State private var keySaved: Bool = false
     @State private var saveFailed: Bool = false
+    /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
+    @State private var confirmRemove: Bool = false
 
     private let keyStore = KeychainAPIKeyStore()
 
@@ -229,8 +231,16 @@ private struct CloudProviderKeyRow: View {
                     .font(.system(size: 12))
                 Button("Save") { saveKey() }
                     .disabled(draftKey.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button("Remove") { removeKey() }
+                Button("Remove") { confirmRemove = true }
                     .disabled(!keySaved)
+                    .confirmationDialog("Remove \(title) API key?",
+                                        isPresented: $confirmRemove,
+                                        titleVisibility: .visible) {
+                        Button("Remove", role: .destructive) { removeKey() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Cloud extraction with \(title) stops until you save a new key.")
+                    }
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")
