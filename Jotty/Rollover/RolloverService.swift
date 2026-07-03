@@ -87,10 +87,7 @@ final class RolloverService {
         }
         guard !templates.isEmpty else { return [] }
 
-        let dayFmt = DateFormatter()
-        dayFmt.dateFormat = "yyyy-MM-dd"
-        dayFmt.timeZone = timezone
-        let todayKey = dayFmt.string(from: today)
+        let todayKey = dayFormatter().string(from: today)
 
         let todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
         var existingMarkers = Set(todayDoc.tasks.compactMap { $0.recurSrc })
@@ -126,15 +123,30 @@ final class RolloverService {
 
     private func readState() -> Date? {
         guard let s = try? String(contentsOf: statePath, encoding: .utf8) else { return nil }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = timezone
-        return f.date(from: s.trimmingCharacters(in: .whitespacesAndNewlines))
+        return dayFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func writeState(_ date: Date) throws {
         try FileManager.default.createDirectory(at: statePath.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = timezone
-        try f.string(from: date).write(to: statePath, atomically: true, encoding: .utf8)
+        try dayFormatter().string(from: date).write(to: statePath, atomically: true, encoding: .utf8)
+    }
+
+    /// The SHARED fixed-format day formatter for every machine-readable key this
+    /// service writes or reads: the `recur_src` day key (`todayKey`) and the
+    /// rollover state file. Pinned to `en_US_POSIX` (WR-05): under a user region
+    /// with a non-Gregorian calendar (Buddhist/Japanese era) an unpinned
+    /// formatter renders shifted years, and a region-settings CHANGE makes
+    /// previously written markers/state unmatchable — defeating the idempotency
+    /// guard (duplicate instances) and invalidating the state date. Same idiom
+    /// as the menubar `collapseKey`. One shared builder so the three call sites
+    /// can never drift.
+    private func dayFormatter() -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = timezone
+        return f
     }
 
     private func calendar() -> Calendar {
