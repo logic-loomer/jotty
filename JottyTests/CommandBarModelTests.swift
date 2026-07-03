@@ -267,6 +267,205 @@ final class CommandBarModelTests: XCTestCase {
         XCTAssertEqual(model.selectedID, "today:t_one", "rows are 1-based; 0 is a no-op")
     }
 
+    // MARK: - Enter routing (part 2) — every effect AFTER onRequestClose
+
+    func testEnterOnActionDispatchesAfterClose() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        var events: [String] = []
+        let dispatcher = ActionDispatcher()
+        dispatcher.register(.replayOnboarding) { events.append("action") }
+        let model = makeModel(list: makeList(store: store, now: today),
+                              dispatcher: dispatcher, now: today)
+        model.onRequestClose = { events.append("close") }
+        model.prepareForOpen()
+
+        model.query = "zebra"   // matches ONLY the "zebra zone" fake action
+        XCTAssertEqual(model.visibleRows.map(\.id),
+                       ["action:\(Action.replayOnboarding.rawValue)"])
+        model.activateSelection()
+
+        XCTAssertEqual(events, ["close", "action"],
+                       "dispatcher.dispatch runs AFTER onRequestClose (Pitfall 8)")
+    }
+
+    func testEnterOnTodayTaskOpensMenubarAfterClose() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_x", text: "buy groceries", createdAt: today),
+        ], at: today)
+        var events: [String] = []
+        let model = makeModel(list: makeList(store: store, now: today), now: today)
+        model.onRequestClose = { events.append("close") }
+        model.onOpenMenubar = { events.append("menubar:\($0)") }
+        model.prepareForOpen()
+
+        model.query = "groceries"
+        model.activateSelection()
+
+        XCTAssertEqual(events, ["close", "menubar:t_x"],
+                       "today task routes the TODO id to onOpenMenubar, after close")
+    }
+
+    func testActivateSelectionWithNoRowsIsNoOp() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        var events: [String] = []
+        let model = makeModel(list: makeList(store: store, now: today), now: today)
+        model.onRequestClose = { events.append("close") }
+        model.onOpenMenubar = { events.append("menubar:\($0)") }
+        model.prepareForOpen()
+
+        model.activateSelection()   // empty query → no rows
+
+        XCTAssertEqual(events, [], "no rows → no close, no effect")
+    }
+
+    func testEnterOnInboxAcceptsIntoTodaysFileAfterClose() async throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_pre", text: "existing task", createdAt: today),
+        ], at: today)
+        let src = FakeInboxSource(id: "github", isConfigured: true)
+        src.cannedItems = [
+            InboxItem(id: "github:9", sourceID: "github", title: "fix the login bug",
+                      url: "https://example.test/9", timestamp: today, rawText: ""),
+        ]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+        let list = makeList(store: store, now: today, inbox: service)
+        let model = makeModel(list: list, now: today)
+        var tasksAtClose = -1
+        model.onRequestClose = {
+            tasksAtClose = (try? store.readDoc(on: today).tasks.count) ?? -1
+        }
+        model.prepareForOpen()
+
+        model.query = "login"
+        XCTAssertEqual(model.visibleRows.map(\.id), ["inbox:github:9"])
+        model.activateSelection()
+
+        XCTAssertEqual(tasksAtClose, 1,
+                       "close fires BEFORE the accept write (Pitfall 8 ordering)")
+        let written = try store.readDoc(on: today).tasks
+        XCTAssertEqual(written.count, 2, "acceptSuggestion's WR-01 path wrote today's file")
+        let accepted = try XCTUnwrap(written.first { $0.source == "github:9" })
+        XCTAssertEqual(accepted.text, "fix the login bug")
+        XCTAssertEqual(accepted.sourceURL, "https://example.test/9")
+    }
+
+    func testEarlierAndDayFileOpenURLInCurrentStoreFolder() throws {
+        // Pitfall 9 regression guard: after replaceStore(newFolder), activation
+        // must route into the NEW folder — list.store resolved at ACTIVATION time.
+        let today = makeDate(2026, 6, 16, h: 12)
+        let storeA = Store(folder: folder, timezone: tz)
+        var opened: [URL] = []
+        var closes = 0
+        let model = makeModel(list: makeList(store: storeA, now: today),
+                              openURL: { opened.append($0) }, now: today)
+        model.onRequestClose = { closes += 1 }
+        model.prepareForOpen()
+        let earlierDay = makeDate(2026, 3, 5, h: 9)
+        let fileDay = makeDate(2026, 3, 4, h: 9)
+        model.merge(historical: [
+            .earlierTask(Todo(id: "t_v", text: "vintage ledger", createdAt: earlierDay),
+                         day: earlierDay),
+            .dayFile(day: fileDay, taskCount: 3),
+        ], generation: model.generation)
+
+        // Live store swap AFTER the corpus was built.
+        let folderB = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderB) }
+        let storeB = Store(folder: folderB, timezone: tz)
+        model.list.replaceStore(storeB)
+
+        model.query = "vintage"
+        model.activateSelection()
+        XCTAssertEqual(opened, [DailyFile.url(in: folderB, on: earlierDay, timezone: tz)],
+                       "earlierTask opens its ORIGIN day in the CURRENT (swapped) folder")
+
+        model.query = "2026-03-04"
+        XCTAssertEqual(model.visibleRows.map(\.id), ["day:2026-03-04"])
+        model.activateSelection()
+        XCTAssertEqual(opened.last, DailyFile.url(in: folderB, on: fileDay, timezone: tz),
+                       "dayFile opens in the CURRENT folder too")
+        XCTAssertEqual(closes, 2, "each activation closed the panel first")
+    }
+
+    // MARK: - prepareForOpen lifecycle (part 2)
+
+    func testPrepareForOpenResetsStateAndBuildsImmediateSynchronously() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_a", text: "match me", createdAt: today),
+        ], at: today)
+        let model = makeModel(list: makeList(store: store, now: today), now: today)
+        model.prepareForOpen()
+        model.query = "match"
+        model.moveSelection(1)
+        let firstToken = model.openToken
+
+        model.prepareForOpen()
+
+        XCTAssertEqual(model.query, "", "query resets on every open")
+        XCTAssertNil(model.selectedID)
+        XCTAssertEqual(model.sections.count, 0)
+        XCTAssertNotEqual(model.openToken, firstToken,
+                          "a NEW openToken re-focuses the field per show")
+
+        // Immediate sections (actions/today/inbox) are available SYNCHRONOUSLY.
+        model.query = "match"
+        XCTAssertEqual(model.sections.map(\.kind), [.actions, .today])
+        XCTAssertTrue(model.visibleRows.map(\.id).contains("today:t_a"))
+    }
+
+    func testMergeDropsStaleGenerationAndAppliesCurrentOne() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        let model = makeModel(list: makeList(store: store, now: today), now: today)
+        model.prepareForOpen()
+        let staleGeneration = model.generation
+        model.prepareForOpen()   // close/reopen: bumps the generation
+
+        model.query = "vintage"
+        let day = makeDate(2026, 3, 5, h: 9)
+        let items: [CommandItem] = [
+            .earlierTask(Todo(id: "t_v", text: "vintage ledger", createdAt: day), day: day),
+        ]
+
+        model.merge(historical: items, generation: staleGeneration)
+        XCTAssertEqual(model.sections.count, 0,
+                       "a build from a PREVIOUS open is dropped silently")
+
+        model.merge(historical: items, generation: model.generation)
+        XCTAssertEqual(model.sections.map(\.kind), [.earlier],
+                       "the current open's build merges into the live query")
+        XCTAssertEqual(model.visibleRows.map(\.id), ["earlier:t_v:2026-03-05"])
+    }
+
+    func testPrepareForOpenNeverTriggersInboxRefresh() throws {
+        let today = makeDate(2026, 6, 16, h: 12)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "github", isConfigured: true)
+        src.cannedItems = [
+            InboxItem(id: "github:1", sourceID: "github", title: "never fetched",
+                      url: "u", timestamp: today, rawText: ""),
+        ]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        let list = makeList(store: store, now: today, inbox: service)
+        let model = makeModel(list: list, now: today)
+
+        model.prepareForOpen()
+
+        XCTAssertEqual(src.fetchCallCount, 0,
+                       "⌘K reads suggestions from memory — the zero-network lock")
+    }
+
     // MARK: - Fixture helpers
 
     /// A fixed two-entry fake action list — NOT CommandActionRegistry.all — so
