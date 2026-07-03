@@ -36,6 +36,7 @@
 		3ED22ED5CB96C60B04AEC04B /* StoreRenameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5536334E5276877A353B5FC /* StoreRenameTests.swift */; };
 		429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776385CB322A3DDE510F823 /* OpenAIProvider.swift */; };
 		443E7FD46EF75B1DF4379030 /* OllamaModelManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */; };
+		451772011FFE44F7BB96AC46 /* APIKeyValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD9D8090683E1DCECC68A31 /* APIKeyValidatorTests.swift */; };
 		458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */; };
 		46D948FE9F5A83C7781C8428 /* ProviderToleranceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA0678D4109E51D24CFDDA3 /* ProviderToleranceConfig.swift */; };
 		490F738FB25B281F2307DC24 /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */; };
@@ -126,6 +127,7 @@
 		D7EB350BC325F9BF4604C5D1 /* PullProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */; };
 		D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3FBDC26E512E1C6BE656FBF /* DurationGuardrailTests.swift */; };
 		D9EF353A56B432983FF479B3 /* FakeCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */; };
+		DB2EB0CE599121C74F5EBD36 /* APIKeyValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 262E22C68D0906EF99726538 /* APIKeyValidator.swift */; };
 		DC13F6F4A63642BD6B3DE162 /* CalendarDrift.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23C090ADF66A94D4A73E9BD8 /* CalendarDrift.swift */; };
 		DC6E2FD167A6B74ACE2CAAB5 /* RolloverService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7336303002FC0750BF76F3EB /* RolloverService.swift */; };
 		DD0A20E6A8E5F48DF822A976 /* InboxRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC59B2CBBAE698BFF81B1B9 /* InboxRefreshPolicy.swift */; };
@@ -177,6 +179,7 @@
 		2445FCD973A4E9EF9E319F23 /* DriftDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriftDetectionTests.swift; sourceTree = "<group>"; };
 		2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBinaryLocator.swift; sourceTree = "<group>"; };
 		250A406D6AA7EB9CB08886A6 /* CalendarEventMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventMapperTests.swift; sourceTree = "<group>"; };
+		262E22C68D0906EF99726538 /* APIKeyValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyValidator.swift; sourceTree = "<group>"; };
 		27D012E2718FAC27798EECD1 /* CalendarServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarServiceTests.swift; sourceTree = "<group>"; };
 		28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelAIPathTests.swift; sourceTree = "<group>"; };
 		2B0993B3BF71BAFAE30F6EEF /* PrivacyDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyDefaultTests.swift; sourceTree = "<group>"; };
@@ -253,6 +256,7 @@
 		989392B9AE0158984B8094BF /* ClaudePromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePromptTests.swift; sourceTree = "<group>"; };
 		99EB871EE3BC1E7D453AA11E /* KeyComboDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyComboDisplay.swift; sourceTree = "<group>"; };
 		9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeCalendarService.swift; sourceTree = "<group>"; };
+		9AD9D8090683E1DCECC68A31 /* APIKeyValidatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyValidatorTests.swift; sourceTree = "<group>"; };
 		9DA64F0A54A08FC53D3F5681 /* RecordComboField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordComboField.swift; sourceTree = "<group>"; };
 		9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
 		A0FC8742B157EA7431075271 /* TodoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoTests.swift; sourceTree = "<group>"; };
@@ -341,6 +345,7 @@
 				7A3B384B703F99BFFF5226BE /* Fakes */,
 				85398763BE5845E29E90B9CD /* Inbox */,
 				9CBBAE578DFC2E5EF6F44C14 /* Resources */,
+				5DBC2C9364EE950FB171EAF9 /* Settings */,
 			);
 			path = JottyTests;
 			sourceTree = "<group>";
@@ -432,6 +437,14 @@
 			path = Menubar;
 			sourceTree = "<group>";
 		};
+		5DBC2C9364EE950FB171EAF9 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				9AD9D8090683E1DCECC68A31 /* APIKeyValidatorTests.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
 		657CF6F988342D951C78D91B /* Claude */ = {
 			isa = PBXGroup;
 			children = (
@@ -514,6 +527,7 @@
 			children = (
 				C1EE9AF48450765E33411A86 /* AdvancedTab.swift */,
 				F0E634DF0277FDFDD57D695E /* AITab.swift */,
+				262E22C68D0906EF99726538 /* APIKeyValidator.swift */,
 				7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */,
 				48DE6791E1CC55312AC80D3E /* GeneralTab.swift */,
 				18377DDC107B9C57993CF7A0 /* IntegrationsTab.swift */,
@@ -782,6 +796,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				451772011FFE44F7BB96AC46 /* APIKeyValidatorTests.swift in Sources */,
 				C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */,
 				2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */,
 				1BC50D90AFF1CB973B15EADC /* CalendarEventMapperTests.swift in Sources */,
@@ -850,6 +865,7 @@
 				ABAEFE960D853E31B130B707 /* AIAvailability.swift in Sources */,
 				58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */,
 				8A34C8537557EC76E3F9124F /* AITab.swift in Sources */,
+				DB2EB0CE599121C74F5EBD36 /* APIKeyValidator.swift in Sources */,
 				76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */,
 				BA0CD37E067E8D329C491BA0 /* AdvancedTab.swift in Sources */,
 				0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */,
