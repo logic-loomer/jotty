@@ -85,9 +85,9 @@ struct OnboardingView: View {
             // (a) one-line value statement
             VStack(alignment: .leading, spacing: 4) {
                 Text("Welcome to Jotty")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.title.weight(.bold))
                 Text("Capture a thought in a keystroke; Jotty turns it into tasks and time blocks, stored as plain markdown you own.")
-                    .font(.system(size: 13))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -98,7 +98,7 @@ struct OnboardingView: View {
             if let combo = keybindings.combo(for: .globalToggleCapture) {
                 HStack(spacing: 10) {
                     Text(combo.displayString)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(.title2, design: .rounded).weight(.semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(
@@ -108,7 +108,7 @@ struct OnboardingView: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color(NSColor.separatorColor)))
                     Text("opens capture from anywhere")
-                        .font(.system(size: 12))
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -123,7 +123,7 @@ struct OnboardingView: View {
                 }
                 .disabled(calendarRequested)
                 Text("Optional — lets Jotty show today’s events alongside your tasks. You can grant this later.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
@@ -152,13 +152,13 @@ struct OnboardingView: View {
                         }
                     }
                 Text("Start Jotty automatically when you log in.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             // (d) 30-second walkthrough link
             Link("Watch the 30-second walkthrough", destination: Self.walkthroughURL)
-                .font(.system(size: 12))
+                .font(.callout)
 
             Spacer()
 

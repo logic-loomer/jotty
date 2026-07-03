@@ -38,9 +38,9 @@ struct ReviewListView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
-                        .font(.system(size: 12))
+                        .font(.callout)
                     Text(errorMessage(for: error))
-                        .font(.system(size: 12))
+                        .font(.callout)
                         .foregroundStyle(.primary)
                     Spacer()
                 }
@@ -83,7 +83,7 @@ struct ReviewListView: View {
             HStack {
                 Spacer()
                 Text("⌘↩ commit  ·  ⌫ back")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.trailing, 12)
                     .padding(.vertical, 6)
@@ -171,6 +171,11 @@ private struct ReviewRowView: View {
     /// UX-10: cancels edit mode without writing (Esc).
     let onCancelEdit: () -> Void
 
+    /// A11Y-02: checkbox glyph is a fixed DIMENSION (16pt at default size) — a
+    /// semantic-style swap would shrink it below tap-target size, so it scales
+    /// via @ScaledMetric with the user's text preference instead.
+    @ScaledMetric(relativeTo: .body) private var checkboxGlyphSize: CGFloat = 16
+
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             // A11Y-01: a real Button (was Image + .onTapGesture) so VoiceOver
@@ -178,7 +183,7 @@ private struct ReviewRowView: View {
             Button(action: onToggle) {
                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
                     .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
-                    .font(.system(size: 16))
+                    .font(.system(size: checkboxGlyphSize))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isChecked ? "Uncheck task" : "Check task")
@@ -190,7 +195,7 @@ private struct ReviewRowView: View {
                     HStack(spacing: 6) {
                         ForEach(badges, id: \.self) { badge in
                             Text(badge)
-                                .font(.system(size: 11))
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
@@ -210,7 +215,7 @@ private struct ReviewRowView: View {
                                         .foregroundStyle(isCalendarOn
                                                          ? Color.accentColor : Color.secondary)
                                     Text(isCalendarOn ? "calendar event" : "no event")
-                                        .font(.system(size: 11))
+                                        .font(.subheadline)
                                         .foregroundStyle(isCalendarOn
                                                          ? Color.accentColor : Color.secondary)
                                 }
@@ -244,7 +249,7 @@ private struct ReviewRowView: View {
         if isEditing {
             TextField("", text: $renameDraft)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.body)
                 .focused(renameFieldFocused)
                 .onAppear {
                     renameDraft = task.title
@@ -263,7 +268,7 @@ private struct ReviewRowView: View {
                 }
         } else {
             Text(task.title)
-                .font(.system(size: 13))
+                .font(.body)
                 .foregroundStyle(isChecked ? Color.primary : Color.secondary)
                 .contentShape(Rectangle())
                 .onTapGesture { onBeginEdit() }

@@ -83,7 +83,7 @@ struct CaptureView: View {
             }
 
             TextEditor(text: $vm.text)
-                .font(.system(size: 14))
+                .font(.body)
                 .padding(12)
                 .focused($focused)
                 .scrollContentBackground(.hidden)
@@ -95,7 +95,7 @@ struct CaptureView: View {
 
             HStack(spacing: 8) {
                 Text("⌘↩ submit  ·  ⎋ cancel")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
                 // UX-08: clickable equivalents of the key bindings — Cancel
@@ -152,7 +152,7 @@ private struct SavedConfirmationBar: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
             Text("Saved")
-                .font(.system(size: 11))
+                .font(.subheadline)
             Spacer(minLength: 4)
         }
         .padding(.horizontal, 12)
@@ -177,11 +177,11 @@ private struct DraftRestoredBar: View {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundStyle(.secondary)
             Text("Draft restored")
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 4)
             Button("Clear") { onClear() }
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .controlSize(.small)
         }
         .padding(.horizontal, 12)
@@ -207,18 +207,18 @@ private struct ProviderErrorToast: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
             Text(message)
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .lineLimit(2)
             Spacer(minLength: 4)
             if fallbackAvailable {
                 Button("Use Apple FM instead") { onFallback() }
-                    .font(.system(size: 11))
+                    .font(.subheadline)
             }
             Button {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.caption.weight(.bold))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -262,13 +262,13 @@ private struct ConflictConfirmBar: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("⚠️ overlaps with '\(title)' — commit anyway?")
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .lineLimit(2)
             Spacer(minLength: 4)
             Button("Commit anyway") { onCommitAnyway() }
-                .font(.system(size: 11))
+                .font(.subheadline)
             Button("Cancel") { onCancel() }
-                .font(.system(size: 11))
+                .font(.subheadline)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -291,14 +291,14 @@ private struct CalendarNoticeBar: View {
             Image(systemName: "calendar.badge.exclamationmark")
                 .foregroundStyle(.secondary)
             Text(message)
-                .font(.system(size: 11))
+                .font(.subheadline)
                 .lineLimit(2)
             Spacer(minLength: 4)
             Button {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.caption.weight(.bold))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)

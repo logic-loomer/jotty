@@ -45,7 +45,7 @@ struct StorageTab: View {
                 }
 
                 Text("Jotty keeps one markdown file per day in this folder.")
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 PersistFailureNotice(visible: persistFailed)
