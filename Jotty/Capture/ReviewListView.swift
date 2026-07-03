@@ -21,11 +21,15 @@ struct ReviewListView: View {
     private func errorMessage(for error: AIProviderError) -> String {
         switch error {
         case .guardrail:
-            return "Apple Intelligence couldn't process this capture. It's been saved as a plain note — edit tasks manually."
+            // IN-04: provider-neutral copy — the failing provider can be any of
+            // Apple FM / Claude / OpenAI / Gemini / Ollama since Phase 4, and
+            // ProviderErrorToast in the same window is already neutral.
+            return "The AI provider declined to process this capture. It's been saved as a plain note — edit tasks manually."
         case .modelUnavailable(let reason):
             return "AI extraction unavailable (\(reason)). Capture saved as a plain note."
         case .contextOverflow:
-            return "Capture too long for on-device extraction. Saved as a plain note."
+            // IN-04: neutral here too — cloud providers overflow as well.
+            return "Capture too long for the selected AI provider. Saved as a plain note."
         case .underlying:
             return "AI extraction failed. Capture saved as a plain note."
         }
