@@ -22,6 +22,8 @@ struct AdvancedTab: View {
 
     @State private var resetConfirm = false
     @State private var isAppleFMDefault: Bool
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -71,6 +73,8 @@ struct AdvancedTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                PersistFailureNotice(visible: persistFailed)
             }
         }
         .formStyle(.grouped)
@@ -95,7 +99,18 @@ struct AdvancedTab: View {
     }
 
     private func resetToDefaults() {
-        try? configStore.update { $0 = AppConfig.defaultValue }
+        persist { $0 = AppConfig.defaultValue }
         isAppleFMDefault = ProviderFactory.isAppleFM(configStore.config)
+    }
+
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
     }
 }
