@@ -321,8 +321,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWindow.willCloseNotification,
             object: controller.window,
             queue: .main
-        ) { [weak self] _ in
-            self?.menubar.listModel.reload()
+        ) { [weak self, weak vm] _ in
+            MainActor.assumeIsolated {
+                // CQ-02: the capture window is going away — resolve any pending
+                // calendar-conflict prompt to cancel (safe default) so the suspended
+                // calendar pass finishes and the task stays uncommitted. Covers both
+                // close legs: user-close with the prompt showing, and the post-commit
+                // close where a conflict is raised after the window is already gone
+                // (teardown flags the VM so a later conflict auto-cancels).
+                vm?.teardown()
+                self?.menubar.listModel.reload()
+            }
         }
     }
 

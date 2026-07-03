@@ -73,6 +73,11 @@ final class CaptureViewModel: ObservableObject {
     /// Continuation the view fulfils via `resolveConflict(commitAnyway:)` to unblock a paused
     /// time-blocked write. Stored so the awaiting commit task can resume on the user's decision.
     private var conflictContinuation: CheckedContinuation<Bool, Never>?
+    /// Set once by `teardown()` when the capture window goes away (CQ-02). A conflict raised
+    /// AFTER teardown — the post-commit close leg, where the window closes immediately on
+    /// commit and the calendar pass hits an overlap with no UI left to resolve it — must not
+    /// suspend forever; `awaitConflictDecision` checks this flag and auto-cancels instead.
+    private var isTornDown = false
 
     /// The prose that was in-flight when the provider threw, stashed so
     /// retryWithAppleFM() can re-run the SAME input through the fallback.
@@ -465,6 +470,9 @@ final class CaptureViewModel: ObservableObject {
 
     /// Publishes a pending conflict and suspends until the view calls `resolveConflict(...)`.
     private func awaitConflictDecision(title: String) async -> Bool {
+        // CQ-02: the window is already gone — no UI can resolve a prompt, so cancel
+        // (the task stays uncommitted) instead of suspending the calendar pass forever.
+        guard !isTornDown else { return false }
         pendingConflict = CalendarConflict(conflictTitle: title)
         let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             conflictContinuation = c
@@ -480,6 +488,19 @@ final class CaptureViewModel: ObservableObject {
         guard let c = conflictContinuation else { return }
         conflictContinuation = nil
         c.resume(returning: commitAnyway)
+    }
+
+    /// Called when the capture window goes away (CQ-02): a pending calendar-conflict prompt
+    /// resolves to cancel — the safe default — so the suspended calendar pass finishes and
+    /// that time-blocked task stays uncommitted.
+    ///
+    /// Safe to call unconditionally: `resolveConflict` nil-guards and nils the continuation
+    /// before resuming, so teardown with nothing pending is a no-op and double-resume is
+    /// structurally impossible. Also flags the VM so a conflict raised AFTER the window is
+    /// gone (the post-commit close leg) auto-cancels instead of suspending forever.
+    func teardown() {
+        isTornDown = true
+        resolveConflict(commitAnyway: false)
     }
 
     private static func describe(_ e: CalendarError) -> String {
