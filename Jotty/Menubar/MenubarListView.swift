@@ -831,15 +831,32 @@ final class MenubarListModel: ObservableObject {
     /// missing one) and never creates a duplicate. Unknown id: no-op.
     func dropTask(id: String, atSlot slot: Date) {
         guard let task = tasks.first(where: { $0.id == id }) else { return }
-        let block = TimeBlock(start: slot,
-                              end: slot.addingTimeInterval(Self.defaultDropDuration))
+        let snapshot = now()
+
+        // WR-03: clamp the slot so the whole default-duration block fits
+        // INSIDE today. The drop layer spans the full 24h axis, so a snapped
+        // slot can be as late as 24:00 — but the `time:` token serializes
+        // wall-clock only, and a block touching midnight re-parses on the
+        // doc's OWN day with end 00:00 < start (inverted), permanently out of
+        // sync with the created event. The latest allowed start sits one snap
+        // step short of the exact day-end fit, so the clamped start stays
+        // grid-aligned AND the block's end lands strictly before midnight.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let dayStart = cal.startOfDay(for: snapshot)
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(24 * 3600)
+        let snapStep = TimeInterval(CanvasLayout.defaultSnapMinutes * 60)
+        let latestStart = dayEnd.addingTimeInterval(-(Self.defaultDropDuration + snapStep))
+        let start = min(max(slot, dayStart), latestStart)
+        let block = TimeBlock(start: start,
+                              end: start.addingTimeInterval(Self.defaultDropDuration))
 
         if task.timeBlock != nil {
             editTime(task, to: block)
             return
         }
 
-        let snapshot = now()
         do {
             // Disk first (T-5-09): the block lands even if every calendar step fails.
             try store.updateTodoTime(id: id, timeBlock: block, on: snapshot)

@@ -1519,6 +1519,54 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.pendingDropConflict, "no orphaned pending decision remains")
     }
 
+    func testDropNearMidnightClampsBlockInsideDay() async throws {
+        // WR-03: the drop layer reaches 24:00, but the time: token serializes
+        // wall-clock only — a 23:45–00:15 block re-parses inverted (end 00:00
+        // < start on the same day). The slot is clamped so the block's end
+        // stays strictly before midnight and the start stays grid-aligned:
+        // with a 30-min duration and 15-min snap, the latest block is
+        // 23:15–23:45.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_late", text: "night owl", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        model.dropTask(id: "t_late", atSlot: makeDate(2026, 6, 12, h: 23, min: 45))
+        await model.awaitDropWork()
+
+        let expected = TimeBlock(start: makeDate(2026, 6, 12, h: 23, min: 15),
+                                 end: makeDate(2026, 6, 12, h: 23, min: 45))
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_late" })
+        XCTAssertEqual(stored.timeBlock, expected, "clamped to the latest block that fits the day")
+        // The ROUND-TRIP is the point: re-reading the serialized time: token
+        // must never yield an inverted block.
+        let tb = try XCTUnwrap(stored.timeBlock)
+        XCTAssertGreaterThan(tb.end, tb.start)
+        // The calendar event matches the clamped (persisted) block exactly.
+        XCTAssertEqual(fake.createdEvents.first?.start, expected.start)
+        XCTAssertEqual(fake.createdEvents.first?.end, expected.end)
+    }
+
+    func testDropAtExactDayEndClampsSameAsLateSlot() async throws {
+        // The 24:00 edge (a block entirely on the next day) clamps identically.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_late", text: "night owl", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today })
+
+        model.dropTask(id: "t_late", atSlot: makeDate(2026, 6, 13, h: 0, min: 0))
+        await model.awaitDropWork()
+
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_late" })
+        XCTAssertEqual(stored.timeBlock,
+                       TimeBlock(start: makeDate(2026, 6, 12, h: 23, min: 15),
+                                 end: makeDate(2026, 6, 12, h: 23, min: 45)))
+    }
+
     func testDropTaskUnknownIdIsNoOp() async throws {
         let (store, today) = try seed(tasks: [
             Todo(id: "t_other", text: "unrelated", createdAt: makeDate(2026, 6, 12, h: 8))
