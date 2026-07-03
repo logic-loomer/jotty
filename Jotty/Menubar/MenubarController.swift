@@ -64,7 +64,13 @@ final class MenubarController {
         }
     }
 
-    private func showPopover() {
+    /// Shows the popover, optionally spotlighting one task row (Phase 9 SC3 —
+    /// the command bar's Enter-on-today-task seam; the only public entry point).
+    /// The highlight is applied AFTER `reload()` + `popover.show`: reload clears
+    /// `highlightedTaskID` at entry, so set-then-reload would drop it (ordering
+    /// is load-bearing). `highlight(taskID:)` also auto-expands a collapsed
+    /// leftovers section so the spotlighted row is actually visible.
+    func showPopover(highlighting taskID: String? = nil) {
         listModel.reload()
         // Lazy inbox refresh on open (SC3): self-guarded — fires network ONLY when
         // >=1 source isConfigured, so the default/unconfigured config makes no call.
@@ -89,5 +95,11 @@ final class MenubarController {
         popover.contentViewController = NSHostingController(rootView: view)
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+
+        // AFTER reload + show (reload clears the id; the view is now live to
+        // observe the publish and scroll/fade).
+        if let taskID {
+            listModel.highlight(taskID: taskID)
+        }
     }
 }

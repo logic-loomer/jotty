@@ -1788,4 +1788,74 @@ final class MenubarListModelTests: XCTestCase {
         model.dismissSuggestion(inboxItem("github:1"))   // no crash
         XCTAssertTrue(model.tasks.isEmpty)
     }
+
+    // MARK: - Command bar highlight seam (Phase 9, SC3)
+
+    /// Builds the standard two-partition fixture: one leftover ("t_old") and one
+    /// today task ("t_new"), model anchored on 2026-06-12.
+    private func makeHighlightModel() throws -> MenubarListModel {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_old", text: "leftover", createdAt: yesterday),
+            Todo(id: "t_new", text: "fresh", createdAt: today)
+        ], at: today)
+        return MenubarListModel(store: store, timezone: tz,
+                                defaults: defaults, now: { today })
+    }
+
+    func testHighlightSetsHighlightedTaskID() throws {
+        let model = try makeHighlightModel()
+        model.highlight(taskID: "t_new")
+        XCTAssertEqual(model.highlightedTaskID, "t_new")
+    }
+
+    func testReloadClearsHighlight() throws {
+        // The controller sets the highlight AFTER reload; any later reload
+        // (accept, toggle, next open) must clear it so it never sticks.
+        let model = try makeHighlightModel()
+        model.highlight(taskID: "t_new")
+        model.reload()
+        XCTAssertNil(model.highlightedTaskID)
+    }
+
+    func testHighlightLeftoverAutoExpandsCollapsedSection() throws {
+        let model = try makeHighlightModel()
+        model.setCollapsed(true)
+        XCTAssertTrue(model.leftoversCollapsed)
+
+        model.highlight(taskID: "t_old")
+
+        XCTAssertFalse(model.leftoversCollapsed,
+                       "a highlighted leftover must be visible — collapsed section auto-expands")
+        XCTAssertEqual(model.highlightedTaskID, "t_old")
+    }
+
+    func testHighlightTodayTaskLeavesCollapseStateAlone() throws {
+        let model = try makeHighlightModel()
+        model.setCollapsed(true)
+
+        model.highlight(taskID: "t_new")
+
+        XCTAssertTrue(model.leftoversCollapsed,
+                      "highlighting a today task must not touch the leftovers collapse state")
+        XCTAssertEqual(model.highlightedTaskID, "t_new")
+    }
+
+    func testClearHighlightNilsID() throws {
+        let model = try makeHighlightModel()
+        model.highlight(taskID: "t_new")
+        model.clearHighlight()
+        XCTAssertNil(model.highlightedTaskID)
+    }
+
+    func testHighlightUnknownIDStillSets() throws {
+        // Harmless by design: the view simply finds no row to scroll to, and the
+        // next reload clears the id.
+        let model = try makeHighlightModel()
+        model.highlight(taskID: "t_ghost")
+        XCTAssertEqual(model.highlightedTaskID, "t_ghost")
+        XCTAssertFalse(model.leftoversCollapsed, "an unknown id never flips collapse state")
+    }
 }
