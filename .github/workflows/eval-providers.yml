@@ -68,6 +68,24 @@ jobs:
         if: steps.keys.outputs.present == 'true'
         run: xcodegen generate
 
+      # GitHub macOS runners can present a locked default keychain to test
+      # processes (actions/runner-images#4519), making SecItemAdd fail with
+      # errSecInteractionNotAllowed (-25308). The eval harness writes provider
+      # keys into a TEST-scoped Keychain at setUp via real SecItemAdd calls —
+      # the same failure class ci.yml guards against, so mirror its prep here.
+      # As in ci.yml (WR-07), the new keychain must ALSO join the search list:
+      # SecItemAdd targets the default keychain, but SecItemCopyMatching
+      # searches the search list, so without list-keychains a write-then-read
+      # round-trip can fail with errSecItemNotFound (-25300).
+      - name: Prepare unlocked keychain
+        if: steps.keys.outputs.present == 'true'
+        run: |
+          security create-keychain -p "" ci.keychain
+          security list-keychains -d user -s ci.keychain login.keychain
+          security default-keychain -s ci.keychain
+          security unlock-keychain -p "" ci.keychain
+          security set-keychain-settings ci.keychain
+
       - name: Run cross-provider eval (cloud legs)
         if: steps.keys.outputs.present == 'true'
         run: |
