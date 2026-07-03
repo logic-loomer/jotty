@@ -82,3 +82,97 @@ final class RecordComboCommandModifierTests: XCTestCase {
                        "recorder validation and monitor routing must gate the SAME actions")
     }
 }
+
+/// Phase 9 review WR-01 follow-up (iteration 3): the app-wide "recording" suppression
+/// signal must end WITH the recording interaction. resignFirstResponder alone leaked
+/// the signal when the recorder's window lost key status mid-recording (menubar
+/// popover / ⌘K panel) or was closed (cached SettingsWindowController) — suppression
+/// then persisted app-wide, muting every bound app-level combo indefinitely.
+@MainActor
+final class RecordComboSessionEndTests: XCTestCase {
+
+    /// A recorder installed in a real (never-shown) NSWindow — makeFirstResponder
+    /// works on ordered-out windows, so these stay headless.
+    private func makeRecorderInWindow() -> (RecorderView, NSWindow) {
+        let view = RecorderView(current: nil, allowsBareKey: true, onCapture: { _ in })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(view)
+        return (view, window)
+    }
+
+    func testWindowResignKeyEndsSession() {
+        let baseline = RecorderView.activeRecorderCount
+        let (view, window) = makeRecorderInWindow()
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline + 1,
+                       "becoming first responder starts a session")
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification,
+                                        object: window)
+
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline,
+                       "losing key status must end the session and release suppression")
+        XCTAssertFalse(window.firstResponder === view,
+                       "the recorder must visually leave Recording… (drop first responder)")
+    }
+
+    func testWindowWillCloseEndsSession() {
+        let baseline = RecorderView.activeRecorderCount
+        let (view, window) = makeRecorderInWindow()
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline + 1)
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification,
+                                        object: window)
+
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline,
+                       "closing the window mid-recording must release suppression")
+    }
+
+    func testLeavingWindowEndsSession() {
+        let baseline = RecorderView.activeRecorderCount
+        let (view, window) = makeRecorderInWindow()
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline + 1)
+
+        view.removeFromSuperview() // drives viewWillMove(toWindow: nil)
+
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline,
+                       "detaching from the window must release suppression")
+    }
+
+    func testRepeatedEndCallsAreIdempotentAndNeverUnderflow() {
+        let baseline = RecorderView.activeRecorderCount
+        let (view, window) = makeRecorderInWindow()
+        XCTAssertTrue(window.makeFirstResponder(view))
+
+        view.endRecording()
+        view.endRecording()
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification,
+                                        object: window)
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification,
+                                        object: window)
+
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline,
+                       "double-fire of the end paths must never underflow the count")
+        XCTAssertFalse(RecorderView.activeRecorderCount > baseline)
+    }
+
+    func testSessionCanRestartAfterInterruptedEnd() {
+        let baseline = RecorderView.activeRecorderCount
+        let (view, window) = makeRecorderInWindow()
+        XCTAssertTrue(window.makeFirstResponder(view))
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification,
+                                        object: window)
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline)
+
+        // The end path dropped first responder, so a fresh click can restart.
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline + 1,
+                       "an interrupted session must be restartable")
+        window.makeFirstResponder(nil)
+        XCTAssertEqual(RecorderView.activeRecorderCount, baseline)
+    }
+}
