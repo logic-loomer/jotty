@@ -81,17 +81,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         calendar = EventKitCalendarService(
             calendarID: { [weak configStore] in configStore?.config.calendarIdentifier })
 
-        let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Jotty")
-        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        let rolloverState = appSupport.appendingPathComponent("last-rollover.txt")
+        // CQ-06: urls(for:in:) returning an empty array is pathological but possible —
+        // fail soft (rollover disabled) instead of crashing the whole launch.
+        var rolloverState: URL?
+        if let appSupportBase = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let appSupport = appSupportBase.appendingPathComponent("Jotty")
+            try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+            rolloverState = appSupport.appendingPathComponent("last-rollover.txt")
+        } else {
+            NSLog("[Jotty] Application Support unavailable; rollover disabled")
+        }
 
-        do {
-            let svc = RolloverService(store: store, statePath: rolloverState, timezone: .current)
-            try svc.run(now: Date())
-        } catch {
-            NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
+        if let rolloverState {
+            do {
+                let svc = RolloverService(store: store, statePath: rolloverState, timezone: .current)
+                try svc.run(now: Date())
+            } catch {
+                NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
+            }
         }
 
         // Construct the unified-inbox coordinator (Phase 7): the one shipped
@@ -121,7 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
-        scheduleMidnightRollover(rolloverState: rolloverState)
+        if let rolloverState {
+            scheduleMidnightRollover(rolloverState: rolloverState)
+        }
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
         // unless the user enabled "Check periodically" in Settings → Integrations.
         scheduleInboxTimer()
@@ -240,9 +250,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reload list now so any config-folder change is reflected before the popover opens.
         menubar.listModel.reload()
 
-        let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Jotty")
+        // CQ-06: fail soft — without Application Support there is nowhere to persist
+        // the draft, so skip opening capture rather than crashing on a force-unwrap.
+        guard let appSupportBase = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            NSLog("[Jotty] Application Support unavailable; capture disabled")
+            return
+        }
+        let appSupport = appSupportBase.appendingPathComponent("Jotty")
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         let draftURL = appSupport.appendingPathComponent("draft.txt")
 
