@@ -466,6 +466,59 @@ final class CommandBarModelTests: XCTestCase {
                        "⌘K reads suggestions from memory — the zero-network lock")
     }
 
+    // MARK: - prepareForOpen corpus freshness (review WR-05)
+
+    func testExternallyAppendedTodayTaskAppearsOnNextOpen() throws {
+        let today = makeDate(2026, 6, 16, h: 9)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_a", text: "match original", createdAt: today),
+        ], at: today)
+        let list = makeList(store: store, now: today)
+        let model = makeModel(list: list, now: today)
+        model.prepareForOpen()
+        model.query = "match"
+        XCTAssertTrue(model.visibleRows.map(\.id).contains("today:t_a"))
+
+        // External edit: today's FILE gains a task (Obsidian etc.) — the list
+        // model's in-memory partitions know nothing until something reloads.
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_b", text: "match external",
+                 createdAt: makeDate(2026, 6, 16, h: 10)),
+        ], at: today)
+
+        model.prepareForOpen()   // next ⌘K open
+        model.query = "match"
+        XCTAssertTrue(model.visibleRows.map(\.id).contains("today:t_b"),
+                      "WR-05: prepareForOpen must refresh today's partitions from disk")
+    }
+
+    func testDayRolloverBetweenOpensRepartitions() throws {
+        let day1 = makeDate(2026, 6, 16, h: 9)
+        let day2 = makeDate(2026, 6, 17, h: 0, min: 30)   // just past midnight
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_a", text: "match task", createdAt: day1),
+        ], at: day1)
+
+        var current = day1
+        let list = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                    now: { current })
+        let model = CommandBarModel(list: list, dispatcher: ActionDispatcher(),
+                                    actions: fakeActions, openURL: { _ in },
+                                    now: { current })
+        model.prepareForOpen()
+        model.query = "match"
+        XCTAssertTrue(model.visibleRows.map(\.id).contains("today:t_a"),
+                      "on day 1 the task is a live Today row")
+
+        current = day2   // midnight crossed while the retained bar sat closed
+        model.prepareForOpen()
+        model.query = "match"
+        XCTAssertFalse(model.visibleRows.map(\.id).contains("today:t_a"),
+                       "WR-05: 'today' derives at OPEN time — day 1's task is no longer a Today row")
+    }
+
     // MARK: - Fixture helpers
 
     /// A fixed two-entry fake action list — NOT CommandActionRegistry.all — so

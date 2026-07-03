@@ -103,6 +103,18 @@ final class CommandBarModel: ObservableObject {
         selectedID = nil
         openToken = UUID()
 
+        // Review WR-05: re-read today's partitions from disk BEFORE building the
+        // immediate corpus. The menubar popover reloads on every open, but ⌘K's
+        // non-activating panel never fires applicationDidBecomeActive — without
+        // this, a task added to TODAY's file in an external editor (the README's
+        // Obsidian-vault setup) is invisible to the palette, and a bar opened
+        // after a missed midnight/wake keeps yesterday's stale partitions.
+        // reload() snapshots now() at entry, so "today" is derived at OPEN time.
+        // `promptIfUndetermined: false`: ⌘K must NEVER drive the one-time TCC
+        // calendar prompt. Still zero-network — reload() never touches the inbox
+        // (asserted by testPrepareForOpenNeverTriggersInboxRefresh).
+        list.reload(promptIfUndetermined: false)
+
         immediate = CommandBarIndex.buildImmediate(
             actions: actions,
             today: list.leftovers + list.todayTasks,
