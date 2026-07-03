@@ -700,13 +700,90 @@ final class MenubarListModel: ObservableObject {
     /// it (the Repeat "None" choice). Anchored on TODAY's file, same as
     /// `snooze` (CR-03). Persists the `recur:` token via the Store, then
     /// reloads. A failure logs, never crashes.
+    ///
+    /// CR-04: after day 1 the only line the user can reach is an INSTANCE
+    /// (`recur_src` set) — the rule that actually drives instancing lives on
+    /// the TEMPLATE, on a past day's file the menubar never shows. Writing the
+    /// instance line alone was completely inert: "None" never stopped the
+    /// recurrence and a rule change never changed it. For an instance, the
+    /// template is resolved through the marker's id and edited too.
     func setRecurrence(_ task: Todo, to recurrence: Recurrence?) {
         do {
-            try store.setTodoRecurrence(id: task.id, to: recurrence, on: now())
+            if let marker = task.recurSrc,
+               let templateID = marker.split(separator: ":", maxSplits: 1).first.map(String.init),
+               !templateID.isEmpty {
+                try setTemplateRecurrence(templateID: templateID, to: recurrence, instance: task)
+            } else {
+                try store.setTodoRecurrence(id: task.id, to: recurrence, on: now())
+            }
         } catch {
             NSLog("[Jotty] setRecurrence failed: \(error.localizedDescription)")
         }
         reload()
+    }
+
+    /// Applies a Repeat choice made ON AN INSTANCE to its template (CR-04).
+    ///
+    /// The template line (`recur` set, no `recur_src`) is located by scanning
+    /// the existing day files newest-first (mirrors the rollover template
+    /// scan — templates persist on their origin day, unbounded by any window).
+    ///
+    /// - Rule change: the template's `recur` is rewritten, so future
+    ///   instancing follows the new rule from tomorrow.
+    /// - "None": the template's `recur` is cleared AND the line is marked
+    ///   `rolled_to:` today — with the rule gone it would otherwise become an
+    ///   ordinary not-done line on a past day, which the NEXT rollover would
+    ///   collect as a leftover, resurrecting the just-cancelled task.
+    ///   `rolled_to` already means "this line's lineage continues elsewhere;
+    ///   never roll it again", and today's instance IS that continuation.
+    ///
+    /// The visible instance line mirrors the rule so the Repeat checkmark
+    /// reflects the choice immediately; its `recur_src` stays, so it can never
+    /// itself be scanned as a template (no duplicate templates).
+    ///
+    /// Fallback when the template line is unreachable (deleted file /
+    /// hand-edited line): choosing a rule PROMOTES the instance to a template
+    /// (clear `recur_src`, set `recur`) so the choice takes effect instead of
+    /// silently decorating a dead lineage; choosing "None" just clears the
+    /// visible line (nothing can instance anymore anyway).
+    private func setTemplateRecurrence(templateID: String, to recurrence: Recurrence?,
+                                       instance: Todo) throws {
+        let snapshot = now()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        let todayStart = cal.startOfDay(for: snapshot)
+
+        let templateDay = store.allDayDates().sorted(by: >).first { day in
+            guard let doc = try? store.readDoc(on: day) else { return false }
+            return doc.tasks.contains { $0.id == templateID && $0.recur != nil && $0.recurSrc == nil }
+        }
+
+        guard let templateDay else {
+            if recurrence != nil {
+                // Promote the instance: it becomes the template going forward.
+                var doc = try store.readDoc(on: snapshot)
+                if let idx = doc.tasks.firstIndex(where: { $0.id == instance.id }) {
+                    doc.tasks[idx].recur = recurrence
+                    doc.tasks[idx].recurSrc = nil
+                    try store.replaceTasks(doc.tasks, on: snapshot)
+                }
+            } else {
+                try store.setTodoRecurrence(id: instance.id, to: nil, on: snapshot)
+            }
+            NSLog("[Jotty] setRecurrence: template %@ not found; applied to instance only", templateID)
+            return
+        }
+
+        var doc = try store.readDoc(on: templateDay)
+        if let idx = doc.tasks.firstIndex(where: { $0.id == templateID }) {
+            doc.tasks[idx].recur = recurrence
+            if recurrence == nil, !doc.tasks[idx].done, doc.tasks[idx].rolledTo == nil {
+                doc.tasks[idx].rolledTo = todayStart
+            }
+            try store.replaceTasks(doc.tasks, on: templateDay)
+        }
+        // Mirror onto the visible line (checkmark reflects reality).
+        try store.setTodoRecurrence(id: instance.id, to: recurrence, on: snapshot)
     }
 
     /// The Snooze-to "Tomorrow" target: startOfDay(now()) + 1 day. Anchored on

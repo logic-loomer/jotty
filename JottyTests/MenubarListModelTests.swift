@@ -1208,6 +1208,107 @@ final class MenubarListModelTests: XCTestCase {
                        "the reloaded row shows the rule (checkmark reflects reality)")
     }
 
+    // MARK: - Phase 8 CR-04: Repeat menu on an INSTANCE edits its TEMPLATE
+
+    func testSetRecurrenceNoneOnInstanceStopsFutureInstancing() throws {
+        // Day 1: template. Day 2: instance. "None" from the instance. Day 3:
+        // NO new instance — and the cancelled template must not roll forward
+        // as a leftover either.
+        let store = Store(folder: folder, timezone: tz)
+        let statePath = folder.appendingPathComponent("last-rollover.txt")
+        let day1 = makeDate(2026, 6, 11, h: 9)
+        let day2 = makeDate(2026, 6, 12, h: 8)
+        let day3 = makeDate(2026, 6, 13, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_tpl", text: "water plants", createdAt: day1, recur: .daily)
+        ], at: day1)
+        try "2026-06-11".write(to: statePath, atomically: true, encoding: .utf8)
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: day2)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { day2 })
+        let instance = try XCTUnwrap(model.todayTasks.first { $0.recurSrc == "t_tpl:2026-06-12" })
+        XCTAssertEqual(instance.recur, .daily, "the instance shows the inherited rule")
+        model.setRecurrence(instance, to: nil)   // the user's "stop repeating"
+
+        // The TEMPLATE rule is cleared and the line can never roll forward.
+        let template = try XCTUnwrap(try store.readDoc(on: day1).tasks.first { $0.id == "t_tpl" })
+        XCTAssertNil(template.recur, "None on an instance clears the template rule")
+        XCTAssertNotNil(template.rolledTo, "the rule-less template must never resurface as a leftover")
+        // The visible instance's checkmark reflects the choice.
+        let visible = try XCTUnwrap(try store.readDoc(on: day2).tasks.first { $0.id == instance.id })
+        XCTAssertNil(visible.recur)
+
+        // Day 3: no NEW instance, no resurrected template line. (The day-2
+        // instance itself is now an ordinary task; if left not-done it rolls
+        // forward as a leftover carrying its old day-2 marker — by design.)
+        try svc.run(now: day3)
+        let day3Doc = try store.readDoc(on: day3)
+        XCTAssertTrue(day3Doc.tasks.filter { $0.recurSrc == "t_tpl:2026-06-13" }.isEmpty,
+                      "the recurrence is genuinely cancelled — no fresh day-3 instance")
+        XCTAssertFalse(day3Doc.tasks.contains { $0.id == "t_tpl" },
+                       "the cancelled template must not roll forward as a leftover")
+    }
+
+    func testSetRecurrenceRuleChangeOnInstanceEditsTemplate() throws {
+        // Changing the rule from an instance redirects FUTURE instancing.
+        let store = Store(folder: folder, timezone: tz)
+        let statePath = folder.appendingPathComponent("last-rollover.txt")
+        let day1 = makeDate(2026, 6, 11, h: 9)   // Thursday
+        let day2 = makeDate(2026, 6, 12, h: 8)   // Friday
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_tpl", text: "standup", createdAt: day1, recur: .daily)
+        ], at: day1)
+        try "2026-06-11".write(to: statePath, atomically: true, encoding: .utf8)
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: day2)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { day2 })
+        let instance = try XCTUnwrap(model.todayTasks.first { $0.recurSrc == "t_tpl:2026-06-12" })
+        // Daily -> only Mondays (2).
+        model.setRecurrence(instance, to: .custom([2]))
+
+        let template = try XCTUnwrap(try store.readDoc(on: day1).tasks.first { $0.id == "t_tpl" })
+        XCTAssertEqual(template.recur, .custom([2]), "the template carries the new rule")
+        XCTAssertNil(template.rolledTo, "a rule CHANGE keeps the template alive on its day")
+        XCTAssertEqual(try store.readDoc(on: day2).tasks.first { $0.id == instance.id }?.recur,
+                       .custom([2]), "the visible instance mirrors the new rule")
+
+        // Saturday: no FRESH instance under the new rule (the day-2 instance
+        // may roll forward as an ordinary leftover — by design); Monday: due.
+        try svc.run(now: makeDate(2026, 6, 13, h: 8))
+        XCTAssertTrue(try store.readDoc(on: makeDate(2026, 6, 13)).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-06-13" }.isEmpty)
+        try svc.run(now: makeDate(2026, 6, 15, h: 8))
+        XCTAssertEqual(try store.readDoc(on: makeDate(2026, 6, 15)).tasks
+                        .filter { $0.recurSrc == "t_tpl:2026-06-15" }.count, 1)
+    }
+
+    func testSetRecurrenceOnOrphanInstancePromotesItToTemplate() throws {
+        // Fallback: the marker points at a template that no longer exists —
+        // choosing a rule promotes the visible line to a template so the
+        // choice actually takes effect.
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_inst", text: "orphan", createdAt: today,
+                 recur: .daily, recurSrc: "t_gone:2026-06-12")
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let instance = try XCTUnwrap(model.todayTasks.first { $0.id == "t_inst" })
+        model.setRecurrence(instance, to: .weekly)
+
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_inst" })
+        XCTAssertEqual(stored.recur, .weekly)
+        XCTAssertNil(stored.recurSrc, "promoted to a template (scannable from tomorrow)")
+    }
+
     func testSnoozeConvenienceDatesAnchorOnNowNotCreatedAt() throws {
         // CR-01: Tomorrow / Next week are computed from now(), never task.createdAt.
         let store = Store(folder: folder, timezone: tz)
