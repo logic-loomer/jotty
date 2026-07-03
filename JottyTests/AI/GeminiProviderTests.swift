@@ -4,9 +4,10 @@
 // API keys come only from KeychainAPIKeyStore (UUID-suffixed test service,
 // never the production service namespace).
 //
-// Gemini-specific security focus: the API key rides in the URL query
-// (`?key=...`), so test 11 asserts the key value NEVER appears in any
-// thrown error message.
+// Gemini-specific security focus: the API key rides in the `x-goog-api-key`
+// header (WR-06) — NEVER the `?key=` query form. Test 1 pins the header +
+// key-free URL shape; test 11 keeps the leak canary asserting the key value
+// NEVER appears in any thrown error message.
 
 import XCTest
 @testable import Jotty
@@ -189,10 +190,16 @@ final class GeminiProviderTests: XCTestCase {
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
         XCTAssertEqual(components.host, "generativelanguage.googleapis.com")
         XCTAssertEqual(components.path, "/v1beta/models/gemini-2.5-flash:generateContent")
-        XCTAssertTrue(url.absoluteString.contains("?key="),
-                      "API key must travel as a ?key= query param")
-        XCTAssertEqual(components.queryItems,
-                       [URLQueryItem(name: "key", value: "gm-test-gemini-key")])
+        // WR-06: the key rides in the x-goog-api-key header (the idiom
+        // APIKeyValidator.validateGemini pins) — it must NEVER appear in the
+        // URL, where every URL-handling layer could log it.
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"),
+                       "gm-test-gemini-key",
+                       "API key must travel in the x-goog-api-key header")
+        XCTAssertNil(components.queryItems,
+                     "the request URL must carry no query items at all")
+        XCTAssertFalse(url.absoluteString.contains("gm-test-gemini-key"),
+                       "API key must never appear anywhere in the URL")
 
         // Body shape: responseMimeType + responseSchema (uppercase types)
         let json = try requestBodyJSON()
@@ -362,9 +369,9 @@ final class GeminiProviderTests: XCTestCase {
     // MARK: Test 11 — API key never appears in error messages
 
     func testAPIKeyNeverAppearsInErrorMessages() async throws {
-        // The key rides in the URL query — any error that interpolates the
-        // request URL would leak it. Use a known-string key and grep every
-        // thrown error's embedded message.
+        // Leak canary (kept post-WR-06 as defense in depth): use a
+        // known-string key and grep every thrown error's embedded message —
+        // no failure path may ever interpolate key material.
         StubURLProtocol.responses.append { _ in (404, Data("not found".utf8), [:]) }
         var provider = try makeProvider(key: "SUPERSECRET")
 

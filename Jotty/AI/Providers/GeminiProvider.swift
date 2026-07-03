@@ -7,10 +7,14 @@
 // as a JSON STRING in `candidates[0].content.parts[0].text`; safety refusals
 // arrive as `finishReason` ∈ {SAFETY, BLOCKED, PROHIBITED_CONTENT}.
 //
-// SECURITY: the API key travels as a `?key=` URL query param. No thrown
-// error message may ever interpolate the request URL — including raw
-// URLErrors, whose userInfo carries the failing URL. Every failure path maps
-// to AIProviderError with a fixed, URL-free message (AI-SPEC §2).
+// SECURITY: the API key travels in the `x-goog-api-key` HEADER — NEVER the
+// `?key=` query form (WR-06, mirroring APIKeyValidator.validateGemini): a key
+// in the URL is exposed to every URL-handling layer (proxy access logs,
+// URLSession diagnostics, URLError.userInfo). The URL-redaction discipline
+// below is kept as defense in depth: no thrown error message may ever
+// interpolate the request URL — including raw URLErrors, whose userInfo
+// carries the failing URL. Every failure path maps to AIProviderError with a
+// fixed, URL-free message (AI-SPEC §2).
 
 import Foundation
 
@@ -68,10 +72,11 @@ actor GeminiProvider: AIProvider {
             do {
                 (data, response) = try await session.data(for: request)
             } catch let error as URLError {
-                // URL redaction: a raw URLError's userInfo carries the
-                // failing URL — which contains the API key. Map to a fixed
-                // message; .underlying stays retryable so transient network
-                // failures still back off and retry.
+                // URL redaction (defense in depth — the key now rides in a
+                // header, WR-06): a raw URLError's userInfo carries the
+                // failing URL. Map to a fixed message; .underlying stays
+                // retryable so transient network failures still back off
+                // and retry.
                 throw AIProviderError.underlying(
                     message: "Network error (URLError \(error.code.rawValue))")
             }
@@ -96,15 +101,11 @@ actor GeminiProvider: AIProvider {
         key: String, model: String, text: String,
         now: Date, timezone: TimeZone
     ) throws -> URLRequest {
-        // URLComponents percent-encodes the key in the query item, so
-        // arbitrary key strings cannot break the URL.
-        guard var components = URLComponents(
+        // WR-06: the key never touches the URL — it rides in the x-goog-api-key
+        // header (set below), the same idiom APIKeyValidator.validateGemini uses.
+        guard let url = URL(
             string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
         ) else {
-            throw AIProviderError.underlying(message: "Could not build Gemini URL")
-        }
-        components.queryItems = [URLQueryItem(name: "key", value: key)]
-        guard let url = components.url else {
             throw AIProviderError.underlying(message: "Could not build Gemini URL")
         }
 
@@ -131,6 +132,9 @@ actor GeminiProvider: AIProvider {
         request.timeoutInterval = 60
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // WR-06: key in the header, never the `?key=` query form — a key in the
+        // URL leaks into every URL-handling layer (see file header).
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -177,7 +181,7 @@ actor GeminiProvider: AIProvider {
     ) throws -> ExtractionResult {
         guard statusCode == 200 else {
             // NOTE: error messages below are fixed strings — never the
-            // request URL, which carries the API key in its query.
+            // request URL (defense in depth; the key rides in a header, WR-06).
             if statusCode == 401 || statusCode == 403 {
                 throw AIProviderError.modelUnavailable(
                     reason: "Invalid Gemini API key.")
