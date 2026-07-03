@@ -39,6 +39,7 @@
 		429C354A89E73A84BA6CB15A /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776385CB322A3DDE510F823 /* OpenAIProvider.swift */; };
 		443E7FD46EF75B1DF4379030 /* OllamaModelManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */; };
 		451772011FFE44F7BB96AC46 /* APIKeyValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD9D8090683E1DCECC68A31 /* APIKeyValidatorTests.swift */; };
+		45757E60474C693E76332274 /* KeyComboModifiersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372DDB9B73258D038924149F /* KeyComboModifiersTests.swift */; };
 		458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */; };
 		46D948FE9F5A83C7781C8428 /* ProviderToleranceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA0678D4109E51D24CFDDA3 /* ProviderToleranceConfig.swift */; };
 		490F738FB25B281F2307DC24 /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */; };
@@ -220,6 +221,7 @@
 		349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProviderTests.swift; sourceTree = "<group>"; };
 		34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProvider.swift; sourceTree = "<group>"; };
 		365D40E78DF10E20BB8B1EFE /* ExtractedTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskTests.swift; sourceTree = "<group>"; };
+		372DDB9B73258D038924149F /* KeyComboModifiersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyComboModifiersTests.swift; sourceTree = "<group>"; };
 		3910C21E4EB8A45CCCDA2351 /* ExtractedTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTask.swift; sourceTree = "<group>"; };
 		3CDA0A15DCF13E839E64C340 /* DailyFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFile.swift; sourceTree = "<group>"; };
 		3DF97B79250F715F0DC65677 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -375,6 +377,7 @@
 				C086338D15373A532D6D952A /* HotkeyManagerTests.swift */,
 				1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */,
 				08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */,
+				372DDB9B73258D038924149F /* KeyComboModifiersTests.swift */,
 				EF21C8F9A39D7BE6531516DF /* LaunchAtLoginTests.swift */,
 				5AEF7733F2569854952FAD09 /* MarkdownDocTests.swift */,
 				C84E33A536DA47388C797099 /* MenubarListModelTests.swift */,
@@ -905,6 +908,7 @@
 				89FF09BC042A9FC1201B1B67 /* InboxSourceCatalogTests.swift in Sources */,
 				8FBE77C168523D5710BC8AEB /* InboxStateStoreTests.swift in Sources */,
 				66D400C90EF207A7A59136D3 /* JSONSchemaBuilderTests.swift in Sources */,
+				45757E60474C693E76332274 /* KeyComboModifiersTests.swift in Sources */,
 				75E75B6F8442A901263D02E7 /* KeybindingConflictsTests.swift in Sources */,
 				9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */,
 				887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */,
