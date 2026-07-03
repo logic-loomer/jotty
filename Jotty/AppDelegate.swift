@@ -158,11 +158,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// stale hotkey lingers). A nil binding or a registration failure logs, never crashes.
     private func registerGlobalHotkey() {
         guard let combo = keybindings.combo(for: .globalToggleCapture) else {
-            hotkey.unregister()
+            hotkey.unregister(id: .capture)
             NSLog("[Jotty] No keybinding for .globalToggleCapture; skipping hotkey registration")
             return
         }
-        let success = hotkey.register(combo: combo) { [weak self] in self?.openCapture() }
+        let success = hotkey.register(id: .capture, combo: combo) { [weak self] in self?.openCapture() }
         if !success {
             NSLog("[Jotty] Global hotkey registration failed — another app may already be using this key combo")
         }
