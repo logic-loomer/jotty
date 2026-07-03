@@ -231,9 +231,40 @@ final class CommandBarModel: ObservableObject {
         activateSelection()
     }
 
-    /// Enter: routes the selected row per its kind (09-04 Task 2). No rows or
-    /// no selection → no-op (no close, no effect).
+    /// Enter: routes the selected row per its kind. No rows or no selection →
+    /// a total no-op (no close, no effect).
     func activateSelection() {
-        // Task 2 wires the per-kind Enter routing.
+        guard let selected = selectedID,
+              let item = visibleRows.first(where: { $0.id == selected }) else { return }
+        perform(item)
+    }
+
+    // MARK: - Enter routing (SC3 — existing seams only)
+
+    /// The close-first contract lives HERE so the view cannot get it wrong
+    /// (Pitfall 8): `onRequestClose` runs BEFORE any effect — the transient
+    /// popover / opened file must never race the panel's resignKey.
+    private func perform(_ item: CommandItem) {
+        onRequestClose?()
+        switch item {
+        case .action(let commandAction):
+            // ONLY dispatcher.dispatch — never a parallel switch (IN-01 / T-9-13).
+            // An unwired handler should be impossible after 09-05's launch-time
+            // coverage check; log-and-no-op if it ever happens.
+            if !dispatcher.dispatch(commandAction.action) {
+                NSLog("[Jotty] command bar: no handler registered for \(commandAction.action.rawValue)")
+            }
+        case .todayTask(let todo):
+            onOpenMenubar?(todo.id)
+        case .inbox(let item):
+            // WR-01 ordering (dedupe id BEFORE write) for free — never re-implemented (T-9-12).
+            list.acceptSuggestion(item)
+        case .earlierTask(_, let day), .dayFile(let day, _):
+            // Resolve list.store at ACTIVATION time (Pitfall 9: live-swapped
+            // store). URLs derive ONLY from enumerated store dates — the query
+            // string is never a path component (T-9-11).
+            let store = list.store
+            openURL(DailyFile.url(in: store.folder, on: day, timezone: store.timezone))
+        }
     }
 }
