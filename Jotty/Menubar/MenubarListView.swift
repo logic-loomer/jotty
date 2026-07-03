@@ -9,6 +9,15 @@ final class MenubarListModel: ObservableObject {
     @Published private(set) var todayTasks: [Todo] = []
     @Published private(set) var leftoversCollapsed: Bool = false
 
+    /// The task row to spotlight on the current popover render (Phase 9 SC3 —
+    /// the command bar's "open the dropdown with task X highlighted" seam).
+    /// Set by `MenubarController.showPopover(highlighting:)` AFTER its reload
+    /// (reload clears this at entry, so set-then-reload would drop it); the view
+    /// observes it for scroll-to + a fading row wash, then calls
+    /// `clearHighlight()`. An id not present in any partition is harmless — the
+    /// view finds no row and the next reload clears it.
+    @Published private(set) var highlightedTaskID: String?
+
     /// Today's timed calendar events for the read-only menubar section (SC2).
     /// Empty when no service is injected or access is denied; the service already
     /// filters all-day events and sorts by start (plan 03).
@@ -160,6 +169,9 @@ final class MenubarListModel: ObservableObject {
     /// foreground-activation catch-up and the midnight timer pass `false` — a background
     /// reload must NEVER re-issue the system calendar prompt while access is notDetermined.
     func reload(clearMissingLinks: Bool = true, promptIfUndetermined: Bool = true) {
+        // A highlight never sticks across reloads/opens (Phase 9 SC3): the
+        // controller re-applies it AFTER reload when the command bar asked for one.
+        highlightedTaskID = nil
         // Single snapshot: grouping, collapse key, and dateLabel must all
         // derive from the same instant (midnight Timer reloads an open popover).
         let snapshot = now()
@@ -423,6 +435,25 @@ final class MenubarListModel: ObservableObject {
     func setCollapsed(_ collapsed: Bool, at date: Date? = nil) {
         leftoversCollapsed = collapsed
         defaults.set(collapsed, forKey: collapseKey(for: date ?? now()))
+    }
+
+    // MARK: - Command bar highlight (Phase 9, SC3)
+
+    /// Spotlights the row with `taskID` (command-bar Enter-on-today-task seam).
+    /// If the task sits in a COLLAPSED leftovers section, auto-expand first via
+    /// the existing `setCollapsed(false)` — a highlight the user cannot see is
+    /// useless. Highlighting a today task (or an unknown id) never touches the
+    /// collapse state. Call AFTER `reload()` — reload clears the id at entry.
+    func highlight(taskID: String) {
+        if leftoversCollapsed, leftovers.contains(where: { $0.id == taskID }) {
+            setCollapsed(false)
+        }
+        highlightedTaskID = taskID
+    }
+
+    /// Removes the spotlight; the view calls this once its fade completes.
+    func clearHighlight() {
+        highlightedTaskID = nil
     }
 
     func toggle(_ task: Todo) {
@@ -1035,6 +1066,15 @@ struct MenubarListView: View {
     /// now()-anchored tomorrow on entry (CR-01 — never task.createdAt).
     @State private var snoozeDraftDate: Date = Date()
 
+    // MARK: - Command bar highlight (Phase 9, SC3)
+
+    /// Opacity of the accent wash on the row named by `model.highlightedTaskID`,
+    /// driven 1 → 0 by `beginHighlight`. View-local: the fade is presentation,
+    /// only the id lives on the model (unit-tested state machine).
+    @State private var highlightOpacity: Double = 0
+    /// Snap the wash away instead of animating the ~1.5 s fade (A11Y).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -1078,6 +1118,9 @@ struct MenubarListView: View {
                     .foregroundStyle(.secondary)
                     .padding(12)
             } else {
+                // ScrollViewReader wraps the task list so a command-bar highlight
+                // can scroll its row into view (CalendarCanvasView scrollTo idiom).
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         // Earlier leftovers (everything older than today, not just
@@ -1127,6 +1170,8 @@ struct MenubarListView: View {
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 3)
+                                    .background(highlightWash(for: task.id))
+                                    .id(task.id)
                                     .contextMenu { taskRowMenu(task) }
                                 }
                             }
@@ -1151,12 +1196,27 @@ struct MenubarListView: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
+                            .background(highlightWash(for: task.id))
+                            .id(task.id)
                             .contextMenu { taskRowMenu(task) }
                         }
                     }
                     .padding(.vertical, 6)
                 }
                 .frame(maxHeight: 300)
+                // The controller applies the highlight AFTER popover.show, so the
+                // publish lands as a change; onAppear covers a re-shown popover
+                // whose content view is rebuilt with the id already set.
+                .onChange(of: model.highlightedTaskID) { _, newID in
+                    guard let newID else { return }
+                    beginHighlight(newID, proxy: proxy)
+                }
+                .onAppear {
+                    if let id = model.highlightedTaskID {
+                        beginHighlight(id, proxy: proxy)
+                    }
+                }
+                }
             }
 
             // Read-only Calendar section (SC2): today's timed events as `·` rows,
@@ -1393,6 +1453,34 @@ struct MenubarListView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("Task actions")
+    }
+
+    // MARK: - Command bar highlight rendering (Phase 9, SC3)
+
+    /// Scrolls the highlighted row to center and runs the one-shot wash fade:
+    /// full opacity, easing out over ~1.5 s (snapped away with no animation when
+    /// Reduce Motion is on), then `clearHighlight()` exactly once per trigger —
+    /// the asyncAfter is the single clear site (CaptureView dismiss-timer idiom).
+    private func beginHighlight(_ id: String, proxy: ScrollViewProxy) {
+        proxy.scrollTo(id, anchor: .center)
+        highlightOpacity = 1
+        if !reduceMotion {
+            withAnimation(.easeOut(duration: 1.5)) { highlightOpacity = 0 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            highlightOpacity = 0   // reduce-motion path: snap, no fade
+            model.clearHighlight()
+        }
+    }
+
+    /// The accent wash behind the highlighted row; nothing for every other row.
+    @ViewBuilder
+    private func highlightWash(for taskID: String) -> some View {
+        if model.highlightedTaskID == taskID {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(0.15))
+                .opacity(highlightOpacity)
+        }
     }
 
     // MARK: - Inline rename (SC4)
