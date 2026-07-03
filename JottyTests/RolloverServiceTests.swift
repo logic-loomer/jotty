@@ -112,6 +112,36 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertEqual(instances.count, 1)
     }
 
+    /// WR-01: a fresh instance never inherits the template's snooze/due —
+    /// the contract is "a brand-new, not-done, unscheduled, unlinked task
+    /// created today", and snooze/due affect only the line they are on.
+    func testInstanceDoesNotInheritTemplateSnoozeOrDueDate() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin,
+                                             dueDate: makeDate(2026, 5, 7),
+                                             recur: .daily,
+                                             snooze: makeDate(2026, 5, 20))],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: today)
+
+        let inst = try XCTUnwrap(try store.readDoc(on: today).tasks
+                                    .first { $0.recurSrc == "t_tpl:2026-05-08" },
+                                 "a snoozed template still instances (snooze is per-line)")
+        XCTAssertNil(inst.snooze, "instance must not inherit the template's snooze")
+        XCTAssertNil(inst.dueDate, "instance must not inherit the template's due date")
+        // The template's own tokens are untouched.
+        let template = try XCTUnwrap(try store.readDoc(on: origin).tasks.first { $0.id == "t_tpl" })
+        XCTAssertNotNil(template.snooze)
+        XCTAssertNotNil(template.dueDate)
+    }
+
     /// CR-02 regression: deleting today's instance must STICK. The delete
     /// removes the recur_src marker with the line, and run() re-fires on every
     /// app activation — without the first-run-of-day gate the instance was

@@ -140,6 +140,16 @@ final class RolloverService {
             instance.recurSrc = marker
             instance.timeBlock = nil
             instance.calEventID = nil
+            // WR-01: a fresh instance carries NO inherited snooze/due — a
+            // template snoozed on its origin day must not stamp every future
+            // instance with a snooze: token (they would all hide until the
+            // date and then dump as a backlog of leftovers), and a stale
+            // template due: must not mark every instance overdue forever.
+            // Documented semantics: snooze/due affect only the LINE they are
+            // on; a snoozed template keeps instancing (its instances are the
+            // user's recurring intent — pausing would silently backlog them).
+            instance.snooze = nil
+            instance.dueDate = nil
             instances.append(instance)
             existingMarkers.insert(marker)
         }
