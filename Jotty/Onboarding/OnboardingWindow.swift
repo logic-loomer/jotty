@@ -15,10 +15,14 @@ final class OnboardingWindowController: NSWindowController {
     ///   - configStore: flips `hasCompletedOnboarding` on "Get started".
     ///   - launchAtLogin: the SHARED launch-at-login service (same instance the
     ///     Settings → General toggle uses); enable is best-effort (try?), never fatal.
+    ///   - keybindings: the SHARED user keybindings store (same instance the global
+    ///     hotkey registers from), so the hotkey line names the LIVE capture combo —
+    ///     correct even if the user rebound it before first launch (UX-02).
     ///   - requestCalendarAccess: routes through the menubar's `requestAccess()` gate —
     ///     the SAME one, so the OS shows a single TCC prompt (anti-pattern avoided).
     init(configStore: ConfigStore,
          launchAtLogin: any LaunchAtLoginService,
+         keybindings: KeybindingsStore,
          requestCalendarAccess: @escaping () async -> Void) {
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
@@ -32,6 +36,7 @@ final class OnboardingWindowController: NSWindowController {
         let view = OnboardingView(
             configStore: configStore,
             launchAtLogin: launchAtLogin,
+            keybindings: keybindings,
             requestCalendarAccess: requestCalendarAccess,
             onGetStarted: { [weak self] in self?.finish() })
         win.contentViewController = NSHostingController(rootView: view)
@@ -57,6 +62,9 @@ final class OnboardingWindowController: NSWindowController {
 struct OnboardingView: View {
     let configStore: ConfigStore
     let launchAtLogin: any LaunchAtLoginService
+    /// The SHARED user keybindings store; the hotkey line below reads the LIVE
+    /// `.globalToggleCapture` combo from it (UX-02) — never a hardcoded literal.
+    let keybindings: KeybindingsStore
     let requestCalendarAccess: () async -> Void
     let onGetStarted: () -> Void
 
@@ -82,6 +90,27 @@ struct OnboardingView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // UX-02: name the ONE keystroke that matters, read LIVE from the shared
+            // keybindings store (never a hardcoded literal) — automatically correct
+            // even if the user rebound the combo before first launch.
+            if let combo = keybindings.combo(for: .globalToggleCapture) {
+                HStack(spacing: 10) {
+                    Text(combo.displayString)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color(NSColor.controlBackgroundColor)))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(NSColor.separatorColor)))
+                    Text("opens capture from anywhere")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Divider()

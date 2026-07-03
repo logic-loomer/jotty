@@ -165,6 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = OnboardingWindowController(
             configStore: configStore,
             launchAtLogin: launchAtLogin,
+            // The SAME user store the global hotkey registers from, so the
+            // onboarding hotkey line names the LIVE capture combo (UX-02).
+            keybindings: keybindings,
             requestCalendarAccess: { [weak self] in
                 // The SAME gate the menubar uses (promptIfUndetermined defaults true),
                 // so the OS shows a single TCC prompt.
