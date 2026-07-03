@@ -55,6 +55,33 @@ final class Store {
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Sets the task's `snooze` date and re-serializes (Phase 8 SC3 / CALX-03).
+    /// Snooze affects VISIBILITY only (the menubar filter hides the task until the
+    /// date), never storage location — the task stays in its day file, distinct
+    /// from move-to-tomorrow which relocates. No-op when the id is absent,
+    /// mirroring `updateTodoTime`. The index-mutate IS a whole-value copy-mutate
+    /// (a Swift array element assign preserves every other field — never rebuild
+    /// via `Todo(id:…)`, Phase 7 CR-01).
+    func snoozeTodo(id: String, to snoozeDate: Date, on date: Date) throws {
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var doc = readOrCreate(at: url, on: date)
+        guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
+        doc.tasks[idx].snooze = snoozeDate
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Sets (or, with `nil`, clears — the "None" Repeat choice) the task's
+    /// recurrence rule and re-serializes (Phase 8 SC2 UI / CALX-02). No-op when
+    /// the id is absent, mirroring `updateTodoTime`. Same whole-value copy-mutate
+    /// as `snoozeTodo` (Phase 7 CR-01: every other token survives).
+    func setTodoRecurrence(id: String, to recurrence: Recurrence?, on date: Date) throws {
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        var doc = readOrCreate(at: url, on: date)
+        guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
+        doc.tasks[idx].recur = recurrence
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// Rewrites only the task's `text`, preserving id + every metadata token
     /// (created/done/due/rolled_to/source_note/time/cal_event) via the serialize
     /// round-trip (SC4 inline rename). The new text is trimmed; an empty-after-trim
