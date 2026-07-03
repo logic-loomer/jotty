@@ -43,6 +43,15 @@ final class RecorderView: NSView {
     private var onCapture: (KeyCombo) -> Void
     private var isRecording = false
 
+    /// App-wide "a combo is being recorded" signal (review WR-01): non-zero while
+    /// ANY RecorderView is first responder. The AppDelegate local key monitor
+    /// checks `isRecordingActive` and suppresses dispatch, so a combo already
+    /// bound to an app-level action can still be re-recorded — dispatching
+    /// mid-recording would fire the action AND swallow the keyDown the recorder
+    /// needs (a settings deep-link could even switch the tab away).
+    private(set) static var activeRecorderCount = 0
+    static var isRecordingActive: Bool { activeRecorderCount > 0 }
+
     private let label = NSTextField(labelWithString: "")
 
     init(current: KeyCombo?, allowsBareKey: Bool, onCapture: @escaping (KeyCombo) -> Void) {
@@ -82,6 +91,7 @@ final class RecorderView: NSView {
     }
 
     override func becomeFirstResponder() -> Bool {
+        if !isRecording { Self.activeRecorderCount += 1 }   // WR-01 signal on
         isRecording = true
         label.stringValue = "Recording…"
         layer?.borderColor = NSColor.controlAccentColor.cgColor
@@ -89,6 +99,8 @@ final class RecorderView: NSView {
     }
 
     override func resignFirstResponder() -> Bool {
+        // WR-01 signal off — guarded so a spurious resign can never underflow.
+        if isRecording { Self.activeRecorderCount = max(0, Self.activeRecorderCount - 1) }
         isRecording = false
         layer?.borderColor = NSColor.separatorColor.cgColor
         refreshLabel()

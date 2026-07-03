@@ -349,19 +349,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Installs the ONE local key-down monitor routing recorded app-level
-    /// combos through the dispatcher (SC4's non-global leg). Guards:
-    /// - requires ⌘/⌃/⌥ (plain typing and bare-shift keys are NEVER intercepted);
-    /// - restricted to `ActionDispatcher.appLevelActions` (never the Carbon
-    ///   globals, never SwiftUI-handled capture/sendToClaude combos);
-    /// - swallows the event ONLY when a dispatch actually handled it.
+    /// combos through the dispatcher (SC4's non-global leg). The match rules —
+    /// requires ⌘/⌃/⌥, restricted to `ActionDispatcher.appLevelActions`,
+    /// deterministic order under a conflict (IN-07), and NEVER while a
+    /// RecorderView is capturing a combo (WR-01) — live in the unit-tested
+    /// `ActionDispatcher.appLevelActions(matching:bindings:isRecordingCombo:)`.
+    /// The event is swallowed ONLY when a dispatch actually handled it.
     private func installLocalKeyMonitor() {
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            let mods = KeyCombo.modifiers(from: event.modifierFlags)
-            guard !mods.isDisjoint(with: [.cmd, .ctrl, .opt]) else { return event }
-            let pressed = KeyCombo(keyCode: event.keyCode, modifiers: mods)
-            for (action, combo) in self.keybindings.allBindings()
-                where combo == pressed && ActionDispatcher.appLevelActions.contains(action) {
+            let pressed = KeyCombo(keyCode: event.keyCode,
+                                   modifiers: KeyCombo.modifiers(from: event.modifierFlags))
+            for action in ActionDispatcher.appLevelActions(
+                matching: pressed,
+                bindings: self.keybindings.allBindings(),
+                isRecordingCombo: RecorderView.isRecordingActive) {
                 if self.dispatcher.dispatch(action) { return nil }
             }
             return event

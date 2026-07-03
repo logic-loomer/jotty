@@ -19,6 +19,28 @@ final class ActionDispatcher {
         .openSettingsIntegrations, .openSettingsKeybindings, .openSettingsAdvanced,
         .toggleLaunchAtLogin, .replayOnboarding]
 
+    /// The single decision point for the AppDelegate LOCAL key monitor (review
+    /// WR-01/IN-07): which app-level actions may a keyDown fire, in what order?
+    /// - While a `RecorderView` is capturing a combo, NOTHING fires (WR-01): the
+    ///   event must reach the recorder even when it matches an existing binding,
+    ///   or a bound combo becomes impossible to re-record through the UI.
+    /// - Requires ⌘/⌃/⌥ (plain typing and bare-shift keys are NEVER intercepted).
+    /// - Restricted to `appLevelActions` (never the Carbon globals, never the
+    ///   SwiftUI-handled capture/sendToClaude combos).
+    /// - Matches are sorted by rawValue so a user-created conflict dispatches the
+    ///   SAME action across launches (IN-07), not whichever Dictionary hash
+    ///   order yields first.
+    static func appLevelActions(matching pressed: KeyCombo,
+                                bindings: [Action: KeyCombo],
+                                isRecordingCombo: Bool) -> [Action] {
+        guard !isRecordingCombo else { return [] }
+        guard !pressed.modifiers.isDisjoint(with: [.cmd, .ctrl, .opt]) else { return [] }
+        return bindings
+            .filter { $0.value == pressed && appLevelActions.contains($0.key) }
+            .map(\.key)
+            .sorted { $0.rawValue < $1.rawValue }
+    }
+
     private var handlers: [Action: () -> Void] = [:]
 
     /// Registers `handler` for `action`. Re-registering REPLACES the previous handler.
