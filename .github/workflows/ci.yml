@@ -50,9 +50,14 @@ jobs:
       # processes (actions/runner-images#4519), making SecItemAdd fail with
       # errSecInteractionNotAllowed (-25308). KeychainAPIKeyStore tests do
       # real SecItemAdd calls — give them an unlocked default keychain.
+      # WR-07: the new keychain must ALSO join the search list — SecItemAdd
+      # targets the default keychain, but SecItemCopyMatching searches the
+      # search list, so without list-keychains a write-then-read round-trip
+      # can fail with errSecItemNotFound (-25300) depending on image state.
       - name: Prepare unlocked keychain
         run: |
           security create-keychain -p "" ci.keychain
+          security list-keychains -d user -s ci.keychain login.keychain
           security default-keychain -s ci.keychain
           security unlock-keychain -p "" ci.keychain
           security set-keychain-settings ci.keychain
