@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var inboxService: InboxService?
 
     private var midnightTimer: Timer?
+    /// Dedupe-state path (last-rollover.txt) for the midnight rollover, promoted to a
+    /// property so `applicationDidBecomeActive` can run the wake catch-up (CQ-07). nil
+    /// when Application Support could not be resolved at launch (CQ-06: rollover disabled).
+    private var rolloverStatePath: URL?
     /// Opt-in periodic inbox refresh timer (SC3). nil unless `inboxCheckPeriodically`
     /// is on; rescheduled when Settings closes so a toggle/interval change takes effect.
     private var inboxTimer: Timer?
@@ -83,24 +87,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // CQ-06: urls(for:in:) returning an empty array is pathological but possible —
         // fail soft (rollover disabled) instead of crashing the whole launch.
-        var rolloverState: URL?
         if let appSupportBase = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             let appSupport = appSupportBase.appendingPathComponent("Jotty")
             try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-            rolloverState = appSupport.appendingPathComponent("last-rollover.txt")
+            rolloverStatePath = appSupport.appendingPathComponent("last-rollover.txt")
         } else {
             NSLog("[Jotty] Application Support unavailable; rollover disabled")
         }
 
-        if let rolloverState {
-            do {
-                let svc = RolloverService(store: store, statePath: rolloverState, timezone: .current)
-                try svc.run(now: Date())
-            } catch {
-                NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
-            }
-        }
+        runRolloverCatchUp()
 
         // Construct the unified-inbox coordinator (Phase 7): the one shipped
         // GitHubInboxSource (reads its PAT from the Keychain at fetch time) over the
@@ -129,9 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
 
-        if let rolloverState {
-            scheduleMidnightRollover(rolloverState: rolloverState)
-        }
+        scheduleMidnightRollover()
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
         // unless the user enabled "Check periodically" in Settings → Integrations.
         scheduleInboxTimer()
@@ -192,6 +186,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when the grant is still notDetermined — otherwise every activation re-issues the
         // TCC dialog. The one-time prompt is driven by explicit user actions (popover open).
         Task { await menubar.listModel.reloadCalendar(promptIfUndetermined: false) }
+
+        // CQ-07 wake catch-up: a Mac asleep across midnight misses its one-shot timer.
+        // Re-run the rollover (idempotent — RolloverService self-dedupes via
+        // last-rollover.txt, so a same-day re-run is a no-op), reload the list so any
+        // moved tasks are reflected (mirrors the timer path), and re-arm the midnight
+        // timer so the next fire is scheduled relative to NOW, not the pre-sleep clock.
+        runRolloverCatchUp()
+        menubar.listModel.reload()
+        scheduleMidnightRollover()
+    }
+
+    /// Runs the rollover once for "now". Safe to call repeatedly — RolloverService
+    /// self-dedupes via last-rollover.txt, so a second run on the same day is a no-op
+    /// (the CQ-07 wake catch-up relies on this idempotency). A no-op when Application
+    /// Support was unavailable at launch (rolloverStatePath == nil, CQ-06).
+    private func runRolloverCatchUp() {
+        guard let rolloverStatePath else { return }
+        do {
+            let svc = RolloverService(store: store, statePath: rolloverStatePath, timezone: .current)
+            try svc.run(now: Date())
+        } catch {
+            NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -202,21 +219,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OllamaInstaller.shared.stopDaemon()
     }
 
-    private func scheduleMidnightRollover(rolloverState: URL) {
+    /// (Re)schedules the one-shot midnight rollover timer, invalidating any prior timer
+    /// first so repeated activations (CQ-07 wake re-arm) never accumulate timers. A
+    /// no-op when rollover is disabled (rolloverStatePath == nil, CQ-06).
+    private func scheduleMidnightRollover() {
         midnightTimer?.invalidate()
+        midnightTimer = nil
+        guard rolloverStatePath != nil else { return }
         let cal = Calendar.current
-        let nextMidnight = cal.nextDate(
+        // CQ-07: nil is effectively unreachable for a daily 00:00:05 match, but a nil
+        // must skip scheduling — never crash on a force-unwrap.
+        guard let nextMidnight = cal.nextDate(
             after: Date(),
             matching: DateComponents(hour: 0, minute: 0, second: 5),
             matchingPolicy: .nextTime
-        )!
+        ) else {
+            NSLog("[Jotty] could not compute next midnight; rollover timer not scheduled")
+            return
+        }
         let interval = nextMidnight.timeIntervalSinceNow
         midnightTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self else { return }
-            let svc = RolloverService(store: self.store, statePath: rolloverState, timezone: .current)
-            try? svc.run(now: Date())
+            self.runRolloverCatchUp()
             self.menubar.listModel.reload()
-            self.scheduleMidnightRollover(rolloverState: rolloverState)
+            self.scheduleMidnightRollover()
         }
     }
 
