@@ -42,8 +42,17 @@ final class CaptureWindowController: NSWindowController {
     func showCenteredOnActiveDisplay() {
         guard let win = window else { return }
         let mouseLoc = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLoc, $0.frame, false) })
-                    ?? NSScreen.main!
+        // WR-03 (CQ-06 sweep): NSScreen.main is documented nil when no screens are
+        // attached (clamshell/display-sleep transitions, headless sessions). A global
+        // hotkey press in that state must show unpositioned, never crash.
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLoc, $0.frame, false) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first else {
+            NSApp.activate(ignoringOtherApps: true)
+            showWindow(nil)
+            win.makeKeyAndOrderFront(nil)
+            return
+        }
         let frame = screen.visibleFrame
         let size = win.frame.size
         let origin = NSPoint(
