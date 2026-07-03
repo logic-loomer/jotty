@@ -1,5 +1,7 @@
 # Jotty
 
+[![ci](https://github.com/logic-loomer/jotty/actions/workflows/ci.yml/badge.svg)](https://github.com/logic-loomer/jotty/actions/workflows/ci.yml)
+
 Open-source macOS quick-capture app. Hit a hotkey, brain-dump, your notes land in a markdown file.
 
 **Status:** v1.0 shipped, plus Phase 7 (Unified Inbox). Right-click a task to Send to Claude (web or Claude Code), launch Jotty at login via `SMAppService`, a full seven-tab Settings window with key rebinding, a single-screen first-launch onboarding, the complete menubar context menu with inline rename, a documented privacy audit confirming the zero-network default, and a Unified Inbox that surfaces GitHub items (assigned issues / review-requested PRs, via a Keychain-stored Personal Access Token) as suggested tasks with no background polling by default. Builds on Phase 5 (Calendar integration: time-blocked tasks become real macOS Calendar events with a two-way `cal_event:<id>` link, today's events in the menubar, conflict and drift handling) and Phase 4 (five AI providers behind one protocol, API keys in the macOS Keychain, no-restart switching). Capture → Review → Commit flow.

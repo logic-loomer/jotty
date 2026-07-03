@@ -24,7 +24,7 @@ on:
 jobs:
   eval-cloud-providers:
     name: Cloud provider eval sweep
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       JOTTY_TEST_CLOUD_PROVIDERS: "1"
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

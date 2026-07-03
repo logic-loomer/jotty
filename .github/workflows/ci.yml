@@ -1,0 +1,65 @@
+# Push/PR build + test (CI-01).
+#
+# Runs the full JottyTests suite on every push to main and every pull request,
+# excluding the cloud/eval legs (CrossProviderTests) — those run in the weekly
+# eval-providers.yml workflow instead. Zero repository secrets by design.
+#
+# Runner: macos-26 is REQUIRED, not a preference — the test bundle injects into
+# a Jotty.app host built with MACOSX_DEPLOYMENT_TARGET 26.0, and a host OS older
+# than the deployment target refuses to launch it (actions/runner-images#13901).
+#
+# Apple FM suites (AppleFMProviderFixturesTests etc.) legitimately XCTSkip on
+# hosted runners (no Apple Intelligence) — gate only on xcodebuild exit status;
+# do NOT assert a zero-skip count.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test (macOS 26)
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin the toolchain explicitly so image-default Xcode bumps can't
+      # silently change the build. Non-fatal: falls back to the image default
+      # if that exact Xcode version has rotated off the image.
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app || sudo xcode-select -p
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # GitHub macOS runners can present a locked default keychain to test
+      # processes (actions/runner-images#4519), making SecItemAdd fail with
+      # errSecInteractionNotAllowed (-25308). KeychainAPIKeyStore tests do
+      # real SecItemAdd calls — give them an unlocked default keychain.
+      - name: Prepare unlocked keychain
+        run: |
+          security create-keychain -p "" ci.keychain
+          security default-keychain -s ci.keychain
+          security unlock-keychain -p "" ci.keychain
+          security set-keychain-settings ci.keychain
+
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -scheme Jotty \
+            -destination 'platform=macOS' \
+            -skip-testing:JottyTests/CrossProviderTests
