@@ -84,6 +84,7 @@
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
 		8399D513FDA08BCCC8E17D47 /* ActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */; };
 		86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */; };
+		8831234639E3E4BE5F29541E /* CommandBarModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90225AE2C63DF61A6F7879A /* CommandBarModelTests.swift */; };
 		8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */; };
 		887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */; };
 		88869343D8C9BBDC20B5B1CE /* ConfigStoreConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1B4AC378129D42A7D51CE0 /* ConfigStoreConcurrencyTests.swift */; };
@@ -121,6 +122,7 @@
 		BDDA6370872678ED79F0A9EE /* ExtractionPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F6907B37BF32C46C9D6038 /* ExtractionPromptTests.swift */; };
 		C15A0E464DAC736127AD7E6B /* ISOTaskMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */; };
 		C25D38EA7EABC4933A5DA778 /* Quarantine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6EB8F59B589E10E72601FAE /* Quarantine.swift */; };
+		C336A67E18F9C5C296283BCE /* CommandBarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01FFEB95E1FA359DD4BA867B /* CommandBarModel.swift */; };
 		C35DC5A6EDBAF1D9AC823043 /* KeybindingConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 584B89BD144F18FA0301D259 /* KeybindingConflicts.swift */; };
 		C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */; };
 		C59259F4495F8E7486A667BB /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */; };
@@ -180,6 +182,7 @@
 /* Begin PBXFileReference section */
 		006FA2D88232464A90253AFC /* ConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreTests.swift; sourceTree = "<group>"; };
 		00929A9F50EF33DD0F7D086E /* EventKitCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventKitCalendarService.swift; sourceTree = "<group>"; };
+		01FFEB95E1FA359DD4BA867B /* CommandBarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarModel.swift; sourceTree = "<group>"; };
 		0766755BD786B00550210084 /* DiskSpace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpace.swift; sourceTree = "<group>"; };
 		08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStoreTests.swift; sourceTree = "<group>"; };
 		09D99CCA3CCAA25B705C12E9 /* KeybindingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsTab.swift; sourceTree = "<group>"; };
@@ -337,6 +340,7 @@
 		F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolloverServiceTests.swift; sourceTree = "<group>"; };
 		F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProviderTests.swift; sourceTree = "<group>"; };
 		F776385CB322A3DDE510F823 /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
+		F90225AE2C63DF61A6F7879A /* CommandBarModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarModelTests.swift; sourceTree = "<group>"; };
 		FAB376A65C61F4CC4B8E8D63 /* Recurrence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recurrence.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -360,6 +364,7 @@
 				989392B9AE0158984B8094BF /* ClaudePromptTests.swift */,
 				0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */,
 				467F10277CD5B12995BAA041 /* CommandBarIndexTests.swift */,
+				F90225AE2C63DF61A6F7879A /* CommandBarModelTests.swift */,
 				006FA2D88232464A90253AFC /* ConfigStoreTests.swift */,
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
 				461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */,
@@ -569,6 +574,7 @@
 			children = (
 				0C9C26C070750595C1262771 /* CommandActionRegistry.swift */,
 				D90AB6AF42D0F8421E392BEF /* CommandBarIndex.swift */,
+				01FFEB95E1FA359DD4BA867B /* CommandBarModel.swift */,
 				C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */,
 			);
 			path = CommandBar;
@@ -867,6 +873,7 @@
 				A555FA0BE4730FAB981CF708 /* ClaudeProviderTests.swift in Sources */,
 				D0FCEFB1ED87CF32D217EC3E /* CommandActionRegistryTests.swift in Sources */,
 				F53872A2B328377AB7551F14 /* CommandBarIndexTests.swift in Sources */,
+				8831234639E3E4BE5F29541E /* CommandBarModelTests.swift in Sources */,
 				88869343D8C9BBDC20B5B1CE /* ConfigStoreConcurrencyTests.swift in Sources */,
 				E518CB95C20DB7611D5B7480 /* ConfigStoreProviderFieldTests.swift in Sources */,
 				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
@@ -952,6 +959,7 @@
 				011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */,
 				3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */,
 				774E8ADCFBCCF5F8B9AF26F8 /* CommandBarIndex.swift in Sources */,
+				C336A67E18F9C5C296283BCE /* CommandBarModel.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
