@@ -92,6 +92,7 @@
 		9A1A940CF599B1281E0D9285 /* KeybindingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */; };
 		9B3C881DA280A234D0231A75 /* ClaudePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = A769CD384B54035052E79D20 /* ClaudePrompt.swift */; };
 		A2E5D91EBDA488B5B4F891DB /* JottyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A9053C9CFEB56811D8D06FA /* JottyApp.swift */; };
+		A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */; };
 		A555FA0BE4730FAB981CF708 /* ClaudeProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7719D4B2AE14EC6B4A7E5A9 /* ClaudeProviderTests.swift */; };
 		A5992B59338A3F857B39DD48 /* RetryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */; };
 		A59F82509CD4D9973852DC20 /* InboxService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E50985DD1B606D64D5E868 /* InboxService.swift */; };
@@ -238,6 +239,7 @@
 		7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarTab.swift; sourceTree = "<group>"; };
 		820791648E6853B1DA48C4FF /* InstalledModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledModel.swift; sourceTree = "<group>"; };
 		8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
+		8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemClaudeHandoffTests.swift; sourceTree = "<group>"; };
 		88B479C8DBBC174CCACF42C1 /* InboxSourceCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalogTests.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
 		8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailability.swift; sourceTree = "<group>"; };
@@ -328,6 +330,7 @@
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
 				547C70B02E19E956E281543A /* AI */,
 				66278E9AE794B036093FAE80 /* Calendar */,
+				657CF6F988342D951C78D91B /* Claude */,
 				B8673E03FDD424E43569A804 /* Config */,
 				7A3B384B703F99BFFF5226BE /* Fakes */,
 				85398763BE5845E29E90B9CD /* Inbox */,
@@ -421,6 +424,14 @@
 				43923E183E14DDBEBB793B89 /* MenubarListView.swift */,
 			);
 			path = Menubar;
+			sourceTree = "<group>";
+		};
+		657CF6F988342D951C78D91B /* Claude */ = {
+			isa = PBXGroup;
+			children = (
+				8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */,
+			);
+			path = Claude;
 			sourceTree = "<group>";
 		};
 		66278E9AE794B036093FAE80 /* Calendar */ = {
@@ -816,6 +827,7 @@
 				3ED22ED5CB96C60B04AEC04B /* StoreRenameTests.swift in Sources */,
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
 				8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */,
+				A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */,
 				659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
