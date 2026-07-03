@@ -851,27 +851,34 @@ final class MenubarListModelTests: XCTestCase {
     }
 
     func testMoveStaleLeftoverToTomorrowLandsOnRealTomorrowNotInThePast() throws {
-        // CR-01 regression: a leftover whose createdAt is 3 days ago must land on
-        // today+1 (the REAL tomorrow, computed from now()), be removed from its old
-        // source day, and stop being a leftover — NOT be written back 2 days in the past.
+        // CR-01 + IN-03 regression: a rolled leftover (createdAt 3 days ago,
+        // visible copy in TODAY's file — the only state the menubar can show)
+        // must move FROM today's file TO today+1 (the REAL tomorrow, computed
+        // from now()) and stop being a leftover — NOT leave the visible copy
+        // behind, NOT land in a past-day file.
         let store = Store(folder: folder, timezone: tz)
-        let threeDaysAgo = makeDate(2026, 6, 9, h: 9)   // source day file
+        let threeDaysAgo = makeDate(2026, 6, 9, h: 9)
         let today = makeDate(2026, 6, 12, h: 8)
-        // The stale leftover lives in ITS OWN day file (2026-06-09), not today's.
+        // Post-rollover state: hidden rolled_to:-marked origin line…
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_stale", text: "ancient leftover", createdAt: threeDaysAgo,
+                 rolledTo: makeDate(2026, 6, 12, h: 0, min: 0))
+        ], at: threeDaysAgo)
+        // …and the visible copy in today's file (createdAt keeps the origin day).
         try store.appendCapture(noteText: "", noteId: nil, tasks: [
             Todo(id: "t_stale", text: "ancient leftover", createdAt: threeDaysAgo)
-        ], at: threeDaysAgo)
+        ], at: today)
 
         let model = MenubarListModel(store: store, timezone: tz,
                                      defaults: defaults, now: { today })
-        // Build the Todo the menubar would hand to moveToTomorrow (its createdAt drives
-        // the SOURCE day; the destination is anchored on now()).
-        let task = try XCTUnwrap(try store.readDoc(on: threeDaysAgo).tasks.first { $0.id == "t_stale" })
+        // The row the user acts on comes from the model's partitions (IN-03).
+        let task = try XCTUnwrap(model.leftovers.first { $0.id == "t_stale" })
         model.moveToTomorrow(task)
 
-        // Removed from the old (3-days-ago) source file.
-        XCTAssertFalse(try store.readDoc(on: threeDaysAgo).tasks.contains { $0.id == "t_stale" },
-                       "stale leftover removed from its old source day")
+        // The visible copy left today's file (no duplicate stays behind).
+        XCTAssertFalse(try store.readDoc(on: today).tasks.contains { $0.id == "t_stale" },
+                       "the visible today copy is the one that moves")
+        XCTAssertFalse(model.leftovers.contains { $0.id == "t_stale" })
         // Landed on the REAL tomorrow (today+1 = 2026-06-13), not 2 days in the past.
         let realTomorrow = makeDate(2026, 6, 13, h: 8)
         let landed = try XCTUnwrap(try store.readDoc(on: realTomorrow).tasks.first { $0.id == "t_stale" })
@@ -884,6 +891,36 @@ final class MenubarListModelTests: XCTestCase {
         let twoDaysAgo = makeDate(2026, 6, 10, h: 8)
         XCTAssertFalse(try store.readDoc(on: twoDaysAgo).tasks.contains { $0.id == "t_stale" },
                        "must NOT land in a past-day file")
+        // The hidden origin line keeps its rolled_to: history marker untouched.
+        let originLine = try XCTUnwrap(try store.readDoc(on: threeDaysAgo).tasks.first { $0.id == "t_stale" })
+        XCTAssertNotNil(originLine.rolledTo)
+    }
+
+    func testRenameRolledLeftoverEditsVisibleCopyNotHiddenOriginLine() throws {
+        // IN-03: renaming a rolled leftover must rewrite the visible today copy;
+        // writing the hidden origin line let the reload revert the user's edit.
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old text", createdAt: yesterday,
+                 rolledTo: makeDate(2026, 6, 12, h: 0, min: 0))
+        ], at: yesterday)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old text", createdAt: yesterday)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let leftover = try XCTUnwrap(model.leftovers.first { $0.id == "t_left" })
+        model.rename(leftover, to: "new text")
+
+        XCTAssertEqual(try store.readDoc(on: today).tasks.first { $0.id == "t_left" }?.text,
+                       "new text", "the visible copy is renamed")
+        XCTAssertEqual(model.leftovers.first { $0.id == "t_left" }?.text, "new text",
+                       "the reload keeps (not reverts) the edit")
+        XCTAssertEqual(try store.readDoc(on: yesterday).tasks.first { $0.id == "t_left" }?.text,
+                       "old text", "the hidden origin line is history — untouched")
     }
 
     // MARK: - SC4: inline rename (row affordance)

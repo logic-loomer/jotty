@@ -143,11 +143,12 @@ final class MenubarListModel: ObservableObject {
         reload()
     }
 
-    /// The day FILE a task is stored in: its `createdAt` day in the model's timezone
-    /// (IN-05). Used by `rename` / `openDayFile` (which genuinely want the file the task
-    /// lives in) and as the SOURCE day for `moveToTomorrow` — never as the "act relative
-    /// to" anchor (that anchor is `now()`, see CR-01).
-    private func fileDay(of task: Todo) -> Date { task.createdAt }
+    // NOTE (CR-03/IN-03): every visible row is loaded from TODAY's doc —
+    // `reload()` reads only today's file, and rollover lands leftovers there
+    // as copies that keep their origin `createdAt`. "The file the task lives
+    // in" is therefore ALWAYS today's file for anything the menubar can show;
+    // a createdAt-derived day would point at the hidden, rolled_to:-marked
+    // origin line instead. All row ops anchor on `now()`.
 
     /// `clearMissingLinks` is forwarded to the spawned calendar refresh: it is true on a
     /// genuine open-time reload (popover open, foreground, midnight) so a deleted event's
@@ -620,15 +621,17 @@ final class MenubarListModel: ObservableObject {
     /// Moves the task to TOMORROW's file (SC4). "Tomorrow" is computed from the current
     /// day (`now()`), NOT from the task's creation day, so a stale leftover (created days
     /// ago) lands on the real tomorrow and stops being a leftover — never written back to a
-    /// past-day file (CR-01). The source file is the one the task currently lives in
-    /// (`fileDay(of:)`). Disk is the source of truth: the store removes it from its source
-    /// and lands it on tomorrow (re-partitioned createdAt), then we reload so it leaves
-    /// today's list. A linked calendar event is left untouched here (the time block keeps
-    /// its wall-clock slot on the new day; a later edit re-syncs the event). A failure
-    /// logs, never crashes.
+    /// past-day file (CR-01). The source file is TODAY's file — the one every visible row
+    /// was loaded from (IN-03: a rolled leftover's visible copy lives in today's doc; its
+    /// createdAt-day file holds only the hidden rolled_to:-marked line, so a createdAt
+    /// source left the visible copy in place and duplicated onto tomorrow). Disk is the
+    /// source of truth: the store removes it from today and lands it on tomorrow
+    /// (re-partitioned createdAt), then we reload so it leaves today's list. A linked
+    /// calendar event is left untouched here (the time block keeps its wall-clock slot on
+    /// the new day; a later edit re-syncs the event). A failure logs, never crashes.
     func moveToTomorrow(_ task: Todo) {
         do {
-            try store.moveTodoToTomorrow(id: task.id, from: fileDay(of: task), now: now())
+            try store.moveTodoToTomorrow(id: task.id, from: now(), now: now())
         } catch {
             NSLog("[Jotty] moveToTomorrow failed: \(error.localizedDescription)")
         }
@@ -636,10 +639,11 @@ final class MenubarListModel: ObservableObject {
     }
 
     /// Opens the markdown day file the task lives in (SC4). Read-only reveal in the
-    /// user's default .md handler; never mutates state. No-op only when the file path
-    /// cannot be resolved (it always can — DailyFile derives a deterministic path).
+    /// user's default .md handler; never mutates state. Post-rollover, "the file the
+    /// task lives in" is TODAY's file — the doc the visible line was loaded from
+    /// (IN-03); the createdAt-day file holds only the rolled_to:-marked origin line.
     func openDayFile(_ task: Todo) {
-        let url = DailyFile.url(in: store.folder, on: fileDay(of: task), timezone: store.timezone)
+        let url = DailyFile.url(in: store.folder, on: now(), timezone: store.timezone)
         NSWorkspace.shared.open(url)
     }
 
@@ -659,11 +663,14 @@ final class MenubarListModel: ObservableObject {
 
     /// Commits an inline rename (SC4). The store rewrites only the task's text,
     /// preserving id + every metadata token, and rejects an empty-after-trim rename
-    /// (no write — the caller reverts the UI). Disk stays the source of truth; we
-    /// reload so the list reflects the new text. A failure logs, never crashes.
+    /// (no write — the caller reverts the UI). Anchored on TODAY's file, the doc the
+    /// visible row came from (IN-03: renaming a rolled leftover on its createdAt day
+    /// rewrote the hidden origin line and the reload reverted the user's edit). Disk
+    /// stays the source of truth; we reload so the list reflects the new text. A
+    /// failure logs, never crashes.
     func rename(_ task: Todo, to text: String) {
         do {
-            try store.renameTodo(id: task.id, text: text, on: fileDay(of: task))
+            try store.renameTodo(id: task.id, text: text, on: now())
         } catch {
             NSLog("[Jotty] rename failed: \(error.localizedDescription)")
         }
