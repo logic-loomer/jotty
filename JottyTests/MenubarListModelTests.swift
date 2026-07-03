@@ -1109,6 +1109,68 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(stored.recur)
     }
 
+    func testSnoozeOnRolledLeftoverWritesTodayCopyAndHidesIt() throws {
+        // CR-03: after rollover a leftover exists as TWO lines sharing one id —
+        // the hidden rolled_to:-marked origin line and the visible copy in
+        // TODAY's file (the one reload() loads). Snooze must stamp the visible
+        // copy, not the hidden origin line (which made "Snooze to Tomorrow" on
+        // any leftover a silent no-op).
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        // Origin line: rolled_to today (never displayed).
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old thing", createdAt: yesterday,
+                 rolledTo: makeDate(2026, 6, 12, h: 0, min: 0))
+        ], at: yesterday)
+        // Rolled copy in today's file (createdAt keeps the origin day).
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old thing", createdAt: yesterday)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let leftover = try XCTUnwrap(model.leftovers.first { $0.id == "t_left" })
+        model.snooze(leftover, to: makeDate(2026, 6, 13, h: 0, min: 0))
+
+        // The VISIBLE copy in today's file carries the token…
+        let todayCopy = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_left" })
+        XCTAssertEqual(todayCopy.snooze, makeDate(2026, 6, 13, h: 0, min: 0))
+        // …the hidden origin line is untouched…
+        let originLine = try XCTUnwrap(try store.readDoc(on: yesterday).tasks.first { $0.id == "t_left" })
+        XCTAssertNil(originLine.snooze)
+        // …and the leftover actually disappears from the list until the date.
+        XCTAssertFalse(model.leftovers.contains { $0.id == "t_left" })
+        XCTAssertFalse(model.todayTasks.contains { $0.id == "t_left" })
+    }
+
+    func testSetRecurrenceOnRolledLeftoverWritesTodayCopy() throws {
+        // CR-03 (Repeat half): the rule must land on the visible today copy so
+        // the checkmark reflects it — not on the hidden rolled-away origin line.
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old thing", createdAt: yesterday,
+                 rolledTo: makeDate(2026, 6, 12, h: 0, min: 0))
+        ], at: yesterday)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_left", text: "old thing", createdAt: yesterday)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let leftover = try XCTUnwrap(model.leftovers.first { $0.id == "t_left" })
+        model.setRecurrence(leftover, to: .daily)
+
+        let todayCopy = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_left" })
+        XCTAssertEqual(todayCopy.recur, .daily, "rule lands on the visible copy")
+        let originLine = try XCTUnwrap(try store.readDoc(on: yesterday).tasks.first { $0.id == "t_left" })
+        XCTAssertNil(originLine.recur, "hidden origin line stays rule-free")
+        XCTAssertEqual(model.leftovers.first { $0.id == "t_left" }?.recur, .daily,
+                       "the reloaded row shows the rule (checkmark reflects reality)")
+    }
+
     func testSnoozeConvenienceDatesAnchorOnNowNotCreatedAt() throws {
         // CR-01: Tomorrow / Next week are computed from now(), never task.createdAt.
         let store = Store(folder: folder, timezone: tz)

@@ -673,13 +673,16 @@ final class MenubarListModel: ObservableObject {
     // MARK: - Snooze + recurrence (Phase 8 SC2/SC3)
 
     /// Snoozes the task until `date` (SC3 / CALX-03): the Store writes the
-    /// `snooze:` token in place on the file the task lives in — visibility only,
-    /// the task is never relocated (distinct from move-to-tomorrow) — then the
-    /// reload drops it from today's partitions until the date arrives. A failure
-    /// logs, never crashes (mirrors `moveToTomorrow`/`rename`).
+    /// `snooze:` token in place on TODAY's file — the file every visible row
+    /// was loaded from (CR-03: a rolled leftover's visible copy lives in
+    /// today's doc; its `createdAt`-day file holds only the hidden
+    /// `rolled_to:`-marked origin line, so anchoring there was a silent
+    /// no-op). Visibility only, the task is never relocated (distinct from
+    /// move-to-tomorrow); the reload then drops it from today's partitions
+    /// until the date arrives. A failure logs, never crashes.
     func snooze(_ task: Todo, to date: Date) {
         do {
-            try store.snoozeTodo(id: task.id, to: date, on: fileDay(of: task))
+            try store.snoozeTodo(id: task.id, to: date, on: now())
         } catch {
             NSLog("[Jotty] snooze failed: \(error.localizedDescription)")
         }
@@ -687,11 +690,12 @@ final class MenubarListModel: ObservableObject {
     }
 
     /// Sets the task's recurrence rule (SC2 / CALX-02 UI surface); `nil` clears
-    /// it (the Repeat "None" choice). Persists the `recur:` token via the Store,
-    /// then reloads. A failure logs, never crashes.
+    /// it (the Repeat "None" choice). Anchored on TODAY's file, same as
+    /// `snooze` (CR-03). Persists the `recur:` token via the Store, then
+    /// reloads. A failure logs, never crashes.
     func setRecurrence(_ task: Todo, to recurrence: Recurrence?) {
         do {
-            try store.setTodoRecurrence(id: task.id, to: recurrence, on: fileDay(of: task))
+            try store.setTodoRecurrence(id: task.id, to: recurrence, on: now())
         } catch {
             NSLog("[Jotty] setRecurrence failed: \(error.localizedDescription)")
         }
