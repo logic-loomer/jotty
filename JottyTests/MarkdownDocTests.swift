@@ -200,6 +200,38 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(t.calEventID, "EVT:9001")
     }
 
+    // WR-04: a hand-edited `- [X]` (uppercase — standard in hand-edited markdown and
+    // many editors' checkbox toggles) must parse as DONE. The old lowercase-only
+    // comparison parsed it as not-done, and the next re-serialize silently rewrote
+    // the user's completion state as `- [ ]`.
+    func testUppercaseXParsesAsDoneAndSurvivesRoundTrip() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let handEdited = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [X] hand-completed <!-- id:t_upper created:2026-05-08T07:30:00+10:00 -->
+
+        ## Notes
+
+        """
+        let parsed = try MarkdownDoc.parse(handEdited, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        XCTAssertTrue(parsed.tasks[0].done, "uppercase [X] must parse as done")
+
+        // Round-trip: the re-serialized doc must keep the task completed
+        // (normalized to the canonical lowercase form), never un-complete it.
+        let reserialized = parsed.serialize(timezone: tz)
+        XCTAssertTrue(reserialized.contains("- [x] hand-completed"),
+                      "re-serialize must preserve completion, not rewrite [X] as [ ]")
+        let reparsed = try MarkdownDoc.parse(reserialized, timezone: tz)
+        XCTAssertTrue(reparsed.tasks[0].done)
+    }
+
     // Phase 5 plan 01: a legacy task line WITHOUT time:/cal_event: still parses
     // (new fields nil) — back-compat with pre-Phase-5 files. Includes a
     // createdAt-based line to protect Phase 2.5 leftover detection.

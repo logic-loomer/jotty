@@ -148,7 +148,12 @@ struct MarkdownDoc: Equatable {
             // Parse whitespace-separated key:value tokens
             var id = ""
             var createdAt: Date = parsedDate
-            var done = stateChar == "x"
+            // WR-04: accept uppercase X as done — hand-edited markdown (and many
+            // editors' checkbox toggles) writes `- [X]`, and every mutation path
+            // re-serializes the parsed doc, so parsing it as not-done would
+            // silently rewrite the user's completion state as `- [ ]`. `let`
+            // (IN-03): the `done:` metadata token only sets completedAt.
+            let done = stateChar.lowercased() == "x"
             var completedAt: Date? = nil
             var dueDate: Date? = nil
             var rolledTo: Date? = nil
