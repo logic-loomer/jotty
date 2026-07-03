@@ -161,6 +161,112 @@ final class StoreTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(doc.tasks.first).timeBlock)
     }
 
+    // MARK: - Snooze + recurrence Store ops (Phase 8, CALX-03)
+
+    func testSnoozeTodoSetsSnoozeOnDiskPreservingIdAndOtherTokens() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_snz", text: "write report", createdAt: now,
+                 dueDate: makeDate(2026, 5, 9, h: 0, m: 0))
+        ], at: now)
+
+        try store.snoozeTodo(id: "t_snz", to: makeDate(2026, 5, 10, h: 9, m: 0), on: now)
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first { $0.id == "t_snz" })
+        // snooze: is date-only (yyyy-MM-dd) — round-trips to midnight of the snooze day.
+        XCTAssertEqual(task.snooze, makeDate(2026, 5, 10, h: 0, m: 0))
+        // Copy-mutate whole Todo: id + every other token unchanged.
+        XCTAssertEqual(task.id, "t_snz")
+        XCTAssertEqual(task.text, "write report")
+        XCTAssertEqual(task.createdAt, now)
+        XCTAssertEqual(task.dueDate, makeDate(2026, 5, 9, h: 0, m: 0))
+        XCTAssertFalse(task.done)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let body = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(body.contains("snooze:2026-05-10"), "snooze: token written to disk")
+    }
+
+    func testSnoozeTodoMissingIdIsNoOpFileByteIdentical() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_001", text: "x", createdAt: now)],
+                                at: now)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let before = try String(contentsOf: url, encoding: .utf8)
+
+        try store.snoozeTodo(id: "t_nope", to: makeDate(2026, 5, 10, h: 0, m: 0), on: now)
+
+        let after = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(before, after, "absent id must be a no-op (file byte-identical)")
+    }
+
+    func testSetTodoRecurrenceSetsAndNilClearsPreservingOtherFields() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_rec", text: "standup", createdAt: now,
+                 dueDate: makeDate(2026, 5, 9, h: 0, m: 0))
+        ], at: now)
+
+        try store.setTodoRecurrence(id: "t_rec", to: .custom([1, 3, 5]), on: now)
+
+        var doc = try store.readDoc(on: now)
+        var task = try XCTUnwrap(doc.tasks.first { $0.id == "t_rec" })
+        XCTAssertEqual(task.recur, .custom([1, 3, 5]))
+        // All other fields survive the copy-mutate.
+        XCTAssertEqual(task.text, "standup")
+        XCTAssertEqual(task.createdAt, now)
+        XCTAssertEqual(task.dueDate, makeDate(2026, 5, 9, h: 0, m: 0))
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("recur:custom:1,3,5"))
+
+        // The "None" Repeat choice: nil clears the token.
+        try store.setTodoRecurrence(id: "t_rec", to: nil, on: now)
+        doc = try store.readDoc(on: now)
+        task = try XCTUnwrap(doc.tasks.first { $0.id == "t_rec" })
+        XCTAssertNil(task.recur)
+        XCTAssertEqual(task.text, "standup", "clear preserves the other fields too")
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("recur:"))
+
+        // Absent id is a no-op (byte-identical), mirroring snoozeTodo.
+        let before = try String(contentsOf: url, encoding: .utf8)
+        try store.setTodoRecurrence(id: "t_nope", to: .daily, on: now)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), before)
+    }
+
+    func testSnoozePreservesCalEventTimeAndSourceTokens() throws {
+        // Phase 7 CR-01 regression guard: snoozing a task that already carries
+        // cal_event + time + source/source_url must preserve ALL of them — the
+        // Store op copy-mutates the WHOLE Todo, never rebuilds field-by-field.
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let start = makeDate(2026, 5, 8, h: 14, m: 0)
+        let end = makeDate(2026, 5, 8, h: 15, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_full", text: "review PR", createdAt: now,
+                 timeBlock: TimeBlock(start: start, end: end),
+                 calEventID: "evt-abc",
+                 source: "github:42",
+                 sourceURL: "https://github.com/org/repo/issues/42")
+        ], at: now)
+
+        try store.snoozeTodo(id: "t_full", to: makeDate(2026, 5, 12, h: 0, m: 0), on: now)
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first { $0.id == "t_full" })
+        XCTAssertEqual(task.snooze, makeDate(2026, 5, 12, h: 0, m: 0))
+        XCTAssertEqual(task.timeBlock, TimeBlock(start: start, end: end),
+                       "time: survives the snooze write")
+        XCTAssertEqual(task.calEventID, "evt-abc", "cal_event: survives the snooze write")
+        XCTAssertEqual(task.source, "github:42", "source: survives the snooze write")
+        XCTAssertEqual(task.sourceURL, "https://github.com/org/repo/issues/42",
+                       "source_url: survives the snooze write")
+        XCTAssertEqual(task.text, "review PR")
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
         c.timeZone = TimeZone(identifier: "Australia/Sydney")
