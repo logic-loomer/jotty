@@ -1119,7 +1119,237 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.snoozeNextWeekDate, makeDate(2026, 6, 19, h: 0, min: 0))
     }
 
+    // MARK: - Phase 8 SC1: drag-to-time-block dropTask (CALX-01)
+
+    /// The model's default drop duration (RESEARCH A2: 30 min).
+    private var dropDuration: TimeInterval { 30 * 60 }
+
+    func testDropTaskSetsTimeBlockCreatesSanitizedEventAndWritesCalEventBack() async throws {
+        // Markdown emphasis in the text must be sanitized OUT of the event title (T-8-08).
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "**write** report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        let slot = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot)
+        await model.awaitDropWork()
+
+        let expected = TimeBlock(start: slot, end: slot.addingTimeInterval(dropDuration))
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.timeBlock, expected, "time: block = slot + default duration")
+        // Exactly ONE event, created via the Phase-5 path with the SANITIZED title.
+        XCTAssertEqual(fake.createdEvents.count, 1)
+        XCTAssertEqual(fake.createdEvents.first?.title, "write report")
+        XCTAssertEqual(fake.createdEvents.first?.start, slot)
+        XCTAssertEqual(fake.createdEvents.first?.end, expected.end)
+        // cal_event: written back onto the markdown line after the async completes.
+        XCTAssertEqual(stored.calEventID, "fake-event-1")
+    }
+
+    func testDropTaskCalendarCreateFailureLeavesTimeBlockOnDiskNoCalEvent() async throws {
+        // Best-effort (T-8-09): a create failure never rolls back the disk write.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "write report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "boom")
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        let slot = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot)
+        await model.awaitDropWork()
+
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.timeBlock,
+                       TimeBlock(start: slot, end: slot.addingTimeInterval(dropDuration)),
+                       "disk wins: the time: block stays despite the calendar failure")
+        XCTAssertNil(stored.calEventID, "no cal_event on a failed create")
+    }
+
+    func testDropTaskConflictCancelSkipsCreateKeepsTimeBlock() async throws {
+        // Conflict gate (T-8-10): an overlapping event must consult the decision;
+        // cancel skips the create but the time: block is already on disk (disk wins).
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "write report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-x", title: "Existing Standup",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        let slot = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot)
+        try await waitUntil { model.pendingDropConflict != nil }
+        XCTAssertEqual(model.pendingDropConflict?.conflictTitle, "Existing Standup")
+        model.resolveDropConflict(commitAnyway: false)
+        await model.awaitDropWork()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty, "cancel must skip the create")
+        XCTAssertNil(model.pendingDropConflict, "conflict state clears after decision")
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.timeBlock,
+                       TimeBlock(start: slot, end: slot.addingTimeInterval(dropDuration)),
+                       "the disk-first time: block survives a cancel")
+        XCTAssertNil(stored.calEventID)
+    }
+
+    func testDropTaskConflictCommitAnywayCreatesEvent() async throws {
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "write report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-x", title: "Existing Standup",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        let slot = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot)
+        try await waitUntil { model.pendingDropConflict != nil }
+        model.resolveDropConflict(commitAnyway: true)
+        await model.awaitDropWork()
+
+        XCTAssertEqual(fake.createdEvents.count, 1, "commit anyway creates the event")
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.calEventID, "fake-event-1")
+    }
+
+    func testDropTaskOnScheduledTaskMovesBlockWithoutDuplicateCreate() async throws {
+        // CONTEXT "unscheduled only": a drop on an already-scheduled task is a MOVE —
+        // the linked event is updated in place, never created a second time.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "write report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        // First drop: schedules + creates fake-event-1.
+        let slot1 = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot1)
+        await model.awaitDropWork()
+        XCTAssertEqual(fake.createdEvents.count, 1)
+
+        // Second drop on the SAME (now scheduled + linked) task: a move.
+        let slot2 = makeDate(2026, 6, 12, h: 16)
+        model.dropTask(id: "t_drop", atSlot: slot2)
+        await model.awaitDropWork()
+
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.timeBlock,
+                       TimeBlock(start: slot2, end: slot2.addingTimeInterval(dropDuration)),
+                       "the move writes the new block")
+        XCTAssertEqual(fake.createdEvents.count, 1, "no duplicate create beyond the one event")
+        XCTAssertEqual(fake.updatedEventIDs, ["fake-event-1"],
+                       "the move updates the linked event in place")
+        XCTAssertEqual(stored.calEventID, "fake-event-1")
+    }
+
+    func testDropTaskUnknownIdIsNoOp() async throws {
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_other", text: "unrelated", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        model.dropTask(id: "t_missing", atSlot: makeDate(2026, 6, 12, h: 14))
+        await model.awaitDropWork()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty)
+        let doc = try store.readDoc(on: today)
+        XCTAssertNil(try XCTUnwrap(doc.tasks.first { $0.id == "t_other" }).timeBlock,
+                     "an unknown id must write nothing")
+    }
+
+    func testDropTaskWithNoCalendarStillWritesTimeBlock() async throws {
+        // Pure task tool path: no calendar injected — the block lands on disk, no event.
+        let (store, today) = try seed(tasks: [
+            Todo(id: "t_drop", text: "write report", createdAt: makeDate(2026, 6, 12, h: 8))
+        ])
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today })
+
+        let slot = makeDate(2026, 6, 12, h: 14)
+        model.dropTask(id: "t_drop", atSlot: slot)
+        await model.awaitDropWork()
+
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_drop" })
+        XCTAssertEqual(stored.timeBlock,
+                       TimeBlock(start: slot, end: slot.addingTimeInterval(dropDuration)))
+        XCTAssertNil(stored.calEventID)
+        // The synchronous reload reflects the new block in the visible list.
+        XCTAssertEqual(model.todayTasks.first { $0.id == "t_drop" }?.timeBlock?.start, slot)
+    }
+
+    // MARK: - Phase 8 SC1: unscheduledTasks (canvas rail source)
+
+    func testUnscheduledTasksListsVisibleTasksWithoutTimeBlock() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            // Unscheduled leftover: visible + draggable.
+            Todo(id: "t_left", text: "leftover", createdAt: yesterday),
+            // Unscheduled today task: visible + draggable.
+            Todo(id: "t_plain", text: "plain", createdAt: today),
+            // Already scheduled: excluded from the rail.
+            Todo(id: "t_blocked", text: "blocked", createdAt: today,
+                 timeBlock: TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                                      end: makeDate(2026, 6, 12, h: 15))),
+            // Done: nothing left to schedule.
+            Todo(id: "t_done", text: "done", createdAt: today, done: true),
+            // Future-snoozed: hidden from today entirely (CALX-03).
+            Todo(id: "t_snoozed", text: "snoozed", createdAt: today,
+                 snooze: makeDate(2026, 6, 20))
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+
+        XCTAssertEqual(model.unscheduledTasks.map(\.id), ["t_left", "t_plain"],
+                       "visible, not-done, timeBlock==nil tasks only")
+    }
+
     // MARK: - Helpers
+
+    /// Polls until `condition` is true or fails after `timeout` (mirrors
+    /// CaptureViewModelTests.waitUntil — for the pending-drop-conflict suspension).
+    private func waitUntil(
+        timeout: TimeInterval = 2.0,
+        _ condition: @MainActor () -> Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)   // 5ms
+        }
+        XCTFail("condition not met within \(timeout)s", file: file, line: line)
+    }
 
     /// Seeds today's file with the given tasks and returns (store, today).
     private func seed(tasks: [Todo], at today: Date? = nil) throws -> (Store, Date) {
