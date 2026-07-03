@@ -112,6 +112,47 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertEqual(instances.count, 1)
     }
 
+    /// CR-02 second belt (iteration 3): run() can crash BETWEEN the today
+    /// write (instances already on disk, recur_src markers present) and
+    /// writeState. On the retry the state file still says yesterday, so the
+    /// first-run-of-day gate RE-OPENS and instancing runs again — only the
+    /// recur_src marker check stands between the retry and a duplicate.
+    /// testSameDayDoubleRunIsIdempotent cannot reach this path: its first run
+    /// writes state, so the gate short-circuits the re-run before the marker
+    /// check is ever consulted. This test seeds the exact crash residue
+    /// (instance on disk + stale state) and pins the belt.
+    func testCrashRetryAfterInstanceWriteBeforeStateWriteDoesNotDuplicate() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        // Crash residue: the previous run already wrote today's instance
+        // (marker and all) ...
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_inst", text: "water plants",
+                                             createdAt: startOfDay(today),
+                                             recur: .daily,
+                                             recurSrc: "t_tpl:2026-05-08")],
+                                at: today)
+        // ... but died before writeState: state still says yesterday.
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: makeDate(2026, 5, 8, h: 9))   // the retry
+
+        let instances = try store.readDoc(on: today).tasks
+            .filter { $0.recurSrc == "t_tpl:2026-05-08" }
+        XCTAssertEqual(instances.count, 1,
+                       "the retry must not duplicate the already-written instance")
+        XCTAssertEqual(instances.first?.id, "t_inst",
+                       "the surviving instance is the one the crashed run wrote")
+        XCTAssertEqual(try String(contentsOf: statePath, encoding: .utf8), "2026-05-08",
+                       "the retry advances the state file")
+    }
+
     /// WR-01: a fresh instance never inherits the template's snooze/due —
     /// the contract is "a brand-new, not-done, unscheduled, unlinked task
     /// created today", and snooze/due affect only the line they are on.
