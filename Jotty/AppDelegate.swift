@@ -10,6 +10,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the first menubar "Calendar canvas" item tap and retained (mirror of
     /// the Settings controller idiom) so repeated opens re-show one window.
     private var canvasController: CalendarCanvasWindowController?
+    /// The ⌘K command bar (Phase 9 CMDB-01). Created lazily on the first
+    /// toggle and retained (canvas idiom) so repeated opens re-show one panel.
+    private var commandBarController: CommandBarPanelController?
+    private var commandBarModel: CommandBarModel?
+    /// App-level Action → handler registry (SC4). Built after services; every
+    /// CommandActionRegistry action gets a handler + a launch coverage check
+    /// (the phase-level IN-01 closure).
+    private var dispatcher: ActionDispatcher!
+    /// Local key-down monitor routing recorded app-level combos through the
+    /// dispatcher (SC4's non-global leg). Installed ONCE at launch; retained
+    /// for the app's lifetime (removing it would disable palette keybindings).
+    private var localKeyMonitor: Any?
 
     private var configStore: ConfigStore!
     /// The user-writable keybindings store, SHARED with the Settings → Keybindings tab
@@ -140,8 +152,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // unless the user enabled "Check periodically" in Settings → Integrations.
         scheduleInboxTimer()
 
+        // App-level dispatch (SC4): one handler per registry action, then the
+        // launch-time coverage check, then the local combo monitor — built
+        // after services/menubar so every handler closes over live seams.
+        dispatcher = ActionDispatcher()
+        registerDispatcherHandlers()
+        runDispatchCoverageCheck()
+        installLocalKeyMonitor()
+
         hotkey = HotkeyManager()
-        registerGlobalHotkey()
+        registerGlobalHotkeys()
 
         // First-launch onboarding (D-SC5): present the single welcome screen once,
         // after all services are built so its Grant-Calendar routes through the SAME
@@ -152,19 +172,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// (Re)registers the global capture hotkey from the CURRENT user keybinding for
-    /// `.globalToggleCapture`. `HotkeyManager.register` unregisters any prior hotkey
-    /// first, so calling this after a rebind swaps the combo live (Pitfall 4 — no
-    /// stale hotkey lingers). A nil binding or a registration failure logs, never crashes.
-    private func registerGlobalHotkey() {
-        guard let combo = keybindings.combo(for: .globalToggleCapture) else {
-            hotkey.unregister(id: .capture)
-            NSLog("[Jotty] No keybinding for .globalToggleCapture; skipping hotkey registration")
+    /// (Re)registers BOTH global hotkeys from the CURRENT user keybindings:
+    /// `.globalToggleCapture` → openCapture (⌘N) and `.globalCommandBar` →
+    /// toggleCommandBar (⌘K), each on its own Carbon id (multi-id dispatch,
+    /// Pitfall 1). `HotkeyManager.register` unregisters the same id first, so
+    /// calling this after a rebind swaps combos live (Pitfall 4 — the Settings
+    /// willClose observer gives ⌘K live rebind for free). If the user binds
+    /// both globals to ONE combo, the second RegisterEventHotKey fails and
+    /// logs; the KeybindingsTab conflict warning covers it (locked fallback).
+    private func registerGlobalHotkeys() {
+        registerGlobalHotkey(id: .capture, action: .globalToggleCapture) { [weak self] in
+            self?.openCapture()
+        }
+        registerGlobalHotkey(id: .commandBar, action: .globalCommandBar) { [weak self] in
+            self?.toggleCommandBar()
+        }
+    }
+
+    /// One id's registration leg: a nil binding unregisters the id + logs; a
+    /// registration failure logs, never crashes.
+    private func registerGlobalHotkey(id: HotkeyManager.ID, action: Action,
+                                      handler: @escaping () -> Void) {
+        guard let combo = keybindings.combo(for: action) else {
+            hotkey.unregister(id: id)
+            NSLog("[Jotty] No keybinding for \(action.rawValue); skipping hotkey registration")
             return
         }
-        let success = hotkey.register(id: .capture, combo: combo) { [weak self] in self?.openCapture() }
-        if !success {
-            NSLog("[Jotty] Global hotkey registration failed — another app may already be using this key combo")
+        if !hotkey.register(id: id, combo: combo, handler: handler) {
+            NSLog("[Jotty] Global hotkey registration failed for \(action.rawValue) — another app may already be using this key combo")
         }
     }
 
@@ -284,6 +319,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Registers one handler per `CommandActionRegistry` action (SC4 — the
+    /// dispatch leg IN-01 required). Every handler resolves live state at
+    /// DISPATCH time (config folder, login status), never at registration.
+    private func registerDispatcherHandlers() {
+        dispatcher.register(.globalToggleCapture) { [weak self] in self?.openCapture() }
+        dispatcher.register(.openCalendarCanvas) { [weak self] in self?.openCalendarCanvas() }
+        dispatcher.register(.openSettingsGeneral) { [weak self] in self?.openSettings(tab: .general) }
+        dispatcher.register(.openSettingsStorage) { [weak self] in self?.openSettings(tab: .storage) }
+        dispatcher.register(.openSettingsAI) { [weak self] in self?.openSettings(tab: .ai) }
+        dispatcher.register(.openSettingsCalendar) { [weak self] in self?.openSettings(tab: .calendar) }
+        dispatcher.register(.openSettingsIntegrations) { [weak self] in self?.openSettings(tab: .integrations) }
+        dispatcher.register(.openSettingsKeybindings) { [weak self] in self?.openSettings(tab: .keybindings) }
+        dispatcher.register(.openSettingsAdvanced) { [weak self] in self?.openSettings(tab: .advanced) }
+        dispatcher.register(.toggleLaunchAtLogin) { [weak self] in self?.toggleLaunchAtLogin() }
+        dispatcher.register(.replayOnboarding) { [weak self] in self?.replayOnboarding() }
+        dispatcher.register(.openTodayFile) { [weak self] in self?.openTodayFile() }
+    }
+
+    /// Launch-time dispatch coverage check (phase-level IN-01 closure): every
+    /// palette-listed action MUST have a registered handler. A gap logs in
+    /// release and asserts in debug — an unwired action is a wiring bug, and
+    /// `dispatch` returning false keeps it a no-op rather than a crash.
+    private func runDispatchCoverageCheck() {
+        for entry in CommandActionRegistry.all where !dispatcher.hasHandler(for: entry.action) {
+            NSLog("[Jotty] COVERAGE FAILURE: no dispatcher handler registered for \(entry.action.rawValue)")
+            assertionFailure("Unwired palette action: \(entry.action.rawValue)")
+        }
+    }
+
+    /// Installs the ONE local key-down monitor routing recorded app-level
+    /// combos through the dispatcher (SC4's non-global leg). Guards:
+    /// - requires ⌘/⌃/⌥ (plain typing and bare-shift keys are NEVER intercepted);
+    /// - restricted to `ActionDispatcher.appLevelActions` (never the Carbon
+    ///   globals, never SwiftUI-handled capture/sendToClaude combos);
+    /// - swallows the event ONLY when a dispatch actually handled it.
+    private func installLocalKeyMonitor() {
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let mods = KeyCombo.modifiers(from: event.modifierFlags)
+            guard !mods.isDisjoint(with: [.cmd, .ctrl, .opt]) else { return event }
+            let pressed = KeyCombo(keyCode: event.keyCode, modifiers: mods)
+            for (action, combo) in self.keybindings.allBindings()
+                where combo == pressed && ActionDispatcher.appLevelActions.contains(action) {
+                if self.dispatcher.dispatch(action) { return nil }
+            }
+            return event
+        }
+    }
+
+    /// Toggles the ⌘K command bar (CMDB-01): visible → close; else lazily
+    /// build the retained controller+model (canvas idiom), rebuild the per-open
+    /// corpus, and show. The toggle lives ONLY here — the view has no local ⌘K
+    /// equivalent (Pitfall 10); Carbon hotkeys fire even while our panel is key.
+    private func toggleCommandBar() {
+        if let controller = commandBarController, controller.isVisible {
+            controller.close()
+            return
+        }
+        if commandBarModel == nil || commandBarController == nil {
+            let model = CommandBarModel(list: menubar.listModel, dispatcher: dispatcher)
+            let controller = CommandBarPanelController(model: model)
+            model.onRequestClose = { [weak controller] in controller?.close() }
+            // Pitfall 8: close the panel FIRST, then open the popover one
+            // runloop later — the transient popover must not open while the
+            // panel is still key (it would close as the panel resigns).
+            model.onOpenMenubar = { [weak self] taskID in
+                self?.commandBarController?.close()
+                DispatchQueue.main.async {
+                    self?.menubar.showPopover(highlighting: taskID)
+                }
+            }
+            commandBarModel = model
+            commandBarController = controller
+        }
+        commandBarModel?.prepareForOpen()
+        commandBarController?.show()
+    }
+
+    /// Palette "Toggle Launch at Login": flip the LIVE OS status (never a
+    /// cached value — D-SC2). enabled/requiresApproval count as on → disable;
+    /// otherwise enable. A throw logs; the General tab reconciles from live
+    /// status on its next open, so no state can go stale.
+    private func toggleLaunchAtLogin() {
+        let status = launchAtLogin.status()
+        do {
+            if status == .enabled || status == .requiresApproval {
+                try launchAtLogin.disable()
+            } else {
+                try launchAtLogin.enable()
+            }
+        } catch {
+            NSLog("[Jotty] toggle launch at login failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Palette "Replay Onboarding": clear the completed flag via the ConfigStore
+    /// write idiom (mirror GeneralTab.replayOnboarding), then present. A persist
+    /// failure logs and still presents — replaying is harmless.
+    private func replayOnboarding() {
+        do {
+            try configStore.update { $0.hasCompletedOnboarding = false }
+        } catch {
+            NSLog("[Jotty] replay onboarding: config write failed: \(error.localizedDescription)")
+        }
+        presentOnboarding()
+    }
+
+    /// Palette "Open Today's File": build the Store at DISPATCH time (a
+    /// Settings folder change must take effect live — Pitfall 9) and open
+    /// today's file in the default editor (MenubarListView open-day-file idiom).
+    private func openTodayFile() {
+        let store = Store(folder: configStore.config.storageFolder, timezone: .current)
+        let url = DailyFile.url(in: store.folder, on: Date(), timezone: store.timezone)
+        NSWorkspace.shared.open(url)
+    }
+
     private func openCapture() {
         // Close any prior capture window to prevent stacking on rapid re-presses.
         captureController?.window?.close()
@@ -383,7 +534,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         canvasController?.show()
     }
 
-    private func openSettings() {
+    /// Opens Settings, optionally deep-linked to `tab` (palette "Open Settings
+    /// — X" actions route here through the SettingsTabSelection seam). The
+    /// default nil keeps the menubar gear item's behavior unchanged (last tab).
+    private func openSettings(tab: SettingsTab? = nil) {
         if settingsController == nil {
             // Inject the SHARED runtime services: the live calendar (Calendar tab
             // picker), the app-lifetime launch-at-login service (General toggle), and
@@ -404,7 +558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.registerGlobalHotkey()
+                    self.registerGlobalHotkeys()
                     // A Settings → Integrations toggle/interval change takes effect live.
                     self.scheduleInboxTimer()
                     // WR-09: a Settings → Storage folder change takes effect live too —
@@ -416,6 +570,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        settingsController?.show()
+        settingsController?.show(tab: tab)
     }
 }

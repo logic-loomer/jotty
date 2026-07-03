@@ -1714,7 +1714,7 @@ private struct SuggestedSection: View {
 
                 ForEach(service.suggestions) { item in
                     HStack(spacing: 8) {
-                        Image(systemName: Self.glyph(for: item.sourceID))
+                        Image(systemName: InboxSourceGlyph.glyph(for: item.sourceID))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .frame(width: sourceGlyphWidth)
@@ -1751,8 +1751,14 @@ private struct SuggestedSection: View {
         }
     }
 
-    /// SF Symbol per source id; defaults to a generic inbox glyph for unmapped sources.
-    private static func glyph(for sourceID: String) -> String {
+}
+
+/// SF Symbol per inbox source id; defaults to a generic inbox glyph for
+/// unmapped sources. Hoisted from `SuggestedSection` (where it was private) so
+/// the ⌘K command bar's Inbox rows reuse the SAME mapping instead of
+/// duplicating it (09-05 Task 1).
+enum InboxSourceGlyph {
+    static func glyph(for sourceID: String) -> String {
         switch sourceID {
         case "github": return "chevron.left.forwardslash.chevron.right"
         case "gmail":  return "envelope"
