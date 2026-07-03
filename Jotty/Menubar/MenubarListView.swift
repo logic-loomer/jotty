@@ -736,6 +736,9 @@ struct MenubarListView: View {
                                                 .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
+                                        // A11Y-01: leftovers are always not-done, so the
+                                        // label is the single actionable direction.
+                                        .accessibilityLabel("Mark done")
                                         rowTitle(task, isLeftover: true)
                                         // UX-05: origin date for rows older than yesterday
                                         // (the "Earlier" header already implies yesterday).
@@ -764,6 +767,9 @@ struct MenubarListView: View {
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                // A11Y-01: state-dynamic label — announces the action
+                                // the toggle will take, not the current state.
+                                .accessibilityLabel(task.done ? "Mark not done" : "Mark done")
                                 rowTitle(task, isLeftover: false)
                                 Spacer()
                                 rowOverflowMenu(task)
@@ -936,6 +942,10 @@ struct MenubarListView: View {
                 .foregroundStyle(rowTextStyle(task, isLeftover: isLeftover))
                 .contentShape(Rectangle())
                 .onTapGesture { beginRename(task) }
+                // A11Y-01: tap-gesture text is invisible to VoiceOver as a
+                // control — expose the button trait and explain the action.
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Double-tap to rename")
         }
     }
 
@@ -1140,12 +1150,16 @@ private struct SuggestedSection: View {
                         }
                         .buttonStyle(.plain)
                         .help("Accept — add to today's tasks")
+                        // A11Y-01: .help() tooltips are NOT VoiceOver labels
+                        // (RESEARCH Pattern 10) — keep the tooltip AND label.
+                        .accessibilityLabel("Accept suggestion")
                         Button(action: { onDismiss(item) }) {
                             Image(systemName: "xmark.circle")
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Dismiss — never suggest again")
+                        .accessibilityLabel("Dismiss suggestion")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 3)
