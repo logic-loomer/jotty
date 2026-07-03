@@ -27,6 +27,8 @@ struct GeneralTab: View {
     @State private var status: LaunchAtLoginStatus
     @State private var toggleFailed = false
     @State private var onboardingReset = false
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
     /// Re-entrancy guard (WR-05): true while `refreshStatus` programmatically reconciles
     /// `launchEnabled` to the live OS status. SwiftUI fires `onChange` for ANY value
     /// change, including programmatic ones, so without this guard a reconcile would
@@ -75,6 +77,8 @@ struct GeneralTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
+
+                PersistFailureNotice(visible: persistFailed)
             }
         }
         .formStyle(.grouped)
@@ -134,7 +138,19 @@ struct GeneralTab: View {
     }
 
     private func replayOnboarding() {
-        try? configStore.update { $0.hasCompletedOnboarding = false }
-        onboardingReset = true
+        persist { $0.hasCompletedOnboarding = false }
+        onboardingReset = !persistFailed
+    }
+
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    /// (The launch-at-login `toggleFailed` notice above is separate and unchanged.)
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
     }
 }

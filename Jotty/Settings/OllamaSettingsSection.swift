@@ -13,6 +13,8 @@ struct OllamaSettingsSection: View {
     @StateObject var installer = OllamaInstaller.shared
     @State private var models: [InstalledModel] = []
     @State private var selectedModel: String?
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     /// Wraps `installer.install()` so the Cancel button can tear the
     /// download down (URLSession bytes loop throws on task cancellation).
@@ -160,7 +162,7 @@ struct OllamaSettingsSection: View {
                 HStack(spacing: 8) {
                     Button {
                         selectedModel = model.name
-                        try? configStore.update { $0.ollamaModel = model.name }
+                        persist { $0.ollamaModel = model.name }
                     } label: {
                         Image(systemName: selectedModel == model.name
                               ? "largecircle.fill.circle" : "circle")
@@ -176,7 +178,7 @@ struct OllamaSettingsSection: View {
                             try? await OllamaModelManager.shared.delete(model: model.name)
                             if selectedModel == model.name {
                                 selectedModel = nil
-                                try? configStore.update { $0.ollamaModel = nil }
+                                persist { $0.ollamaModel = nil }
                             }
                             await refreshModels()
                         }
@@ -203,8 +205,21 @@ struct OllamaSettingsSection: View {
             if let pullError {
                 Text(pullError).font(.system(size: 11)).foregroundStyle(.red)
             }
+
+            PersistFailureNotice(visible: persistFailed)
         }
         .task { await refreshModels() }
+    }
+
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
     }
 
     private var addModelControls: some View {

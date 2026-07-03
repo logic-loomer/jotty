@@ -30,6 +30,8 @@ struct AITab: View {
     @State private var availability: AIAvailability = .unavailable(reason: "checking…")
     @State private var selectedProvider: String
     @State private var claudeAction: ClaudeAction
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -53,8 +55,9 @@ struct AITab: View {
                 }
                 .pickerStyle(.menu)
                 .onChange(of: selectedProvider) { _, newValue in
-                    try? configStore.update { $0.aiProviderID = newValue }
+                    persist { $0.aiProviderID = newValue }
                 }
+                PersistFailureNotice(visible: persistFailed)
             }
 
             Section(header: Text("Send to Claude")) {
@@ -66,7 +69,7 @@ struct AITab: View {
                 }
                 .pickerStyle(.inline)
                 .onChange(of: claudeAction) { _, newValue in
-                    try? configStore.update { $0.claudeAction = newValue }
+                    persist { $0.claudeAction = newValue }
                 }
                 Text("\"Send to Claude\" opens the selected task in claude.ai, or hands it to the local Claude Code CLI.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -138,6 +141,17 @@ struct AITab: View {
         .onAppear { availability = AIAvailability.current() }
     }
 
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
+    }
+
     private var pillColor: Color {
         switch availability {
         case .available: return .green
@@ -187,6 +201,8 @@ private struct CloudProviderKeyRow: View {
     @State private var draftKey: String = ""
     @State private var keySaved: Bool = false
     @State private var saveFailed: Bool = false
+    /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
+    @State private var confirmRemove: Bool = false
 
     private let keyStore = KeychainAPIKeyStore()
 
@@ -215,8 +231,16 @@ private struct CloudProviderKeyRow: View {
                     .font(.system(size: 12))
                 Button("Save") { saveKey() }
                     .disabled(draftKey.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button("Remove") { removeKey() }
+                Button("Remove") { confirmRemove = true }
                     .disabled(!keySaved)
+                    .confirmationDialog("Remove \(title) API key?",
+                                        isPresented: $confirmRemove,
+                                        titleVisibility: .visible) {
+                        Button("Remove", role: .destructive) { removeKey() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Cloud extraction with \(title) stops until you save a new key.")
+                    }
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")

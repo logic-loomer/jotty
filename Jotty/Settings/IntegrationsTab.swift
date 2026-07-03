@@ -27,6 +27,8 @@ struct IntegrationsTab: View {
 
     @State private var checkPeriodically: Bool
     @State private var intervalMinutes: Int
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -49,7 +51,7 @@ struct IntegrationsTab: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Check periodically", isOn: $checkPeriodically)
                         .onChange(of: checkPeriodically) { _, on in
-                            try? configStore.update {
+                            persist {
                                 $0.inboxCheckPeriodically = on
                                 // Seed an interval on first enable so the timer has a value.
                                 if on, $0.inboxCheckIntervalMinutes == nil {
@@ -69,12 +71,14 @@ struct IntegrationsTab: View {
                         }
                         .onChange(of: intervalMinutes) { _, mins in
                             let floored = max(Self.minIntervalMinutes, mins)
-                            try? configStore.update { $0.inboxCheckIntervalMinutes = floored }
+                            persist { $0.inboxCheckIntervalMinutes = floored }
                         }
                         Text("Minimum 5 minutes.")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
+
+                    PersistFailureNotice(visible: persistFailed)
                 }
             }
 
@@ -89,6 +93,17 @@ struct IntegrationsTab: View {
         }
         .formStyle(.grouped)
         .frame(width: 560, height: 640)
+    }
+
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
     }
 }
 
@@ -107,6 +122,8 @@ private struct GitHubTokenRow: View {
     @State private var draftToken: String = ""
     @State private var tokenSaved: Bool = false
     @State private var saveFailed: Bool = false
+    /// UX-07 / T-07.1-15: gate the destructive Keychain delete behind confirmation.
+    @State private var confirmRemove: Bool = false
 
     private let keyStore = KeychainAPIKeyStore()
 
@@ -135,8 +152,16 @@ private struct GitHubTokenRow: View {
                     .font(.system(size: 12))
                 Button("Save") { saveToken() }
                     .disabled(draftToken.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button("Remove") { removeToken() }
+                Button("Remove") { confirmRemove = true }
                     .disabled(!tokenSaved)
+                    .confirmationDialog("Remove GitHub token?",
+                                        isPresented: $confirmRemove,
+                                        titleVisibility: .visible) {
+                        Button("Remove", role: .destructive) { removeToken() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("GitHub inbox suggestions stop until you save a new token.")
+                    }
             }
             if saveFailed {
                 Text("Couldn't update the Keychain. Try again.")

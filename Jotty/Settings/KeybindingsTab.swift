@@ -22,6 +22,8 @@ struct KeybindingsTab: View {
     /// / reset (KeybindingsStore is a reference type with no Combine publisher).
     @State private var bindings: [Action: KeyCombo]
     @State private var resetConfirm = false
+    /// CQ-01: set when a keybindings write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     init(store: KeybindingsStore) {
         self.store = store
@@ -79,6 +81,8 @@ struct KeybindingsTab: View {
                 Text("Click a shortcut, then press a new key combination to rebind it.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+
+                PersistFailureNotice(visible: persistFailed)
             }
         }
         .formStyle(.grouped)
@@ -96,13 +100,26 @@ struct KeybindingsTab: View {
         return names.joined(separator: " and ")
     }
 
+    // CQ-01 (RESEARCH Pattern 6): KeybindingsStore writes get the same do/catch +
+    // flag idiom as ConfigStore persists — errors never escape into the view body.
+
     private func rebind(_ action: Action, to combo: KeyCombo) {
-        try? store.setCombo(combo, for: action)
+        do {
+            try store.setCombo(combo, for: action)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
         bindings = store.allBindings()
     }
 
     private func resetToDefaults() {
-        try? store.reset()
+        do {
+            try store.reset()
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
         bindings = store.allBindings()
     }
 }

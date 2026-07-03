@@ -27,6 +27,8 @@ struct CalendarTab: View {
     @State private var deletePreference: DeletePreference
     @State private var writableCalendars: [(id: String, title: String)] = []
     @State private var didLoadCalendars = false
+    /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
+    @State private var persistFailed = false
 
     /// The three-state delete preference, mapped to/from the optional Bool config field.
     private enum DeletePreference: Hashable {
@@ -82,7 +84,18 @@ struct CalendarTab: View {
             return
         }
 
-        try? configStore.update { $0.calendarIdentifier = newValue }
+        persist { $0.calendarIdentifier = newValue }
+    }
+
+    /// CQ-01 (RESEARCH Pattern 6): wrap config writes in do/catch — success clears
+    /// the failure flag, failure sets it. Errors never escape into the view body.
+    private func persist(_ mutate: (inout AppConfig) -> Void) {
+        do {
+            try configStore.update(mutate)
+            persistFailed = false
+        } catch {
+            persistFailed = true
+        }
     }
 
     var body: some View {
@@ -120,11 +133,13 @@ struct CalendarTab: View {
                 }
                 .pickerStyle(.inline)
                 .onChange(of: deletePreference) { _, newValue in
-                    try? configStore.update { $0.deleteCalendarEventWithTask = newValue.stored }
+                    persist { $0.deleteCalendarEventWithTask = newValue.stored }
                 }
 
                 Text("Controls whether deleting a linked task also removes its calendar event.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
+
+                PersistFailureNotice(visible: persistFailed)
             }
         }
         .formStyle(.grouped)
