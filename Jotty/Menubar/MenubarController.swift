@@ -6,6 +6,10 @@ final class MenubarController {
     let statusItem: NSStatusItem
     var onCapture: (() -> Void)?
     var onSettings: (() -> Void)?
+    /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04); AppDelegate
+    /// wires this to its `openCalendarCanvas()` — the `Action.openCalendarCanvas`
+    /// handler. nil (e.g. in tests) degrades to a no-op item.
+    var onOpenCanvas: (() -> Void)?
 
     private let popover = NSPopover()
     let listModel: MenubarListModel
@@ -74,6 +78,10 @@ final class MenubarController {
             onSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onSettings?()
+            },
+            onOpenCanvas: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onOpenCanvas?()
             }
         )
 

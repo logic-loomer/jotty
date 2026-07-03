@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAAFD291515674072BD84FC /* CodesignVerifier.swift */; };
 		06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0766755BD786B00550210084 /* DiskSpace.swift */; };
+		06AEFB3FD045D927A3777F80 /* CalendarCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8D9F79747D2AEE1CC04ADD /* CalendarCanvasView.swift */; };
 		09556E3574E7E5D08C69BDFA /* RecordComboField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA64F0A54A08FC53D3F5681 /* RecordComboField.swift */; };
 		0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B026F43211BD2F9BB519C180 /* AppDelegate.swift */; };
 		1143FCA70958F285D810FE6C /* SystemClaudeHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC72E43E14620B4805DE626 /* SystemClaudeHandoff.swift */; };
@@ -191,6 +192,7 @@
 		2AE255E7F61DE901F24F8B45 /* CalendarCanvasModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarCanvasModel.swift; sourceTree = "<group>"; };
 		2B0993B3BF71BAFAE30F6EEF /* PrivacyDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyDefaultTests.swift; sourceTree = "<group>"; };
 		2B29B0272ECA39FE89E7A3DB /* OllamaTypesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaTypesTests.swift; sourceTree = "<group>"; };
+		2B8D9F79747D2AEE1CC04ADD /* CalendarCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarCanvasView.swift; sourceTree = "<group>"; };
 		2BAD23F9436F343AD92FE459 /* OllamaSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaSettingsSection.swift; sourceTree = "<group>"; };
 		2D1A3C43F920384C287A9C41 /* PersistFailureNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistFailureNotice.swift; sourceTree = "<group>"; };
 		2FE80CD595DDAA8675E4921D /* InboxSourceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalog.swift; sourceTree = "<group>"; };
@@ -679,6 +681,7 @@
 			isa = PBXGroup;
 			children = (
 				2AE255E7F61DE901F24F8B45 /* CalendarCanvasModel.swift */,
+				2B8D9F79747D2AEE1CC04ADD /* CalendarCanvasView.swift */,
 				23C090ADF66A94D4A73E9BD8 /* CalendarDrift.swift */,
 				5212E65936B5489A73151E30 /* CalendarEventMapper.swift */,
 				1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */,
@@ -892,6 +895,7 @@
 				0DC234678FC7ACCFDCF108CC /* AppDelegate.swift in Sources */,
 				D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */,
 				F6CC91638497397B5F90C67F /* CalendarCanvasModel.swift in Sources */,
+				06AEFB3FD045D927A3777F80 /* CalendarCanvasView.swift in Sources */,
 				DC13F6F4A63642BD6B3DE162 /* CalendarDrift.swift in Sources */,
 				FA9753E9A723FFBE84D5BE54 /* CalendarEventMapper.swift in Sources */,
 				C59259F4495F8E7486A667BB /* CalendarService.swift in Sources */,
