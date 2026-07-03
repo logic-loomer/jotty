@@ -328,11 +328,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        NotificationCenter.default.addObserver(
+        // WR-08: block-based observers are never auto-removed — NotificationCenter
+        // retains each block for the life of the app, so a per-open registration
+        // accumulated unboundedly. Capture the token and remove it when it fires
+        // (the window closes exactly once). `nonisolated(unsafe)` is sound: the
+        // token is assigned once here, before the window can possibly close, and
+        // only read inside the one-shot handler.
+        nonisolated(unsafe) var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: controller.window,
             queue: .main
         ) { [weak self, weak vm] _ in
+            if let token { NotificationCenter.default.removeObserver(token) }
             MainActor.assumeIsolated {
                 // CQ-02: the capture window is going away — resolve any pending
                 // calendar-conflict prompt to cancel (safe default) so the suspended
