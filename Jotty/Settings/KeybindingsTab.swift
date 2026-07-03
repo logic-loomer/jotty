@@ -30,13 +30,31 @@ struct KeybindingsTab: View {
         _bindings = State(initialValue: store.allBindings())
     }
 
-    /// Display order + human labels for the bound actions.
-    private static let labels: [(action: Action, label: String)] = [
-        (.globalToggleCapture, "Open capture window"),
-        (.captureSubmit,       "Submit capture"),
-        (.captureCancel,       "Cancel capture"),
-        (.sendToClaude,        "Send to Claude"),
+    /// Display order + human labels for the bound actions. Internal (not private)
+    /// so CommandActionRegistryTests can assert the IN-01 row-coverage contract:
+    /// every routed action has a row here.
+    static let labels: [(action: Action, label: String)] = [
+        (.globalToggleCapture,      "Open capture window"),
+        (.globalCommandBar,         "Open command bar"),
+        (.captureSubmit,            "Submit capture"),
+        (.captureCancel,            "Cancel capture"),
+        (.sendToClaude,             "Send to Claude"),
+        (.openCalendarCanvas,       "Open calendar canvas"),
+        (.openTodayFile,            "Open today's file"),
+        (.openSettingsGeneral,      "Open Settings — General"),
+        (.openSettingsStorage,      "Open Settings — Storage"),
+        (.openSettingsAI,           "Open Settings — AI"),
+        (.openSettingsCalendar,     "Open Settings — Calendar"),
+        (.openSettingsIntegrations, "Open Settings — Integrations"),
+        (.openSettingsKeybindings,  "Open Settings — Keybindings"),
+        (.openSettingsAdvanced,     "Open Settings — Advanced"),
+        (.toggleLaunchAtLogin,      "Toggle launch at login"),
+        (.replayOnboarding,         "Replay onboarding"),
     ]
+
+    /// WR-06: GLOBAL hotkeys must require a modifier — a bare key would be
+    /// grabbed system-wide and hijack that key everywhere. BOTH globals qualify.
+    static let requiresModifierActions: Set<Action> = [.globalToggleCapture, .globalCommandBar]
 
     private var currentConflicts: [KeybindingConflict] {
         conflicts(in: bindings)
@@ -51,9 +69,7 @@ struct KeybindingsTab: View {
                         Spacer()
                         RecordComboField(
                             current: bindings[entry.action],
-                            // WR-06: the GLOBAL hotkey must require a modifier — a bare key
-                            // would be grabbed system-wide and hijack that key everywhere.
-                            allowsBareKey: entry.action != .globalToggleCapture
+                            allowsBareKey: !Self.requiresModifierActions.contains(entry.action)
                         ) { combo in
                             rebind(entry.action, to: combo)
                         }

@@ -31,6 +31,7 @@
 		3477567BEFA4C82E03320B2E /* SMAppLaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF369BD5FB25AF56FD74547 /* SMAppLaunchAtLoginService.swift */; };
 		36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
+		3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9C26C070750595C1262771 /* CommandActionRegistry.swift */; };
 		3A7B97E8267549450599D9AE /* ProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */; };
 		3B3F9C348BF60C997586949D /* InboxItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */; };
 		3E41425FB0D8104549F26DB9 /* OllamaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60CB0F4682A7134A9AA1575 /* OllamaProviderTests.swift */; };
@@ -125,6 +126,7 @@
 		C8DB8628E4AB0D1FDF2EA3AD /* PersistFailureNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1A3C43F920384C287A9C41 /* PersistFailureNotice.swift */; };
 		CB943CF3635054901E217689 /* RecordComboValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C529B2156C8F06BE1F36348 /* RecordComboValidationTests.swift */; };
 		CF69E9C4BD5EAE5170C79687 /* InstalledModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820791648E6853B1DA48C4FF /* InstalledModel.swift */; };
+		D0FCEFB1ED87CF32D217EC3E /* CommandActionRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */; };
 		D2A3A7C12C3C6198C6476A30 /* GeminiProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A507EC6C62BFF0B50DF9DB /* GeminiProvider.swift */; };
 		D4571DE189B4142C2E4B7C26 /* OnboardingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDE140B418AF6F0F2B101AD /* OnboardingWindow.swift */; };
 		D47704925E2D9F1B33AC830C /* AppleFMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0EE59D27C1702E78013B10 /* AppleFMProvider.swift */; };
@@ -179,7 +181,9 @@
 		0766755BD786B00550210084 /* DiskSpace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpace.swift; sourceTree = "<group>"; };
 		08A8AB1294E243EEE46C13F4 /* KeybindingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsStoreTests.swift; sourceTree = "<group>"; };
 		09D99CCA3CCAA25B705C12E9 /* KeybindingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingsTab.swift; sourceTree = "<group>"; };
+		0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandActionRegistryTests.swift; sourceTree = "<group>"; };
 		0BCE7D5AC91D983DE35836C5 /* CrossProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossProviderTests.swift; sourceTree = "<group>"; };
+		0C9C26C070750595C1262771 /* CommandActionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandActionRegistry.swift; sourceTree = "<group>"; };
 		11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapper.swift; sourceTree = "<group>"; };
 		148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionResult.swift; sourceTree = "<group>"; };
 		1779948226E7290A4141189D /* ExtractedTaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskAI.swift; sourceTree = "<group>"; };
@@ -350,6 +354,7 @@
 				E0F52135146AD473AE108B77 /* CanvasLayoutTests.swift */,
 				3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */,
 				989392B9AE0158984B8094BF /* ClaudePromptTests.swift */,
+				0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */,
 				006FA2D88232464A90253AFC /* ConfigStoreTests.swift */,
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
 				461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */,
@@ -557,6 +562,7 @@
 		8A5746CB071F1A7FBC201B4E /* CommandBar */ = {
 			isa = PBXGroup;
 			children = (
+				0C9C26C070750595C1262771 /* CommandActionRegistry.swift */,
 				C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */,
 			);
 			path = CommandBar;
@@ -853,6 +859,7 @@
 				8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */,
 				E6560770E1789D3C19A78AB8 /* ClaudePromptTests.swift in Sources */,
 				A555FA0BE4730FAB981CF708 /* ClaudeProviderTests.swift in Sources */,
+				D0FCEFB1ED87CF32D217EC3E /* CommandActionRegistryTests.swift in Sources */,
 				88869343D8C9BBDC20B5B1CE /* ConfigStoreConcurrencyTests.swift in Sources */,
 				E518CB95C20DB7611D5B7480 /* ConfigStoreProviderFieldTests.swift in Sources */,
 				B9A7635A507134DCFFCC52BC /* ConfigStoreTests.swift in Sources */,
@@ -936,6 +943,7 @@
 				9B3C881DA280A234D0231A75 /* ClaudePrompt.swift in Sources */,
 				5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */,
 				011FCD0F8A85C3042612DB19 /* CodesignVerifier.swift in Sources */,
+				3A7B2495D880C97497BDD8E3 /* CommandActionRegistry.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,

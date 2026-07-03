@@ -175,4 +175,129 @@ final class KeybindingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.combo(for: .captureSubmit)?.keyCode, 49,
                        "persisted backfill keeps the user's custom bind")
     }
+
+    // MARK: - Phase 9: one-shot sendToClaude ⌘K → ⌘⇧K migration (09-02 Task 3)
+
+    /// The Phase-9 seed shape: sendToClaude moved to ⌘⇧K, global.commandBar ⌘K added.
+    /// Mirrors Jotty/Resources/default-keybindings.json — injected so seed and
+    /// migration are tested against the SAME source the store decodes.
+    private static let phase9Seed = """
+    { "version": 1,
+      "bindings": {
+        "global.toggleCapture": { "keyCode": 45, "modifiers": ["cmd"] },
+        "capture.submit":       { "keyCode": 36, "modifiers": ["cmd"] },
+        "capture.cancel":       { "keyCode": 53, "modifiers": [] },
+        "send.toClaude":        { "keyCode": 40, "modifiers": ["cmd", "shift"] },
+        "global.commandBar":    { "keyCode": 40, "modifiers": ["cmd"] }
+      }
+    }
+    """.data(using: .utf8)!
+
+    private static let legacyCmdK = KeyCombo(keyCode: 40, modifiers: [.cmd])
+    private static let cmdShiftK  = KeyCombo(keyCode: 40, modifiers: [.cmd, .shift])
+
+    private func writeUserFile(_ json: String) throws {
+        try FileManager.default.createDirectory(
+            at: userPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.data(using: .utf8)!.write(to: userPath)
+    }
+
+    func testLegacyConstantPinsTheOldDefault() {
+        XCTAssertEqual(KeybindingsStore.legacySendToClaudeDefault, Self.legacyCmdK,
+                       "the NAMED legacy constant must stay ⌘K (keyCode 40, [cmd]) forever — " +
+                       "it identifies pre-Phase-9 uncustomized files")
+    }
+
+    func testPreP9FileWithDefaultCmdKMigratesOnceAndBackfillsCommandBar() throws {
+        // Pre-Phase-9 file: no global.commandBar key, sendToClaude still the old ⌘K default.
+        try writeUserFile("""
+        { "version": 1,
+          "bindings": {
+            "global.toggleCapture": { "keyCode": 45, "modifiers": ["cmd"] },
+            "capture.submit":       { "keyCode": 36, "modifiers": ["cmd"] },
+            "capture.cancel":       { "keyCode": 53, "modifiers": [] },
+            "send.toClaude":        { "keyCode": 40, "modifiers": ["cmd"] }
+          }
+        }
+        """)
+
+        let store = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+
+        XCTAssertEqual(store.combo(for: .sendToClaude), Self.cmdShiftK,
+                       "uncustomized sendToClaude migrates ⌘K → ⌘⇧K (from the SEED)")
+        XCTAssertEqual(store.combo(for: .globalCommandBar), Self.legacyCmdK,
+                       "global.commandBar backfills ⌘K (WR-02)")
+
+        // Persisted: a fresh store at the same path sees the migrated state.
+        let reloaded = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+        XCTAssertEqual(reloaded.combo(for: .sendToClaude), Self.cmdShiftK)
+        XCTAssertEqual(reloaded.combo(for: .globalCommandBar), Self.legacyCmdK)
+    }
+
+    func testPreP9FileWithCustomizedSendToClaudeIsNeverTouched() throws {
+        // User customized sendToClaude to ⌘J (keyCode 38) before Phase 9.
+        try writeUserFile("""
+        { "version": 1,
+          "bindings": {
+            "global.toggleCapture": { "keyCode": 45, "modifiers": ["cmd"] },
+            "capture.submit":       { "keyCode": 36, "modifiers": ["cmd"] },
+            "capture.cancel":       { "keyCode": 53, "modifiers": [] },
+            "send.toClaude":        { "keyCode": 38, "modifiers": ["cmd"] }
+          }
+        }
+        """)
+
+        let store = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+
+        XCTAssertEqual(store.combo(for: .sendToClaude),
+                       KeyCombo(keyCode: 38, modifiers: [.cmd]),
+                       "a customized sendToClaude is kept verbatim")
+        XCTAssertEqual(store.combo(for: .globalCommandBar), Self.legacyCmdK,
+                       "global.commandBar still backfills ⌘K")
+    }
+
+    func testPostP9FileWithManuallyResetCmdKIsNotReMigrated() throws {
+        // Post-Phase-9 file: global.commandBar present. The user then deliberately
+        // set sendToClaude BACK to ⌘K. The commandBar-key presence is the already-ran
+        // sentinel, so the rewrite can never re-fire — the conflict warning covers
+        // the ⌘K clash (locked fallback).
+        try writeUserFile("""
+        { "version": 1,
+          "bindings": {
+            "global.toggleCapture": { "keyCode": 45, "modifiers": ["cmd"] },
+            "capture.submit":       { "keyCode": 36, "modifiers": ["cmd"] },
+            "capture.cancel":       { "keyCode": 53, "modifiers": [] },
+            "send.toClaude":        { "keyCode": 40, "modifiers": ["cmd"] },
+            "global.commandBar":    { "keyCode": 40, "modifiers": ["cmd"] }
+          }
+        }
+        """)
+
+        let store = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+
+        XCTAssertEqual(store.combo(for: .sendToClaude), Self.legacyCmdK,
+                       "post-P9 manual ⌘K stays ⌘K — the migration never re-fires")
+        XCTAssertEqual(store.combo(for: .globalCommandBar), Self.legacyCmdK)
+    }
+
+    func testFreshInstallSeedsNewDefaultsInOnePass() throws {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: userPath.path))
+
+        let store = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+
+        XCTAssertEqual(store.combo(for: .sendToClaude), Self.cmdShiftK)
+        XCTAssertEqual(store.combo(for: .globalCommandBar), Self.legacyCmdK)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: userPath.path),
+                      "seeded user file written on first load")
+    }
+
+    func testCorruptFileReseedsWithNewDefaults() throws {
+        try writeUserFile("{ not valid json")
+
+        let store = try KeybindingsStore(path: userPath, defaultData: Self.phase9Seed)
+
+        XCTAssertEqual(store.combo(for: .sendToClaude), Self.cmdShiftK,
+                       "existing corrupt-file tolerance reseeds with the NEW defaults")
+        XCTAssertEqual(store.combo(for: .globalCommandBar), Self.legacyCmdK)
+    }
 }
