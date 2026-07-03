@@ -40,6 +40,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # IN-02: pin the toolchain explicitly (same step + rationale as ci.yml) so
+      # image-default Xcode bumps can't silently diverge eval from CI. Non-fatal:
+      # falls back to the image default if that exact version has rotated off.
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app || sudo xcode-select -p
+
       # WR-01: `exit 0` alone marks the STEP successful and the workflow proceeds —
       # the guard must gate the remaining steps via a step output, or a keyless
       # weekly run spins up XcodeGen + xcodebuild for nothing (and goes red).
