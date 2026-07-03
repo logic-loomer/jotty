@@ -74,6 +74,7 @@
 		75E75B6F8442A901263D02E7 /* KeybindingConflictsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */; };
 		76D13BDC5E20FEA89EEB915B /* Action.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC759DA0F19FAD410B08429D /* Action.swift */; };
 		78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDA0A15DCF13E839E64C340 /* DailyFile.swift */; };
+		7FD46448CECA1199BC867C51 /* CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABDD1075F193351DFAA0B24C /* CanvasLayout.swift */; };
 		801CA78BF6ABDEF41D978B70 /* InboxRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D482654C24AD57A66053CBCE /* InboxRefreshPolicyTests.swift */; };
 		8143A8E0BBB908899A089519 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646855B8A21BF3E4EDDD4DCE /* OllamaProvider.swift */; };
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
@@ -267,6 +268,7 @@
 		A5536334E5276877A353B5FC /* StoreRenameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreRenameTests.swift; sourceTree = "<group>"; };
 		A64B4957D1A1F845472F6297 /* KeychainAPIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainAPIKeyStore.swift; sourceTree = "<group>"; };
 		A769CD384B54035052E79D20 /* ClaudePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePrompt.swift; sourceTree = "<group>"; };
+		ABDD1075F193351DFAA0B24C /* CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasLayout.swift; sourceTree = "<group>"; };
 		AE591493870DE367A409DBE2 /* StoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreTests.swift; sourceTree = "<group>"; };
 		AEB933160AFF4D189209B4EC /* InboxSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSource.swift; sourceTree = "<group>"; };
 		B026F43211BD2F9BB519C180 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -675,6 +677,7 @@
 				5212E65936B5489A73151E30 /* CalendarEventMapper.swift */,
 				1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */,
 				E81A5F01CD75D09D0DDBC6C3 /* CalendarURL.swift */,
+				ABDD1075F193351DFAA0B24C /* CanvasLayout.swift */,
 				00929A9F50EF33DD0F7D086E /* EventKitCalendarService.swift */,
 			);
 			path = Calendar;
@@ -886,6 +889,7 @@
 				C59259F4495F8E7486A667BB /* CalendarService.swift in Sources */,
 				36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */,
 				52C89360FC3DBEDFFA4741B5 /* CalendarURL.swift in Sources */,
+				7FD46448CECA1199BC867C51 /* CanvasLayout.swift in Sources */,
 				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
 				64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */,
 				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,
