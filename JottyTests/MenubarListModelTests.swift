@@ -978,6 +978,147 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.claudeNotice)
     }
 
+    // MARK: - Phase 8 SC3: snooze visibility filter (CALX-03)
+
+    func testFutureSnoozedTaskHiddenFromBothPartitionsNilSnoozeUnaffected() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let snoozeDay = makeDate(2026, 6, 13, h: 0, min: 0)
+        // All four live in TODAY's file (rolled copies keep their createdAt).
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_snzToday", text: "later", createdAt: today, snooze: snoozeDay),
+            Todo(id: "t_snzLeftover", text: "old later", createdAt: yesterday, snooze: snoozeDay),
+            Todo(id: "t_visible", text: "now", createdAt: today),
+            Todo(id: "t_visibleLeftover", text: "old now", createdAt: yesterday)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        // Future-snoozed tasks hidden from BOTH partitions; nil-snooze unaffected.
+        XCTAssertEqual(model.todayTasks.map(\.id), ["t_visible"])
+        XCTAssertEqual(model.leftovers.map(\.id), ["t_visibleLeftover"])
+        // The @Published source array stays the FULL list (doneCount + calendar
+        // drift linkage read it) — the filter applies to the partitions only.
+        XCTAssertEqual(model.tasks.count, 4, "source tasks array keeps snoozed tasks")
+    }
+
+    func testSnoozedTaskReappearsOnSnoozeDateTokenLeftInPlace() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let snoozeDay = makeDate(2026, 6, 13, h: 0, min: 0)
+        // The task lives in today's file AND (as the rollover would land it) in
+        // tomorrow's file — same id, createdAt, snooze token carried along.
+        let task = Todo(id: "t_snz", text: "later", createdAt: today, snooze: snoozeDay)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [task], at: today)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [task],
+                                at: makeDate(2026, 6, 13, h: 8))
+
+        var current = today
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { current })
+        // Before the snooze date: hidden from both partitions.
+        XCTAssertFalse(model.todayTasks.contains { $0.id == "t_snz" })
+        XCTAssertFalse(model.leftovers.contains { $0.id == "t_snz" })
+
+        // On the snooze date: reappears automatically (snooze <= todayStart).
+        current = makeDate(2026, 6, 13, h: 8)
+        model.reload()
+        XCTAssertTrue(model.leftovers.contains { $0.id == "t_snz" },
+                      "createdAt yesterday + not done -> reappears as a leftover")
+        // The token is left in place on disk, merely ignored on/after the date.
+        let stored = try XCTUnwrap(try store.readDoc(on: current).tasks.first { $0.id == "t_snz" })
+        XCTAssertNotNil(stored.snooze, "reappear never clears the snooze token")
+    }
+
+    func testPastSnoozeNeverHides() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_pastSnz", text: "was snoozed", createdAt: today,
+                 snooze: makeDate(2026, 6, 11, h: 0, min: 0))
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertEqual(model.todayTasks.map(\.id), ["t_pastSnz"],
+                       "snooze <= todayStart must never hide the task")
+    }
+
+    func testDoneCountCountsSnoozedDoneTask() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_doneSnz", text: "done then snoozed", createdAt: today,
+                 done: true, completedAt: today,
+                 snooze: makeDate(2026, 6, 13, h: 0, min: 0)),
+            Todo(id: "t_open", text: "open", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        // Hidden from the partitions...
+        XCTAssertFalse(model.todayTasks.contains { $0.id == "t_doneSnz" })
+        // ...but doneCount reads the FULL tasks array, so it still counts.
+        XCTAssertEqual(model.doneCount, 1, "snooze filter must not skew doneCount")
+        XCTAssertEqual(model.tasks.count, 2)
+    }
+
+    // MARK: - Phase 8 SC2/SC3: model snooze/setRecurrence methods
+
+    func testModelSnoozePersistsViaStoreAndVanishesFromList() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_snz", text: "later", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_snz" })
+        model.snooze(task, to: makeDate(2026, 6, 13, h: 0, min: 0))
+
+        // Persisted (snooze: is date-only, round-trips to the day's midnight)...
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_snz" })
+        XCTAssertEqual(stored.snooze, makeDate(2026, 6, 13, h: 0, min: 0))
+        // ...and the reload dropped it from today's partitions.
+        XCTAssertFalse(model.todayTasks.contains { $0.id == "t_snz" })
+        XCTAssertFalse(model.leftovers.contains { $0.id == "t_snz" })
+    }
+
+    func testModelSetRecurrencePersistsViaStoreAndReloads() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_rec", text: "standup", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_rec" })
+        model.setRecurrence(task, to: .daily)
+
+        var stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_rec" })
+        XCTAssertEqual(stored.recur, .daily)
+        // Recurrence never hides the task; the reload reflects the new rule.
+        XCTAssertEqual(model.todayTasks.first { $0.id == "t_rec" }?.recur, .daily)
+
+        // The Repeat "None" choice clears the rule.
+        model.setRecurrence(task, to: nil)
+        stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_rec" })
+        XCTAssertNil(stored.recur)
+    }
+
+    func testSnoozeConvenienceDatesAnchorOnNowNotCreatedAt() throws {
+        // CR-01: Tomorrow / Next week are computed from now(), never task.createdAt.
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertEqual(model.snoozeTomorrowDate, makeDate(2026, 6, 13, h: 0, min: 0))
+        XCTAssertEqual(model.snoozeNextWeekDate, makeDate(2026, 6, 19, h: 0, min: 0))
+    }
+
     // MARK: - Helpers
 
     /// Seeds today's file with the given tasks and returns (store, today).
