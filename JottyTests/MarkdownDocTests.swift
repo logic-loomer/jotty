@@ -865,4 +865,104 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(ts.unknownTokens, [],
                        "recur:garbage is a RECOGNIZED key -> nil, never captured as unknown")
     }
+
+    // MARK: - Phase 10-01 Task 2: projection-parity regression sweep
+
+    // Linchpin of this plan: because parse keeps the tasks/notes projections
+    // byte-identical AND serialize is untouched, a Jotty-serialized file
+    // round-trips byte-identically through parse -> serialize (projections drive
+    // the unchanged canonical rebuild). If the tokenizer perturbed a projection,
+    // this idempotence would break.
+    func testParseThenOldSerializeIsByteStableForCanonicalFile() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_1", text: "first", createdAt: now))
+        doc.appendTodo(Todo(id: "t_2", text: "second", createdAt: now,
+                            done: true, completedAt: now,
+                            dueDate: dateFor("2026-05-09")))
+        doc.appendNote(text: "a note", at: now, id: "n_1")
+        let canonical = doc.serialize(timezone: tz)
+
+        let parsed = try MarkdownDoc.parse(canonical, timezone: tz)
+        XCTAssertEqual(parsed.serialize(timezone: tz), canonical,
+                       "parse -> old serialize must stay byte-identical (projection parity)")
+        // The projections themselves match the source doc field-for-field.
+        XCTAssertEqual(parsed.tasks, doc.tasks)
+        XCTAssertEqual(parsed.notes, doc.notes)
+    }
+
+    // A legacy line carrying only recognized tokens parses with the optional
+    // fields nil AND an EMPTY unknownTokens (the default: branch never
+    // over-captures a token it actually recognizes).
+    func testLegacyRecognizedOnlyLineHasEmptyUnknownTokens() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] plain <!-- id:t_plain created:2026-05-08T07:30:00+10:00 -->
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+        let ts = try XCTUnwrap(taskSpans(doc).first)
+        XCTAssertEqual(ts.unknownTokens, [], "recognized-only line captures nothing unknown")
+        XCTAssertNil(ts.pristine.timeBlock)
+        XCTAssertNil(ts.pristine.recur)
+        XCTAssertNil(ts.pristine.source)
+    }
+
+    // A line mixing recognized tokens AND an unknown priority:high yields the
+    // correct Todo fields AND unknownTokens == ["priority:high"] — recognized
+    // tokens NEVER leak into unknownTokens.
+    func testMixedTokensCaptureOnlyTheUnknownOne() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [x] mixed <!-- id:t_m created:2026-05-08T07:30:00+10:00 due:2026-05-09 priority:high cal_event:EVT:7 -->
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+        let ts = try XCTUnwrap(taskSpans(doc).first)
+        XCTAssertEqual(ts.unknownTokens, ["priority:high"],
+                       "only the unrecognized token is captured; recognized tokens never leak")
+        XCTAssertTrue(ts.pristine.done)
+        XCTAssertEqual(ts.pristine.dueDate.flatMap(dateOnlyString), "2026-05-09")
+        XCTAssertEqual(ts.pristine.calEventID, "EVT:7")
+    }
+
+    // Every recognized token present at once -> unknownTokens stays EMPTY (the
+    // strong no-over-capture guard across the full token vocabulary).
+    func testEveryRecognizedTokenYieldsEmptyUnknownTokens() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        let tb = TimeBlock(start: timeFor("2026-05-08T08:00:00+10:00"),
+                           end: timeFor("2026-05-08T09:30:00+10:00"))
+        doc.appendTodo(Todo(id: "t_all", text: "everything", createdAt: now,
+                            done: true, completedAt: now,
+                            dueDate: dateFor("2026-05-09"),
+                            rolledTo: dateFor("2026-05-10"),
+                            sourceNote: "n_042",
+                            timeBlock: tb,
+                            calEventID: "EVT:7",
+                            source: "github:42",
+                            sourceURL: "https://github.com/o/r/pull/42",
+                            recur: .custom([2, 4]),
+                            recurSrc: "t_tmpl99:2026-05-08",
+                            snooze: dateFor("2026-05-12")))
+        let serialized = doc.serialize(timezone: tz)
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        let ts = try XCTUnwrap(taskSpans(parsed).first)
+        XCTAssertEqual(ts.unknownTokens, [],
+                       "a line built from ONLY recognized tokens captures nothing unknown")
+    }
 }
