@@ -25,7 +25,7 @@ final class OnboardingWindowController: NSWindowController {
          keybindings: KeybindingsStore,
          requestCalendarAccess: @escaping () async -> Void) {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 540),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false)
@@ -67,11 +67,6 @@ struct OnboardingView: View {
     let keybindings: KeybindingsStore
     let requestCalendarAccess: () async -> Void
     let onGetStarted: () -> Void
-
-    /// The 30-second walkthrough target. The project has no hosted help site yet, so
-    /// this points at the GitHub repo README (Claude's discretion per the plan;
-    /// documented in the SUMMARY). Swap in one place if a help anchor lands later.
-    static let walkthroughURL = URL(string: "https://github.com/logic-loomer/jotty#readme")!
 
     @State private var launchAtLoginOn = false
     @State private var calendarRequested = false
@@ -156,9 +151,19 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // (d) 30-second walkthrough link
-            Link("Watch the 30-second walkthrough", destination: Self.walkthroughURL)
-                .font(.callout)
+            // (d) #6: teach the core loop + a LIVE keyboard cheat-sheet — replaces the
+            // dead "30-second walkthrough" README link (which dead-ended at a
+            // placeholder). Optional/non-blocking: it just explains, nothing to do.
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("The core loop")
+                    .font(.subheadline.weight(.semibold))
+                coreLoopStep(1, "Type a brain-dump — whatever’s on your mind.")
+                coreLoopStep(2, "Review the tasks Jotty extracts.")
+                coreLoopStep(3, "Press \(comboLabel(for: .captureSubmit, fallback: "⌘↩")) to save them to today.")
+
+                keyboardCheatSheet
+            }
 
             Spacer()
 
@@ -180,7 +185,7 @@ struct OnboardingView: View {
             }
         }
         .padding(24)
-        .frame(width: 420, height: 420)
+        .frame(width: 420, height: 540)
         .onAppear {
             // Reflect the live OS status so the toggle starts in the right position
             // (requiresApproval counts as on — registered, pending user approval), matching
@@ -190,5 +195,62 @@ struct OnboardingView: View {
             launchAtLoginOn = (live == .enabled || live == .requiresApproval)
             isReconciling = false
         }
+    }
+
+    // MARK: - Core-loop explainer + cheat-sheet (#6)
+
+    /// A numbered core-loop step: a small circled index + the instruction text.
+    @ViewBuilder
+    private func coreLoopStep(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(n)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Color(NSColor.controlBackgroundColor)))
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The live keyboard cheat-sheet: capture (⌘N), command bar (⌘K — ties to #2),
+    /// and submit (⌘↩), each read from the SHARED keybindings store so a rebind
+    /// before first launch shows the real combo (never a hardcoded literal).
+    @ViewBuilder
+    private var keyboardCheatSheet: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            cheatRow(.globalToggleCapture, "Capture from anywhere")
+            cheatRow(.globalCommandBar, "Search tasks and actions")
+            cheatRow(.captureSubmit, "Save the reviewed tasks")
+        }
+        .padding(.top, 2)
+    }
+
+    /// One cheat-sheet row (combo chip + description); nothing when the action is
+    /// unbound, so a cleared combo never renders an empty chip.
+    @ViewBuilder
+    private func cheatRow(_ action: Action, _ description: String) -> some View {
+        if let combo = keybindings.combo(for: action) {
+            HStack(spacing: 8) {
+                Text(combo.displayString)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .frame(minWidth: 46, alignment: .leading)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(NSColor.controlBackgroundColor)))
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The display string for `action`'s live combo, or `fallback` when unbound —
+    /// so inline copy ("Press ⌘↩ to save") always names a real key.
+    private func comboLabel(for action: Action, fallback: String) -> String {
+        keybindings.combo(for: action)?.displayString ?? fallback
     }
 }
