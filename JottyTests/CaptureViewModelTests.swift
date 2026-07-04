@@ -1,6 +1,32 @@
 import XCTest
 @testable import Jotty
 
+/// A fallback provider whose extraction BLOCKS until `release()`. Lets a test hold
+/// the VM in `isExtracting` while it drives ⌘↩/⌫ against the in-flight fallback
+/// (Cluster-2 WR: in-flight Apple FM fallback must not be raced by a Review action).
+actor GatedAIProvider: AIProvider {
+    private let result: ExtractionResult
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var releaseRequested = false
+
+    init(result: ExtractionResult) { self.result = result }
+
+    func extractTasks(from text: String, now: Date, timezone: TimeZone) async throws -> ExtractionResult {
+        if !releaseRequested {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                self.continuation = c
+            }
+        }
+        return result
+    }
+
+    func release() {
+        releaseRequested = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 @MainActor
 final class CaptureViewModelTests: XCTestCase {
     var folder: URL!
@@ -764,6 +790,132 @@ final class CaptureViewModelTests: XCTestCase {
         let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: makeNoOpProvider(), clock: { Date() })
         vm.text = ""
         XCTAssertFalse(vm.draftWasRestored)
+    }
+
+    // MARK: - Cluster-2 WR: in-flight Apple FM fallback must not be raced (CaptureViewModel:377)
+
+    // A ⌘↩/⌫ arriving while an extraction is in flight must be swallowed — neither
+    // commitFromReview() nor returnToInput() may act while `isExtracting` is true.
+    func testCommitAndReturnToInputAreNoOpsWhileExtracting() async throws {
+        let now = Date()
+        let vm = await makeVMInReview(with: ExtractedTask(title: "pending"), calendar: nil, now: now)
+        guard case .review = vm.state else { return XCTFail("expected review") }
+        vm.isExtracting = true   // simulate an in-flight fallback extraction
+
+        vm.commitFromReview()
+        XCTAssertFalse(vm.showSavedConfirmation, "commit must be ignored while extracting")
+        XCTAssertFalse(vm.dismissRequested)
+        if case .review = vm.state {} else { XCTFail("commit must not leave review while extracting") }
+
+        vm.returnToInput()
+        if case .review = vm.state {} else { XCTFail("returnToInput must be ignored while extracting") }
+
+        let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dayFile.path),
+                       "a swallowed commit must not touch disk")
+    }
+
+    // Integration: a real in-flight fallback. ⌘↩ mid-await is ignored, the fallback's
+    // tasks land in Review (not dropped), and the prose is appended exactly once (no
+    // double-commit) on the subsequent genuine commit.
+    func testInFlightFallbackIgnoresCommitAndLandsTasksExactlyOnce() async throws {
+        let now = Date()
+        let primary = MockAIProvider(mode: .throwError(.guardrail(message: nil)))
+        let fallback = GatedAIProvider(result: ExtractionResult(
+            tasks: [ExtractedTask(title: "recovered task")], noteBody: "prose note"))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL,
+                                  provider: primary, fallbackProvider: fallback, clock: { now })
+        vm.text = "prose note"
+        await vm.submitAndWait()
+        // Primary failed → degraded review holding the raw prose.
+        XCTAssertEqual(vm.lastError, .guardrail(message: nil))
+        guard case .review = vm.state else { return XCTFail("expected degraded review") }
+
+        // Kick the fallback; it blocks inside the provider mid-extraction.
+        let retry = Task { await vm.retryWithAppleFM() }
+        try await waitUntil { vm.isExtracting }
+
+        // ⌘↩ and ⌫ mid-await must be ignored (guard !isExtracting).
+        vm.commitFromReview()
+        vm.returnToInput()
+        XCTAssertFalse(vm.showSavedConfirmation, "⌘↩ during fallback must not commit")
+        XCTAssertFalse(vm.dismissRequested)
+        XCTAssertTrue(vm.isExtracting, "still extracting; the Review action was swallowed")
+
+        // Release the fallback; its tasks must land in review, not be dropped.
+        await fallback.release()
+        await retry.value
+
+        guard case .review(let tasks, let noteBody, _) = vm.state else {
+            return XCTFail("fallback result must land in review")
+        }
+        XCTAssertEqual(tasks.map(\.title), ["recovered task"], "fallback tasks must survive")
+        XCTAssertEqual(noteBody, "prose note")
+        XCTAssertNil(vm.lastError, "successful fallback clears the error")
+
+        // A real commit now writes the prose exactly once (no double-append).
+        vm.commitFromReview()
+        let dayFile = DailyFile.url(in: folder, on: now, timezone: .current)
+        let body = try String(contentsOf: dayFile, encoding: .utf8)
+        XCTAssertEqual(body.components(separatedBy: "prose note").count - 1, 1,
+                       "prose note must be appended exactly once")
+    }
+
+    // MARK: - Cluster-2 WR: commit-time disk failure surfaces an honest save-failure (ReviewListView:34)
+
+    // A failed appendCapture at commit must raise the distinct `saveError` channel with
+    // honest copy — NOT `lastError` (whose Review banner falsely claims "saved as a plain
+    // note"). The user stays in Review with their draft intact.
+    func testCommitDiskFailureSurfacesHonestSaveErrorNotAIFallback() async throws {
+        let now = Date()
+        // A parent path that is a regular FILE makes Store.appendCapture's
+        // createDirectory(withIntermediateDirectories:) throw at commit time.
+        let blocker = folder.appendingPathComponent("blocker")
+        try "not a directory".write(to: blocker, atomically: true, encoding: .utf8)
+        let badStore = Store(folder: blocker.appendingPathComponent("sub"), timezone: .current)
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "keep my note")))
+        let vm = CaptureViewModel(store: badStore, draftURL: draftURL, provider: mock, clock: { now })
+        vm.text = "keep my note"
+        await vm.submitAndWait()
+        guard case .review = vm.state else { return XCTFail("expected review") }
+
+        vm.commitFromReview()
+
+        XCTAssertNotNil(vm.saveError, "a commit-time disk failure must surface a save-failure notice")
+        XCTAssertNil(vm.lastError, "a disk-save failure must NOT masquerade as an AI-extraction error")
+        // Honest copy — must not claim anything was saved.
+        XCTAssertFalse(vm.saveError?.lowercased().contains("saved") ?? false,
+                       "save-failure copy must not falsely claim the capture was saved")
+        // User stays in review with their data intact.
+        if case .review = vm.state {} else { XCTFail("must stay in review on save failure") }
+        XCTAssertEqual(vm.text, "keep my note", "draft text must be preserved")
+        XCTAssertFalse(vm.showSavedConfirmation)
+        XCTAssertFalse(vm.dismissRequested)
+    }
+
+    // MARK: - Cluster-2 INFO: manual `- [x]` mixed with prose commits as done (CaptureViewModel:169)
+
+    func testMixedManualDoneCheckboxCommitsAsDone() async throws {
+        let now = Date()
+        // Prose returned as noteBody so the input is genuinely "mixed" (routes through AI).
+        let mock = MockAIProvider(mode: .succeed(ExtractionResult(tasks: [], noteBody: "brain dump line")))
+        let vm = CaptureViewModel(store: store, draftURL: draftURL, provider: mock, clock: { now })
+        vm.text = """
+        brain dump line
+        - [x] done thing
+        - [ ] open thing
+        """
+        await vm.submitAndWait()
+        guard case .review(let tasks, _, _) = vm.state else { return XCTFail("expected review") }
+        XCTAssertEqual(tasks.count, 2, "both manual lines enter review")
+        vm.commitFromReview()
+
+        let doc = try store.readDoc(on: now)
+        let done = try XCTUnwrap(doc.tasks.first { $0.text == "done thing" })
+        let open = try XCTUnwrap(doc.tasks.first { $0.text == "open thing" })
+        XCTAssertTrue(done.done, "manual - [x] must commit as done")
+        XCTAssertNotNil(done.completedAt, "a done task carries a completion time")
+        XCTAssertFalse(open.done, "manual - [ ] stays open")
     }
 
     /// Polls `condition` on the main actor up to ~2s; fails the test if it never becomes true.
