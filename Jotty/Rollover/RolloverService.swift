@@ -34,9 +34,18 @@ final class RolloverService {
                 // A recurring TEMPLATE (recur set, no recur_src marker) is never
                 // collected as a leftover and never marked rolled — it persists on
                 // its origin day as the source of future instances (SC2/CALX-02).
-                // Instances (recur_src set) and non-recurring tasks roll as before.
                 let isTemplate = task.recur != nil && task.recurSrc == nil
-                if !task.done && task.rolledTo == nil && !isTemplate {
+                // A recurring INSTANCE (recur_src set) is likewise NOT rolled forward
+                // (sweep WR): the recurrence mechanism already lands a FRESH instance
+                // each due day, so an uncompleted instance is superseded by tomorrow's
+                // fresh one — it is not a generic leftover. Rolling it forward too made
+                // an unbounded pile stack up (a fresh instance PLUS every rolled
+                // predecessor, every day). An uncompleted instance is simply left on
+                // its origin day (invisible — the menubar reads only today's file, and
+                // the template scan skips recur_src lines); a COMPLETED instance is
+                // already excluded by `!task.done` and archives normally.
+                let isInstance = task.recurSrc != nil
+                if !task.done && task.rolledTo == nil && !isTemplate && !isInstance {
                     var copy = task
                     copy.rolledTo = nil
                     collected.append(copy)
