@@ -173,6 +173,23 @@ final class Store {
         return readOrCreate(at: url, on: date)
     }
 
+    /// Ensures the day file for `date` exists on disk, creating an empty scaffold
+    /// when absent (#12) so ⌘K "Open Today's File" has something to open before the
+    /// day's first capture (it previously no-op'd). A present, VALID file is left
+    /// byte-identical (no rewrite); a present-but-unparseable file is left in place
+    /// untouched (never clobbered — quarantine only happens on a real write).
+    /// Returns the file URL either way.
+    @discardableResult
+    func ensureDayFile(on date: Date) throws -> URL {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        if FileManager.default.fileExists(atPath: url.path) { return url }
+        try MarkdownDoc(date: startOfDay(date))
+            .serialize(timezone: timezone)
+            .write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     /// Every day that has a markdown file in the folder, parsed from the
     /// `yyyy-MM-dd.md` DailyFile filenames (Phase 8 CR-01). Lets callers reach
     /// ANY day's doc without a bounded lookback window — the recurrence pass

@@ -353,6 +353,38 @@ final class StoreTests: XCTestCase {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    // MARK: - #12 ensureDayFile creates the day file when absent
+
+    /// The ⌘K "Open Today's File" action must have a file to open before the
+    /// day's first capture — ensureDayFile writes an empty scaffold on disk.
+    func testEnsureDayFileCreatesFileWhenAbsent() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "precondition: no file yet")
+
+        let returned = try store.ensureDayFile(on: date)
+        XCTAssertEqual(returned.lastPathComponent, "2026-05-08.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "ensureDayFile creates the day file on disk")
+        // The scaffold is a valid, empty day doc.
+        XCTAssertTrue(try store.readDoc(on: date).tasks.isEmpty)
+    }
+
+    /// A present, valid file is left byte-identical (no rewrite/churn).
+    func testEnsureDayFileLeavesExistingFileByteIdentical() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_1", text: "one", createdAt: date)], at: date)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let before = try String(contentsOf: url, encoding: .utf8)
+
+        _ = try store.ensureDayFile(on: date)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), before,
+                       "ensureDayFile must not rewrite an existing file")
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
         c.timeZone = TimeZone(identifier: "Australia/Sydney")

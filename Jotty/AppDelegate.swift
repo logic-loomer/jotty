@@ -433,7 +433,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// today's file in the default editor (MenubarListView open-day-file idiom).
     private func openTodayFile() {
         let store = Store(folder: configStore.config.storageFolder, timezone: .current)
-        let url = DailyFile.url(in: store.folder, on: Date(), timezone: store.timezone)
+        // #12: create today's file first so the action isn't a silent no-op before
+        // the day's first capture. Fall back to the plain URL if the scaffold write
+        // fails (e.g. unwritable folder) — same behavior as before the fix.
+        let url = (try? store.ensureDayFile(on: Date()))
+            ?? DailyFile.url(in: store.folder, on: Date(), timezone: store.timezone)
         NSWorkspace.shared.open(url)
     }
 
