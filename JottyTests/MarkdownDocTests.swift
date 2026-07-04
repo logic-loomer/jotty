@@ -540,4 +540,40 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertNil(parsed.tasks[0].recurSrc,
                      "whitespace-bearing marker was dropped -> recurSrc nil on parse")
     }
+
+    // Cluster 1 / CRITICAL: a note body containing a blank line followed by an
+    // ordinary markdown H3 (`\n\n### Heading`) must round-trip intact. The old
+    // terminator `(?=\n\n### |\z)` mistook ANY blank-line+H3 for the next note
+    // header and silently truncated the body -> permanent data loss on save.
+    func testNoteBodyWithBlankLineThenHeadingRoundTrips() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let body = "intro paragraph\n\n### Section Heading\n\nmore body text"
+        var doc1 = MarkdownDoc(date: dateFor("2026-05-08"))
+        doc1.appendNote(text: body,
+                        at: timeFor("2026-05-08T07:30:00+10:00"),
+                        id: "n_hdr")
+        let serialized = doc1.serialize(timezone: tz)
+        let doc2 = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(doc2.notes.count, 1)
+        XCTAssertEqual(doc2.notes[0].text, body,
+                       "blank-line + non-header H3 inside a note must not truncate the body")
+    }
+
+    // A blank-line + H3 that IS followed by a real note header must still split
+    // into two notes (regression guard for the tightened terminator).
+    func testTwoNotesWithHeadingInFirstBodyStillSplit() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc1 = MarkdownDoc(date: dateFor("2026-05-08"))
+        doc1.appendNote(text: "first note\n\n### inner heading\ntail",
+                        at: timeFor("2026-05-08T07:30:00+10:00"),
+                        id: "n_a")
+        doc1.appendNote(text: "second note",
+                        at: timeFor("2026-05-08T08:15:00+10:00"),
+                        id: "n_b")
+        let serialized = doc1.serialize(timezone: tz)
+        let doc2 = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(doc2.notes.count, 2)
+        XCTAssertEqual(doc2.notes[0].text, "first note\n\n### inner heading\ntail")
+        XCTAssertEqual(doc2.notes[1].text, "second note")
+    }
 }

@@ -245,7 +245,11 @@ struct MarkdownDoc: Equatable {
         }
 
         // Parse note entries: "### HH:mm <!-- id:n_xxx -->\n<body>"
-        let noteRegex = /### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->\n([\s\S]*?)(?=\n\n### |\z)/
+        // Cluster 1 / CRITICAL: the body terminator must anchor to a REAL note
+        // header (blank line, then `### HH:MM <!-- id:`), not any blank-line+H3.
+        // The old `(?=\n\n### |\z)` cut a note body at any ordinary markdown H3
+        // it contained -> silent truncation / permanent data loss on save.
+        let noteRegex = /### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->\n([\s\S]*?)(?=\n\n### \d{2}:\d{2} <!-- id:|\z)/
         for match in text.matches(of: noteRegex) {
             let h = Int(match.1)!
             let m = Int(match.2)!
