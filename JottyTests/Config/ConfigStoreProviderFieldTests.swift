@@ -94,6 +94,48 @@ final class ConfigStoreProviderFieldTests: XCTestCase {
                      "missing deleteCalendarEventWithTask must default to nil")
     }
 
+    // Phase 11 plan 03 — SC5 privacy default: a freshly constructed AppConfig has
+    // calendarInboxEnabled == false, so the calendar source is gated OFF until the
+    // user explicitly opts in (no calendar reads on the default config).
+    func testCalendarInboxEnabledDefaultsFalse() throws {
+        let cfg = AppConfig(storageFolder: URL(fileURLWithPath: "/tmp/Jotty"))
+        XCTAssertFalse(cfg.calendarInboxEnabled,
+                       "calendarInboxEnabled must default to false (SC5 privacy default OFF)")
+    }
+
+    // Phase 11 plan 03 — round-trip: once the user opts in, the true value persists
+    // to disk and reloads.
+    func testCalendarInboxEnabledRoundTrip() throws {
+        let store1 = try ConfigStore(path: tempURL)
+        try store1.update { $0.calendarInboxEnabled = true }
+
+        let store2 = try ConfigStore(path: tempURL)
+        XCTAssertTrue(store2.config.calendarInboxEnabled,
+                      "calendarInboxEnabled == true must round-trip through config.json")
+    }
+
+    // Phase 11 plan 03 — back-compat: a config.json with ONLY storageFolder (written
+    // before Phase 11) decodes with calendarInboxEnabled == false rather than failing
+    // the whole decode (which would reset the config to defaults). Mirrors the
+    // inboxCheckPeriodically missing-key handling.
+    func testLegacyConfigHasCalendarInboxDisabled() throws {
+        let legacyJSON = """
+        {
+          "storageFolder" : "file:///tmp/LegacyJotty/"
+        }
+        """
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try legacyJSON.data(using: .utf8)!.write(to: tempURL)
+
+        let store = try ConfigStore(path: tempURL)
+        XCTAssertEqual(store.config.storageFolder.path, "/tmp/LegacyJotty",
+                       "legacy storageFolder must survive (decode must not fall back to defaults)")
+        XCTAssertFalse(store.config.calendarInboxEnabled,
+                       "missing calendarInboxEnabled must default to false (SC5)")
+    }
+
     // Test 3 — no key material in config: a key saved through
     // KeychainAPIKeyStore must never appear in the raw config.json bytes.
     func testAPIKeyNeverWrittenToConfigJSON() throws {

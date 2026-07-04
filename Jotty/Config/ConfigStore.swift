@@ -36,6 +36,12 @@ struct AppConfig: Codable, Equatable {
     /// nil = off (no interval set). A minimum of 5 minutes is enforced at the use
     /// site (Pitfall 1) so the opt-in timer can never hammer a third-party API.
     var inboxCheckIntervalMinutes: Int?
+    /// Calendar-inbox opt-in (Phase 11, SC5 — privacy default OFF). `false` by
+    /// default so a fresh or pre-Phase-11 config makes ZERO calendar reads: the
+    /// source's `isConfigured` gate is only satisfied once the user flips this via
+    /// Settings → Integrations. Flipping it on surfaces today's timed events as
+    /// suggestions on the next menubar open.
+    var calendarInboxEnabled: Bool = false
 
     init(storageFolder: URL,
          aiProviderID: String = "apple-fm",
@@ -45,7 +51,8 @@ struct AppConfig: Codable, Equatable {
          claudeAction: ClaudeAction = .web,
          hasCompletedOnboarding: Bool = false,
          inboxCheckPeriodically: Bool = false,
-         inboxCheckIntervalMinutes: Int? = nil) {
+         inboxCheckIntervalMinutes: Int? = nil,
+         calendarInboxEnabled: Bool = false) {
         self.storageFolder = storageFolder
         self.aiProviderID = aiProviderID
         self.ollamaModel = ollamaModel
@@ -55,6 +62,7 @@ struct AppConfig: Codable, Equatable {
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.inboxCheckPeriodically = inboxCheckPeriodically
         self.inboxCheckIntervalMinutes = inboxCheckIntervalMinutes
+        self.calendarInboxEnabled = calendarInboxEnabled
     }
 
     /// Backward-compatible decode: config.json files written before Phase 4
@@ -85,6 +93,12 @@ struct AppConfig: Codable, Equatable {
             Bool.self, forKey: .inboxCheckPeriodically) ?? false
         inboxCheckIntervalMinutes = try container.decodeIfPresent(
             Int.self, forKey: .inboxCheckIntervalMinutes)
+        // Phase 11 key: a pre-Phase-11 config.json omits this. decodeIfPresent → false
+        // so a missing key never fails the whole decode (which would reset the user's
+        // config to defaults) and the SC5 privacy default (calendar reads OFF) holds
+        // for existing files — only an explicit Settings toggle can enable it.
+        calendarInboxEnabled = try container.decodeIfPresent(
+            Bool.self, forKey: .calendarInboxEnabled) ?? false
     }
 
     static var defaultValue: AppConfig {
