@@ -92,6 +92,12 @@ merely start with `@`/`due:` but don't match the grammar (`jane@work.com`,
 `due:soon`) are left untouched, and a line with no recognized token behaves
 exactly as before.
 
+A typed **time** also creates a real Calendar.app event (when Calendar access is
+granted), the same as a canvas drop or an AI-extracted time block: overlaps prompt
+before writing, and the created event is linked back to the task via `cal_event:`.
+A `due:`-only token (no time) sets the due date but creates no event. The task is
+always written to disk first, so it persists even if the calendar step fails.
+
 ## AI task extraction (Phase 3)
 
 Type a freeform brain-dump, press ⌘↩, and the app silently extracts tasks, due dates, and time blocks using on-device Apple Foundation Models. A Review state appears with rows for each extracted item, showing metadata badges (`📅 today 1–2pm`, `📅 due Friday`). Navigate with ↑↓, toggle rows with space, press ⌘↩ to commit, or ⎋ to return and edit the original text. No network requests. Apple FM is the default and requires macOS 26+; older systems fall back to manual `- [ ] ` syntax parsing.
