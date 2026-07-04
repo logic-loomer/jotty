@@ -20,7 +20,36 @@ struct MarkdownDoc: Equatable {
     private(set) var notes: [Note] = []
     var tasks: [Todo] = []
 
+    /// Ordered document skeleton captured at parse (phase 10-01). This is the
+    /// contract plan 02's span-aware `serialize` reconciles against; no
+    /// production caller reads it yet. `private(set)` so ONLY `parse` (same
+    /// file) writes it, while `@testable` tests can read the ordered spans.
+    /// Deliberately EXCLUDED from `==` (see below): whole-doc equality means
+    /// "same logical content" (date/tasks/notes), exactly as before this plan,
+    /// so skeleton churn never leaks into equality or dirty-detection.
+    private(set) var spans: [Span] = []
+
+    /// Test-only: the ordered span kinds as strings, for classification asserts.
+    var spanKindsForTesting: [String] {
+        spans.map {
+            switch $0 {
+            case .frontmatter: return "frontmatter"
+            case .taskLine:    return "taskLine"
+            case .note:        return "note"
+            case .raw:         return "raw"
+            }
+        }
+    }
+
     init(date: Date) { self.date = date }
+
+    // Explicit Equatable: compare ONLY logical content (date/tasks/notes), NOT
+    // the `spans` skeleton. No caller compares whole docs (verified); tests
+    // compare `.tasks`/`.notes`. Excluding `spans` keeps `==` meaning identical
+    // to today and avoids ordered-skeleton churn leaking into equality.
+    static func == (lhs: MarkdownDoc, rhs: MarkdownDoc) -> Bool {
+        lhs.date == rhs.date && lhs.tasks == rhs.tasks && lhs.notes == rhs.notes
+    }
 
     mutating func appendNote(text: String, at time: Date, id: String) {
         notes.append(Note(id: id, time: time, text: text))

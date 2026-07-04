@@ -642,4 +642,223 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(doc2.notes[0].text, "a crlf note",
                        "normalized body must not carry stray \\r")
     }
+
+    // MARK: - Phase 10-01: span model + line-tokenizer parse
+
+    /// Collapse consecutive equal span kinds so tests assert the ORDER of span
+    /// classes without pinning exact raw-run boundaries (finalized in plan 02).
+    private func compressedKinds(_ doc: MarkdownDoc) -> [String] {
+        var out: [String] = []
+        for k in doc.spanKindsForTesting where out.last != k { out.append(k) }
+        return out
+    }
+
+    /// Pull the ordered TaskSpans out of a parsed doc's skeleton.
+    private func taskSpans(_ doc: MarkdownDoc) -> [TaskSpan] {
+        doc.spans.compactMap { if case let .taskLine(ts) = $0 { return ts } else { return nil } }
+    }
+
+    /// Pull the ordered NoteSpans out of a parsed doc's skeleton.
+    private func noteSpans(_ doc: MarkdownDoc) -> [NoteSpan] {
+        doc.spans.compactMap { if case let .note(ns) = $0 { return ns } else { return nil } }
+    }
+
+    private func rawTexts(_ doc: MarkdownDoc) -> [String] {
+        doc.spans.compactMap { if case let .raw(s) = $0 { return s } else { return nil } }
+    }
+
+    // A canonical Jotty file classifies into ordered spans and populates the
+    // flat tasks/notes projections in span order.
+    func testParseBuildsOrderedSpansForCanonicalFile() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T09:12:33+10:00
+        ---
+
+        ## Tasks
+
+        - [x] ship PR <!-- id:t_a created:2026-05-08T09:20:00+10:00 -->
+        - [ ] call bank <!-- id:t_b created:2026-05-08T10:00:00+10:00 -->
+
+        ## Notes
+
+        ### 09:30 <!-- id:n_1 -->
+        standup notes
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+
+        XCTAssertEqual(compressedKinds(doc),
+                       ["frontmatter", "raw", "taskLine", "taskLine", "raw", "note"],
+                       "document order must be captured, not discarded")
+        XCTAssertEqual(doc.tasks.count, 2)
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_a", "t_b"], "projection kept in span order")
+        XCTAssertEqual(doc.notes.count, 1)
+        XCTAssertEqual(doc.notes[0].id, "n_1")
+    }
+
+    // P-Foreign: a plain checkbox WITHOUT a Jotty id (or with an empty id) is a
+    // raw span — never adopted, never assigned an id, never in tasks.
+    func testForeignCheckboxIsRawAndNotAdopted() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] buy milk
+        - [x] no id here <!-- created:2026-05-08T00:00:00+10:00 -->
+        - [ ] real one <!-- id:t_real created:2026-05-08T00:00:00+10:00 -->
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_real"],
+                       "only the id-bearing Jotty line is a task")
+        XCTAssertFalse(doc.tasks.contains { $0.id.isEmpty }, "no empty-id task ever adopted")
+        let raws = rawTexts(doc).joined(separator: "\n")
+        XCTAssertTrue(raws.contains("- [ ] buy milk"), "foreign checkbox preserved as raw")
+        XCTAssertTrue(raws.contains("- [x] no id here"),
+                      "empty-id checkbox (comment but no id) is raw, mirroring the L255 guard")
+    }
+
+    // SC3 capture half: an unrecognized key:value token on a recognized Jotty
+    // task line is captured verbatim into TaskSpan.unknownTokens, not discarded.
+    func testUnknownTaskTokenIsCaptured() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [x] ship PR <!-- id:t_a created:2026-05-08T09:20:00+10:00 priority:high -->
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+
+        let spans = taskSpans(doc)
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans[0].unknownTokens, ["priority:high"],
+                       "unknown token captured verbatim (SC3 capture)")
+        XCTAssertEqual(spans[0].pristine.id, "t_a")
+        XCTAssertTrue(spans[0].pristine.done, "recognized fields still parse correctly")
+        XCTAssertEqual(spans[0].pristine.createdAt.timeIntervalSince1970,
+                       timeFor("2026-05-08T09:20:00+10:00").timeIntervalSince1970,
+                       accuracy: 1.0)
+        // The flat projection agrees with the span's pristine Todo.
+        XCTAssertEqual(doc.tasks.first, spans[0].pristine)
+    }
+
+    // I7: missing frontmatter date still throws (Store quarantine unchanged) —
+    // but a valid-date file whose body is foreign prose + H1 + H2 now parses
+    // (foreign -> raw spans) instead of throwing (the I7 bar rises).
+    func testMissingDateThrowsButForeignBodyParses() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let noDate = """
+        ---
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        # Journal
+        """
+        XCTAssertThrowsError(try MarkdownDoc.parse(noDate, timezone: tz),
+                             "missing frontmatter date must still throw (I7)")
+
+        let foreign = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        tags: [daily, work]
+        ---
+
+        # Journal
+        woke up late, coffee first.
+
+        ## Retro
+        - learned spans
+        """
+        var parsed: MarkdownDoc?
+        XCTAssertNoThrow(parsed = try MarkdownDoc.parse(foreign, timezone: tz),
+                         "valid-date foreign file must parse to raw spans, not throw")
+        let doc = try XCTUnwrap(parsed)
+        XCTAssertTrue(doc.tasks.isEmpty, "no Jotty tasks in a foreign file")
+        XCTAssertTrue(doc.notes.isEmpty, "no Jotty notes in a foreign file")
+        let raws = rawTexts(doc).joined(separator: "\n")
+        XCTAssertTrue(raws.contains("# Journal"), "foreign H1 preserved as raw")
+        XCTAssertTrue(raws.contains("## Retro"), "foreign H2 preserved as raw")
+        XCTAssertTrue(raws.contains("tags: [daily, work]") || {
+            if case let .frontmatter(fm) = doc.spans.first { return fm.originalBlock.contains("tags:") }
+            return false
+        }(), "unknown frontmatter key survives (in frontmatter block or raw)")
+    }
+
+    // I2 + Obsidian-fixture regression: a non-note `### heading` inside a note
+    // body stays in the body; a trailing `## ` H2 terminates the note so it is
+    // its own raw span (NOT swallowed into the last note body).
+    func testNoteTerminatorAnchoredToHeaderOrH2Boundary() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Notes
+
+        ### 09:30 <!-- id:n_1 -->
+        standup notes
+        ### inner heading
+        more notes
+
+        ## Retro
+        - learned spans
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: tz)
+
+        XCTAssertEqual(doc.notes.count, 1)
+        XCTAssertEqual(doc.notes[0].text, "standup notes\n### inner heading\nmore notes",
+                       "non-note ### heading stays inside the body (I2)")
+        XCTAssertFalse(doc.notes[0].text.contains("Retro"),
+                       "a trailing ## H2 must terminate the note, not be swallowed")
+        let raws = rawTexts(doc).joined(separator: "\n")
+        XCTAssertTrue(raws.contains("## Retro"), "## Retro is its own raw span")
+        XCTAssertTrue(raws.contains("- learned spans"))
+        // The note span's originalText carries the header verbatim.
+        let ns = try XCTUnwrap(noteSpans(doc).first)
+        XCTAssertTrue(ns.originalText.hasPrefix("### 09:30 <!-- id:n_1 -->"))
+    }
+
+    // Parse-side invariants survive at the projection level under the tokenizer.
+    func testTokenizerPreservesParseInvariants() throws {
+        let utc = TimeZone(identifier: "UTC")!
+        // I3: midnight-crossing time block reconstructs end = start + 1 day.
+        // I8: malformed recur degrades to nil (and is NOT captured as unknown).
+        // I6: uppercase [X] parses done == true.
+        let file = """
+        ---
+        date: 2026-06-12
+        created: 2026-06-12T00:00:00+00:00
+        ---
+
+        ## Tasks
+
+        - [X] cross <!-- id:t_x created:2026-06-12T00:00:00+00:00 time:23:00-00:00 recur:garbage -->
+        """
+        let doc = try MarkdownDoc.parse(file, timezone: utc)
+        XCTAssertEqual(doc.tasks.count, 1)
+        let t = doc.tasks[0]
+        XCTAssertTrue(t.done, "uppercase [X] parses as done (I6)")
+        let tb = try XCTUnwrap(t.timeBlock)
+        XCTAssertEqual(tb.end.timeIntervalSince(tb.start), 3600, accuracy: 1.0,
+                       "23:00-00:00 reconstructs end = start + 1h across midnight (I3)")
+        XCTAssertNil(t.recur, "malformed recur degrades to nil (I8)")
+        let ts = try XCTUnwrap(taskSpans(doc).first)
+        XCTAssertEqual(ts.unknownTokens, [],
+                       "recur:garbage is a RECOGNIZED key -> nil, never captured as unknown")
+    }
 }
