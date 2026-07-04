@@ -25,8 +25,19 @@ final class RecurrenceTests: XCTestCase {
 
     func testParseNamedRules() {
         XCTAssertEqual(Recurrence.parse("daily"), .daily)
-        XCTAssertEqual(Recurrence.parse("weekly"), .weekly)
+        XCTAssertEqual(Recurrence.parse("weekly"), .weekly(nil), "bare weekly → legacy nil weekday")
         XCTAssertEqual(Recurrence.parse("weekday"), .weekday)
+    }
+
+    /// Sweep INFO: a `weekly:<wd>` token captures the weekday the user chose the
+    /// rule on; bare `weekly` stays back-compatible (nil = createdAt fallback).
+    func testParseWeeklyWithExplicitWeekday() {
+        XCTAssertEqual(Recurrence.parse("weekly:3"), .weekly(3))
+        XCTAssertEqual(Recurrence.parse("weekly:1"), .weekly(1))
+        XCTAssertEqual(Recurrence.parse("weekly:7"), .weekly(7))
+        XCTAssertNil(Recurrence.parse("weekly:0"), "weekday ints are gregorian 1=Sun…7=Sat")
+        XCTAssertNil(Recurrence.parse("weekly:8"))
+        XCTAssertNil(Recurrence.parse("weekly:x"))
     }
 
     func testParseCustomCSV() {
@@ -57,11 +68,16 @@ final class RecurrenceTests: XCTestCase {
     // MARK: - serialize round-trip
 
     func testSerializeRoundTripsAllRuleShapes() {
-        let rules: [Recurrence] = [.daily, .weekly, .weekday, .custom([1, 3, 5])]
+        let rules: [Recurrence] = [.daily, .weekly(nil), .weekly(3), .weekday, .custom([1, 3, 5])]
         for rule in rules {
             XCTAssertEqual(Recurrence.parse(rule.serialize()), rule,
                            "parse(serialize()) must round-trip \(rule)")
         }
+    }
+
+    func testSerializeWeeklyTokenShapes() {
+        XCTAssertEqual(Recurrence.weekly(nil).serialize(), "weekly", "legacy weekly stays bare")
+        XCTAssertEqual(Recurrence.weekly(3).serialize(), "weekly:3")
     }
 
     func testSerializeCustomIsSortedAscending() {
@@ -96,17 +112,30 @@ final class RecurrenceTests: XCTestCase {
                        ".weekday must NOT be due on Sunday")
     }
 
-    func testWeeklyIsDueOnlyOnTemplateWeekday() {
-        // Template weekday = Wednesday (4). Wed 17 June 2026 is due; the rest are not.
-        let rule = Recurrence.weekly
+    func testWeeklyBareTokenIsDueOnTemplateWeekday() {
+        // Legacy bare weekly (nil): falls back to the template weekday = Wednesday (4).
+        // Wed 17 June 2026 is due; the rest are not.
+        let rule = Recurrence.weekly(nil)
         XCTAssertTrue(rule.isDue(on: makeDate(2026, 6, 17),
                                  templateWeekday: 4, calendar: sydney),
-                      ".weekly must be due when the day's weekday matches the template's")
+                      "bare .weekly must fall back to the template weekday")
         for day in [14, 15, 16, 18, 19, 20] {
             XCTAssertFalse(rule.isDue(on: makeDate(2026, 6, day),
                                       templateWeekday: 4, calendar: sydney),
-                           ".weekly must NOT be due on 2026-06-\(day)")
+                           "bare .weekly must NOT be due on 2026-06-\(day)")
         }
+    }
+
+    /// Sweep INFO: an explicit weekday fires on THAT weekday, ignoring the
+    /// createdAt-derived templateWeekday entirely. Tuesday(3) 16 June 2026.
+    func testWeeklyExplicitWeekdayFiresOnChosenNotTemplateWeekday() {
+        let rule = Recurrence.weekly(3)   // Tuesday
+        XCTAssertTrue(rule.isDue(on: makeDate(2026, 6, 16),          // Tuesday
+                                 templateWeekday: 5, calendar: sydney),
+                      "explicit weekday must fire on Tuesday regardless of templateWeekday")
+        XCTAssertFalse(rule.isDue(on: makeDate(2026, 6, 18),         // Thursday (templateWeekday)
+                                  templateWeekday: 5, calendar: sydney),
+                       "explicit weekday must NOT fire on the createdAt weekday")
     }
 
     func testCustomIsDueOnListedWeekdaysOnly() {

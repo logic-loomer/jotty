@@ -1020,6 +1020,17 @@ final class MenubarListModel: ObservableObject {
         return cal.startOfDay(for: now())
     }
 
+    /// Today's gregorian weekday (1=Sun…7=Sat) in the model timezone — the weekday
+    /// a "Weekly" Repeat choice anchors to (sweep INFO). Capturing the CHOSEN
+    /// weekday (rather than deriving it from the task's createdAt) makes a Weekly
+    /// rule set on a Tuesday fire on Tuesdays, even for a task created on another
+    /// weekday.
+    var currentWeekday: Int {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        return cal.component(.weekday, from: now())
+    }
+
     /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
     /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
     /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
@@ -1376,8 +1387,25 @@ struct MenubarListView: View {
             recurrenceChoice("None", rule: nil, for: task)
             recurrenceChoice("Daily", rule: .daily, for: task)
             recurrenceChoice("Weekdays", rule: .weekday, for: task)
-            recurrenceChoice("Weekly", rule: .weekly, for: task)
+            weeklyChoice(task)
             customWeekdaysSubmenu(task)
+        }
+    }
+
+    /// The Weekly Repeat choice (sweep INFO): sets weekly on the weekday the user
+    /// PICKS it (today's weekday via `model.currentWeekday`), captured in the
+    /// `weekly:<wd>` token — not the task's createdAt weekday. The checkmark
+    /// matches ANY stored `.weekly(_)`, so it shows regardless of which weekday
+    /// the rule was set on.
+    @ViewBuilder
+    private func weeklyChoice(_ task: Todo) -> some View {
+        let isWeekly: Bool = { if case .weekly = task.recur { return true }; return false }()
+        Button(action: { model.setRecurrence(task, to: .weekly(model.currentWeekday)) }) {
+            if isWeekly {
+                Label("Weekly", systemImage: "checkmark")
+            } else {
+                Text("Weekly")
+            }
         }
     }
 

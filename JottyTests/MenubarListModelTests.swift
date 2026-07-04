@@ -1302,11 +1302,36 @@ final class MenubarListModelTests: XCTestCase {
         let model = MenubarListModel(store: store, timezone: tz,
                                      defaults: defaults, now: { today })
         let instance = try XCTUnwrap(model.todayTasks.first { $0.id == "t_inst" })
-        model.setRecurrence(instance, to: .weekly)
+        model.setRecurrence(instance, to: .weekly(nil))
 
         let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_inst" })
-        XCTAssertEqual(stored.recur, .weekly)
+        XCTAssertEqual(stored.recur, .weekly(nil))
         XCTAssertNil(stored.recurSrc, "promoted to a template (scannable from tomorrow)")
+    }
+
+    /// Sweep INFO: the "Weekly" menu choice anchors on the weekday the user PICKS
+    /// it (`model.currentWeekday`), so a task created on a Thursday but set Weekly
+    /// on a Tuesday persists `weekly:<tuesday>` and fires on Tuesdays. Here now() is
+    /// Tuesday 2026-06-16 (weekday 3) though the task was created Thursday 2026-06-11.
+    func testWeeklyChoiceCapturesCurrentWeekdayNotCreatedWeekday() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let createdThursday = makeDate(2026, 6, 11, h: 9)   // Thursday (weekday 5)
+        let setTuesday = makeDate(2026, 6, 16, h: 8)        // Tuesday (weekday 3)
+        // The task is a leftover created Thursday, visible in today's (Tuesday) file.
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_wk", text: "sync", createdAt: createdThursday)
+        ], at: setTuesday)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { setTuesday })
+        XCTAssertEqual(model.currentWeekday, 3, "now() is a Tuesday → weekday 3")
+        let task = try XCTUnwrap(model.leftovers.first { $0.id == "t_wk" })
+        // Mirror what the Weekly menu item does.
+        model.setRecurrence(task, to: .weekly(model.currentWeekday))
+
+        let stored = try XCTUnwrap(try store.readDoc(on: setTuesday).tasks.first { $0.id == "t_wk" })
+        XCTAssertEqual(stored.recur, .weekly(3),
+                       "Weekly must capture the chosen (Tuesday) weekday, not the createdAt (Thursday) one")
     }
 
     func testSnoozeConvenienceDatesAnchorOnNowNotCreatedAt() throws {
