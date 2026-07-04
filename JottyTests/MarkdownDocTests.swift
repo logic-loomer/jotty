@@ -111,9 +111,33 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(parsed.tasks.count, 1)
         let task = try XCTUnwrap(parsed.tasks.first)
         XCTAssertEqual(task.id, "t_x", "metadata boundary must not be shifted by delimiters in text")
-        // Delimiters were neutralized in the text, so they cannot break the parser.
+        // Cluster 1 / INFO: ONLY the comment-open `<!--` is neutralized (it is the
+        // sole sequence that can forge the ` <!-- ` metadata boundary). The
+        // comment-close `-->` cannot collide (the meta region begins only AFTER
+        // the real ` <!-- `), so it is preserved rather than mangled to `->`.
         XCTAssertFalse(task.text.contains("<!--"), "comment-open delimiter must be neutralized")
-        XCTAssertFalse(task.text.contains("-->"), "comment-close delimiter must be neutralized")
+        XCTAssertTrue(task.text.contains("-->"), "comment-close delimiter is preserved (never collides)")
+        XCTAssertEqual(task.text, "plan <!- secret --> review",
+                       "only the ambiguous <!-- open is altered; the rest of the text is intact")
+    }
+
+    // Cluster 1 / INFO: a lone `-->` (the common typed arrow, e.g. calendar
+    // titles synced via SC4) must round-trip BYTE-IDENTICAL. It never collides
+    // with the metadata boundary, so the old blanket `-->`->`->` rewrite was
+    // pure, irreversible data loss on every serialize.
+    func testTaskTextWithArrowRoundTripsFaithfully() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        let text = "deploy step 2 --> production, then --> done"
+        doc.appendTodo(Todo(id: "t_arrow", text: text, createdAt: now))
+
+        let serialized = doc.serialize(timezone: tz)
+        let parsed = try MarkdownDoc.parse(serialized, timezone: tz)
+        XCTAssertEqual(parsed.tasks.count, 1)
+        let task = try XCTUnwrap(parsed.tasks.first)
+        XCTAssertEqual(task.id, "t_arrow", "metadata boundary intact with arrows in text")
+        XCTAssertEqual(task.text, text, "--> arrows in task text must round-trip intact")
     }
 
     private func dateOnlyString(_ d: Date) -> String {

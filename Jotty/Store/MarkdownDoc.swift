@@ -111,14 +111,16 @@ struct MarkdownDoc: Equatable {
             if let sn = task.snooze {
                 meta += " snooze:\(dateOnlyFmt.string(from: sn))"
             }
-            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`; a `text` containing
-            // `<!--`/`-->` would shift the comment boundary and corrupt the round-trip
-            // (calendar-sourced titles can now reach `task.text` via SC4 sync). Neutralize the
-            // comment delimiters so parsing stays stable. Sanitize-on-create/sync handles
-            // markdown; this guards the structural delimiters specifically.
+            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`. The parser
+            // locates the metadata by the FIRST ` <!-- ` opener, then reads to the
+            // first ` -->` after it. Only a `<!--` in `text` can forge that opener
+            // and shift the boundary; a `-->` in text always sits BEFORE the real
+            // opener, so it can never collide. Cluster 1 / INFO fix: neutralize the
+            // comment-OPEN only, and leave `-->` untouched so ordinary arrows (e.g.
+            // calendar-sourced titles via SC4 sync) round-trip byte-identical
+            // instead of being irreversibly rewritten to `->` on every serialize.
             let safeText = task.text
                 .replacingOccurrences(of: "<!--", with: "<!-")
-                .replacingOccurrences(of: "-->", with: "->")
             out += "- [\(state)] \(safeText) <!-- \(meta) -->\n"
         }
 
