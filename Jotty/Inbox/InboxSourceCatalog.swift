@@ -2,12 +2,13 @@ import Foundation
 
 /// Static transparency registry of every inbox source the app *plans* to support (SC4).
 ///
-/// Only `github` is built in Phase 7 (`built: true`); the other four are documented
-/// extension points (`built: false`) so the Settings privacy/transparency surface can list
-/// exactly which third-party endpoints the app talks to — or could be extended to talk to —
-/// without anything being hidden. This mirrors the `ProviderEndpoints` idiom (AITab.swift):
-/// a flat, audit-friendly list of bare API hosts. Do NOT build the four unbuilt sources here;
-/// this enum only declares them.
+/// `github` (network) and the on-device `calendar` source are built (`built: true`); the other
+/// four network sources are documented extension points (`built: false`) so the Settings
+/// privacy/transparency surface can list exactly which endpoints the app talks to — or could be
+/// extended to talk to — without anything being hidden. `calendar` reads local EventKit and
+/// talks to no network host, so its endpoint is an honest on-device disclosure string, not a URL.
+/// This mirrors the `ProviderEndpoints` idiom (AITab.swift): a flat, audit-friendly list. Do NOT
+/// build the four unbuilt sources here; this enum only declares them.
 enum InboxSourceCatalog {
     /// One planned source's transparency record.
     struct Entry: Equatable {
@@ -21,9 +22,11 @@ enum InboxSourceCatalog {
         let built: Bool
     }
 
-    /// All five planned sources (INBX-01..INBX-05). Order is the transparency-table order.
+    /// The six planned sources: the five network sources (INBX-01..INBX-05) plus the on-device
+    /// `calendar` source (EventKit, no network host). Order is the transparency-table order.
     static let all: [Entry] = [
         Entry(id: "github", name: "GitHub", endpoint: "https://api.github.com", built: true),
+        Entry(id: "calendar", name: "Calendar", endpoint: "On-device (EventKit, no network)", built: true),
         Entry(id: "gmail", name: "Gmail", endpoint: "https://gmail.googleapis.com", built: false),
         Entry(id: "slack", name: "Slack", endpoint: "https://slack.com/api", built: false),
         Entry(id: "linear", name: "Linear", endpoint: "https://api.linear.app/graphql", built: false),
