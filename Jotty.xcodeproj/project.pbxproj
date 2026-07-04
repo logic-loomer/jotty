@@ -44,6 +44,7 @@
 		45757E60474C693E76332274 /* KeyComboModifiersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372DDB9B73258D038924149F /* KeyComboModifiersTests.swift */; };
 		458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */; };
 		46D948FE9F5A83C7781C8428 /* ProviderToleranceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA0678D4109E51D24CFDDA3 /* ProviderToleranceConfig.swift */; };
+		47B98D8B78194F5382CB1CE7 /* CaptureAnnouncement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D4983201CCA914E71A99CB /* CaptureAnnouncement.swift */; };
 		490F738FB25B281F2307DC24 /* OpenAIProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349A1A1650A585FF3028585F /* OpenAIProviderTests.swift */; };
 		4B84A29B9FEA820961120F83 /* CommandBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844D4B65E21DF680B648E59A /* CommandBarView.swift */; };
 		4C1DB8E26E1198F13FCFB086 /* OllamaSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BAD23F9436F343AD92FE459 /* OllamaSettingsSection.swift */; };
@@ -132,6 +133,7 @@
 		C35DC5A6EDBAF1D9AC823043 /* KeybindingConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 584B89BD144F18FA0301D259 /* KeybindingConflicts.swift */; };
 		C45BD28C18479A579432C6A3 /* AppleFMProviderFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4406FC1457894C7727B72F4C /* AppleFMProviderFixturesTests.swift */; };
 		C59259F4495F8E7486A667BB /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */; };
+		C852BE9177ADF9DE8D2BE9BC /* CaptureAnnouncementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C0419D244B1937197AFB9B /* CaptureAnnouncementTests.swift */; };
 		C8DB8628E4AB0D1FDF2EA3AD /* PersistFailureNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1A3C43F920384C287A9C41 /* PersistFailureNotice.swift */; };
 		CB943CF3635054901E217689 /* RecordComboValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C529B2156C8F06BE1F36348 /* RecordComboValidationTests.swift */; };
 		CF69E9C4BD5EAE5170C79687 /* InstalledModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820791648E6853B1DA48C4FF /* InstalledModel.swift */; };
@@ -310,6 +312,7 @@
 		B2FB2E1C41E77E6953910B65 /* RetryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetryPolicyTests.swift; sourceTree = "<group>"; };
 		B74F35AEAC40DCE682986CCC /* SmokeTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTest.swift; sourceTree = "<group>"; };
 		B8A4A062DF3369683F5B69A6 /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
+		B8D4983201CCA914E71A99CB /* CaptureAnnouncement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureAnnouncement.swift; sourceTree = "<group>"; };
 		B957401C0292FB714615B37E /* ClaudeHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHandoff.swift; sourceTree = "<group>"; };
 		BD82516879EB779F454ABE18 /* InboxStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStateStoreTests.swift; sourceTree = "<group>"; };
 		BDE5BC8AF7C48955FC276962 /* extraction-fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "extraction-fixtures.json"; sourceTree = "<group>"; };
@@ -344,6 +347,7 @@
 		E195DD44FFDF0E67F49CDCA4 /* GitHubReleases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubReleases.swift; sourceTree = "<group>"; };
 		E3B8DDE953367F6C614E57C3 /* OllamaError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaError.swift; sourceTree = "<group>"; };
 		E454A8AE1874899F469A5E8C /* Todo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Todo.swift; sourceTree = "<group>"; };
+		E4C0419D244B1937197AFB9B /* CaptureAnnouncementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureAnnouncementTests.swift; sourceTree = "<group>"; };
 		E81A5F01CD75D09D0DDBC6C3 /* CalendarURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarURL.swift; sourceTree = "<group>"; };
 		EC759DA0F19FAD410B08429D /* Action.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Action.swift; sourceTree = "<group>"; };
 		EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaInstaller.swift; sourceTree = "<group>"; };
@@ -372,6 +376,7 @@
 				18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */,
 				D2C9EAB970D1B8AD1DE9AFCA /* CalendarCanvasModelTests.swift */,
 				E0F52135146AD473AE108B77 /* CanvasLayoutTests.swift */,
+				E4C0419D244B1937197AFB9B /* CaptureAnnouncementTests.swift */,
 				3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */,
 				989392B9AE0158984B8094BF /* ClaudePromptTests.swift */,
 				0AE04EA6A3A93EA749373B6F /* CommandActionRegistryTests.swift */,
@@ -631,6 +636,7 @@
 		98110515FAB8B246A26DE230 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
+				B8D4983201CCA914E71A99CB /* CaptureAnnouncement.swift */,
 				6D93F9D0664E78E14B656E7D /* CaptureView.swift */,
 				45835742C5C67CC8BA28A758 /* CaptureViewModel.swift */,
 				9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */,
@@ -884,6 +890,7 @@
 				1BC50D90AFF1CB973B15EADC /* CalendarEventMapperTests.swift in Sources */,
 				D58243CB3057E984F2ED441E /* CalendarServiceTests.swift in Sources */,
 				EA63E003CAF67E57DF191ECD /* CanvasLayoutTests.swift in Sources */,
+				C852BE9177ADF9DE8D2BE9BC /* CaptureAnnouncementTests.swift in Sources */,
 				27A18BC23BB19F258170C636 /* CaptureViewModelAIPathTests.swift in Sources */,
 				28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */,
 				8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */,
@@ -971,6 +978,7 @@
 				36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */,
 				52C89360FC3DBEDFFA4741B5 /* CalendarURL.swift in Sources */,
 				7FD46448CECA1199BC867C51 /* CanvasLayout.swift in Sources */,
+				47B98D8B78194F5382CB1CE7 /* CaptureAnnouncement.swift in Sources */,
 				69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */,
 				64045BAF777CB5F4AF3A021A /* CaptureViewModel.swift in Sources */,
 				70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */,

@@ -7,6 +7,9 @@ import SwiftUI
 struct ReviewListView: View {
     @ObservedObject var vm: CaptureViewModel
     let tasks: [ExtractedTask]
+    /// #7: list-owned by CaptureView; on review entry the VoiceOver cursor moves onto the
+    /// first row (`.firstReviewRow`) unless a conflict banner claimed it first.
+    var a11yFocus: AccessibilityFocusState<CaptureA11yFocus?>.Binding
     let onCommit: () -> Void
     let onCancel: () -> Void
 
@@ -92,6 +95,8 @@ struct ReviewListView: View {
                             onCancelEdit: { cancelRename() }
                         )
                         .focused($focusedRow, equals: index)
+                        // #7: the first row is the VoiceOver landing target on review entry.
+                        .firstRowA11yFocus(a11yFocus, isFirst: index == 0)
                         .contentShape(Rectangle())
                         .onTapGesture { focusedRow = index }
                         // A11Y-01: the row's tap gesture is invisible to VoiceOver
@@ -167,6 +172,23 @@ struct ReviewListView: View {
         editingIndex = nil
         renameFieldFocused = false
         renameDraft = ""
+    }
+}
+
+// MARK: - First-row VoiceOver focus (#7)
+
+private extension View {
+    /// Binds `.firstReviewRow` VoiceOver focus to the first review row only. Non-first rows
+    /// pass through untouched — attaching the modifier with a nil `equals:` would make every
+    /// non-first row claim focus whenever the target is nil.
+    @ViewBuilder
+    func firstRowA11yFocus(_ binding: AccessibilityFocusState<CaptureA11yFocus?>.Binding,
+                           isFirst: Bool) -> some View {
+        if isFirst {
+            accessibilityFocused(binding, equals: .firstReviewRow)
+        } else {
+            self
+        }
     }
 }
 

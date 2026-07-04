@@ -1,5 +1,12 @@
 import SwiftUI
 
+/// #7: VoiceOver-cursor targets inside the capture flow. On entering review the cursor moves
+/// to the first review row, or to the blocking conflict banner when a conflict is pending.
+enum CaptureA11yFocus: Hashable {
+    case conflictBanner
+    case firstReviewRow
+}
+
 struct CaptureView: View {
     @ObservedObject var vm: CaptureViewModel
     /// User pressed ⌘↩ in input mode — kick off submit (manual or AI). Does NOT dismiss.
@@ -8,6 +15,25 @@ struct CaptureView: View {
     let onDismiss: () -> Void
 
     @FocusState private var focused: Bool
+    /// #7: drives VoiceOver focus movement onto new banners / the first review row.
+    @AccessibilityFocusState private var a11yFocus: CaptureA11yFocus?
+
+    /// #7: the announceable slice of VM state, rebuilt on every render so a single
+    /// `.onChange` seam can post the right VoiceOver announcement per transition.
+    private var announceSnapshot: CaptureAnnouncement.Snapshot {
+        let phase: CaptureAnnouncement.Snapshot.Phase
+        if case .review(let tasks, _, _) = vm.state {
+            phase = .review(count: tasks.count)
+        } else {
+            phase = .input
+        }
+        return CaptureAnnouncement.Snapshot(
+            phase: phase,
+            hasError: vm.lastError != nil,
+            conflictTitle: vm.pendingConflict?.conflictTitle,
+            notice: vm.calendarNotice,
+            saved: vm.showSavedConfirmation)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +61,8 @@ struct CaptureView: View {
                     title: conflict.conflictTitle,
                     onCommitAnyway: { vm.resolveConflict(commitAnyway: true) },
                     onCancel: { vm.resolveConflict(commitAnyway: false) })
+                    // #7: a blocking conflict prompt grabs the VoiceOver cursor.
+                    .accessibilityFocused($a11yFocus, equals: .conflictBanner)
             }
 
             // Non-blocking degraded-calendar notice (denied access / write failure).
@@ -56,6 +84,7 @@ struct CaptureView: View {
                     ReviewListView(
                         vm: vm,
                         tasks: tasks,
+                        a11yFocus: $a11yFocus,
                         onCommit: {
                             // commitFromReview sets state back to .input on success
                             // and raises the saved/dismiss signals (UX-03); stays
@@ -66,6 +95,19 @@ struct CaptureView: View {
                         onCancel: { vm.returnToInput() }
                     )
                 }
+            }
+        }
+        // #7: single VoiceOver seam for the whole capture flow. Post the pure
+        // state→announcement mapping and move the VO cursor onto the conflict banner
+        // (blocking) or the first review row when the flow enters review.
+        .onChange(of: announceSnapshot) { oldSnap, newSnap in
+            if let message = CaptureAnnouncement.announcement(from: oldSnap, to: newSnap) {
+                AccessibilityNotification.Announcement(message).post()
+            }
+            if newSnap.conflictTitle != nil, oldSnap.conflictTitle != newSnap.conflictTitle {
+                a11yFocus = .conflictBanner
+            } else if newSnap.phase.isReview, !oldSnap.phase.isReview {
+                a11yFocus = newSnap.conflictTitle != nil ? .conflictBanner : .firstReviewRow
             }
         }
         // UX-03: single dismissal seam for BOTH commit paths. The VM raises
