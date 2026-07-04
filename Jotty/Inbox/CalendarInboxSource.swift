@@ -40,7 +40,9 @@ struct CalendarInboxSource: InboxSource {
     /// `@MainActor` (not `@Sendable`) so the read runs ON the main actor — awaiting
     /// it hops off-actor `fetchItems` to main, so it can never race main-actor
     /// `Store` writes; the isolation also makes the closure Sendable (WR-01).
-    private let linkedEventIDs: @MainActor () async -> Set<String>
+    /// Takes the fetch instant so the linked-id read and the today-window share
+    /// ONE clock read — no sub-ms midnight straddle, deterministic in tests (IN-01).
+    private let linkedEventIDs: @MainActor (Date) async -> Set<String>
     private let now: @Sendable () -> Date
     private let timezone: TimeZone
 
@@ -52,7 +54,7 @@ struct CalendarInboxSource: InboxSource {
     ///   - timezone: the store/menubar timezone used to compute the today window (never `.current`).
     init(calendar: any CalendarService,
          enabled: @escaping @Sendable () -> Bool,
-         linkedEventIDs: @escaping @MainActor () async -> Set<String>,
+         linkedEventIDs: @escaping @MainActor (Date) async -> Set<String>,
          now: @escaping @Sendable () -> Date,
          timezone: TimeZone) {
         self.calendar = calendar
@@ -78,17 +80,20 @@ struct CalendarInboxSource: InboxSource {
     func fetchItems() async throws -> [InboxItem] {
         guard enabled(), calendar.access() == .authorized else { return [] }  // SC5: no read when unconfigured
 
-        // Today window [startOfDay(now), +1d) in the INJECTED timezone — the same
+        // One clock read drives BOTH the today-window and the linked-id read (IN-01).
+        let instant = now()
+
+        // Today window [startOfDay(instant), +1d) in the INJECTED timezone — the same
         // calendar reloadCalendar uses; never `.current` (P3/I9).
         let cal = DailyFile.calendar(timezone: timezone)
-        let start = cal.startOfDay(for: now())
+        let start = cal.startOfDay(for: instant)
         guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return [] }
 
         // All-day rows are dropped upstream by CalendarEventMapper, so eventsInRange
         // only ever returns timed events — the source never filters isAllDay itself.
         let events = try await calendar.eventsInRange(start: start, end: end)
 
-        let linked = await linkedEventIDs()
+        let linked = await linkedEventIDs(instant)
         return events
             .filter { !linked.contains($0.id) }  // SC4: bare EventKit id, not the composite
             .map { event in

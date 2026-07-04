@@ -30,7 +30,7 @@ final class CalendarInboxSourceTests: XCTestCase {
         CalendarInboxSource(
             calendar: calendar,
             enabled: { enabled },
-            linkedEventIDs: { linked },
+            linkedEventIDs: { _ in linked },
             now: { now },
             timezone: tz
         )

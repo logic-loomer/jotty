@@ -140,9 +140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // @MainActor closure: this live per-fetch Store read runs ON the
                         // main actor, so it never races main-actor writes (accept/reload);
                         // awaiting it hops off-actor fetchItems to main (WR-01).
-                        linkedEventIDs: { [weak store] in
+                        linkedEventIDs: { [weak store] instant in
                             guard let store else { return [] }
-                            return Set((try? store.readDoc(on: Date()))?
+                            return Set((try? store.readDoc(on: instant))?
                                 .tasks.compactMap(\.calEventID) ?? [])
                         },
                         now: Date.init,
