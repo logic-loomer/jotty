@@ -4,6 +4,13 @@ final class Store {
     let folder: URL
     let timezone: TimeZone
 
+    /// #4: invoked with the `.corrupt-*` sidecar URL right after a
+    /// present-but-unparseable day file's raw bytes are quarantined (before its
+    /// content is clobbered by a new write). The app layer hooks this to surface
+    /// the recovery to the user through the PersistFailureNotice channel; nil in
+    /// tests and headless contexts that don't observe it.
+    var onCorruptQuarantine: ((URL) -> Void)?
+
     init(folder: URL, timezone: TimeZone = .current) {
         self.folder = folder
         self.timezone = timezone
@@ -12,12 +19,13 @@ final class Store {
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = DailyFile.url(in: folder, on: time, timezone: timezone)
-        var doc = readOrCreate(at: url, on: time)
+        let read = readDay(at: url, on: time)
+        var doc = read.doc
         for task in tasks { doc.appendTodo(task) }
         if !noteText.isEmpty, let noteId {
             doc.appendNote(text: noteText, at: time, id: noteId)
         }
-        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+        try persist(doc, to: url, quarantining: read.corruptRaw)
     }
 
     func appendNote(text: String, at time: Date, id: String) throws {
@@ -143,17 +151,21 @@ final class Store {
         sourceDoc.tasks.remove(at: idx)
         try sourceDoc.serialize(timezone: timezone).write(to: sourceURL, atomically: true, encoding: .utf8)
 
-        // Append to tomorrow and persist.
-        var tomorrowDoc = readOrCreate(at: tomorrowURL, on: tomorrowStart)
+        // Append to tomorrow and persist (quarantine tomorrow's file first if it
+        // was present-but-unparseable — this is the one unconditional overwrite in
+        // the move; the source read above early-returns when its file is corrupt).
+        let tomorrowRead = readDay(at: tomorrowURL, on: tomorrowStart)
+        var tomorrowDoc = tomorrowRead.doc
         tomorrowDoc.appendTodo(moved)
-        try tomorrowDoc.serialize(timezone: timezone).write(to: tomorrowURL, atomically: true, encoding: .utf8)
+        try persist(tomorrowDoc, to: tomorrowURL, quarantining: tomorrowRead.corruptRaw)
     }
 
     func replaceTasks(_ tasks: [Todo], on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        let read = readDay(at: url, on: date)
+        var doc = read.doc
         doc.tasks = tasks
-        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+        try persist(doc, to: url, quarantining: read.corruptRaw)
     }
 
     func readDoc(on date: Date) throws -> MarkdownDoc {
@@ -189,12 +201,86 @@ final class Store {
         }
     }
 
-    private func readOrCreate(at url: URL, on date: Date) -> MarkdownDoc {
-        if let existing = try? String(contentsOf: url, encoding: .utf8),
-           let parsed = try? MarkdownDoc.parse(existing, timezone: timezone) {
-            return parsed
+    /// Outcome of reading a day file: the doc to work with, plus the raw on-disk
+    /// bytes to quarantine IFF the file existed but could not be parsed (#4).
+    private struct DayRead {
+        var doc: MarkdownDoc
+        /// The file's raw bytes when it was present but failed to parse; nil for
+        /// the happy paths (absent file, or a file that parsed cleanly).
+        let corruptRaw: String?
+    }
+
+    /// Reads the day file at `url`, distinguishing the three states #4 requires:
+    /// absent (fresh empty doc, nothing to quarantine), parsed-ok (the parsed doc,
+    /// nothing to quarantine), and present-but-unparseable (a fresh empty doc PLUS
+    /// the raw bytes so a writer can quarantine them before clobbering — a day file
+    /// broken by an external editor or sync conflict is no longer silently
+    /// destroyed on the next capture). The old behavior collapsed the last two
+    /// cases into "empty doc", losing the raw bytes.
+    private func readDay(at url: URL, on date: Date) -> DayRead {
+        guard let existing = try? String(contentsOf: url, encoding: .utf8) else {
+            return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil)
         }
-        return MarkdownDoc(date: startOfDay(date))
+        if let parsed = try? MarkdownDoc.parse(existing, timezone: timezone) {
+            return DayRead(doc: parsed, corruptRaw: nil)
+        }
+        return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: existing)
+    }
+
+    /// Thin doc-only reader for the guarded ops (toggle/delete/edit/rename/…): they
+    /// early-return when the id is absent, so an unparseable file yields an empty
+    /// doc, no matching id, and NO write — the corrupt file is left untouched
+    /// rather than clobbered, so those paths never need quarantine.
+    private func readOrCreate(at url: URL, on date: Date) -> MarkdownDoc {
+        readDay(at: url, on: date).doc
+    }
+
+    /// Serializes `doc` to `url`. When `corruptRaw` is non-nil (the file was
+    /// present but unparseable), first copies those original bytes to a
+    /// `.corrupt-*` sidecar, THEN writes the new content — the broken file is
+    /// preserved AND the new capture still lands. The happy path (corruptRaw nil)
+    /// is byte-identical to a plain `write(atomically:)`.
+    private func persist(_ doc: MarkdownDoc, to url: URL, quarantining corruptRaw: String?) throws {
+        if let corruptRaw {
+            quarantine(corruptRaw, of: url)
+        }
+        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Copies `raw` to a `<name>.corrupt-<timestamp>.md` sidecar next to `url`,
+    /// NEVER overwriting an existing sidecar: a millisecond-precision stamp plus a
+    /// counter suffix guarantee uniqueness across rapid successive quarantines of
+    /// the same day. Best-effort — a sidecar-write failure is logged, never thrown,
+    /// so losing the corrupt copy can't also block the user's new capture. On
+    /// success the sidecar URL is surfaced via `onCorruptQuarantine`.
+    private func quarantine(_ raw: String, of url: URL) {
+        let base = url.deletingPathExtension().lastPathComponent   // e.g. "2026-05-08"
+        let stamp = Self.corruptStamp(Date(), timezone: timezone)
+        var candidate = folder.appendingPathComponent("\(base).corrupt-\(stamp).md")
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(base).corrupt-\(stamp)-\(counter).md")
+            counter += 1
+        }
+        do {
+            try raw.write(to: candidate, atomically: true, encoding: .utf8)
+            onCorruptQuarantine?(candidate)
+        } catch {
+            NSLog("[Jotty] failed to quarantine corrupt day file \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
+    /// Filename-safe ISO8601 basic timestamp (`yyyyMMdd'T'HHmmssSSS`) for corrupt
+    /// sidecars. Colons are deliberately avoided — the Cocoa file layer treats `:`
+    /// as a path separator. Pinned POSIX/Gregorian like every other machine key the
+    /// app writes (DailyFile discipline).
+    private static func corruptStamp(_ date: Date, timezone: TimeZone) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = DailyFile.calendar(timezone: timezone)
+        f.dateFormat = "yyyyMMdd'T'HHmmssSSS"
+        f.timeZone = timezone
+        return f.string(from: date)
     }
 
     private func startOfDay(_ d: Date) -> Date {

@@ -267,6 +267,92 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(task.text, "review PR")
     }
 
+    // MARK: - #4 Quarantine an unparseable day file before overwriting it
+
+    /// (a) Writing over a present-but-unparseable file copies the ORIGINAL bytes
+    /// to exactly one `.corrupt-*` sidecar (surfaced via onCorruptQuarantine) and
+    /// still lands the new capture — a day file broken by an external editor or
+    /// sync conflict is preserved, never silently destroyed, and no capture lost.
+    func testAppendCaptureOverUnparseableFileQuarantinesOriginalBytesAndKeepsNewContent() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let corrupt = "CONFLICT <<<<<<< sync garbage, not a valid jotty file\nrandom bytes\n"
+        try corrupt.write(to: url, atomically: true, encoding: .utf8)
+
+        var surfaced: [URL] = []
+        store.onCorruptQuarantine = { surfaced.append($0) }
+
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_new", text: "new capture", createdAt: now)],
+                                at: now)
+
+        // Exactly one sidecar, holding the original bytes verbatim.
+        let sidecars = try sidecarFiles()
+        XCTAssertEqual(sidecars.count, 1, "exactly one .corrupt-* sidecar")
+        XCTAssertEqual(try String(contentsOf: sidecars[0], encoding: .utf8), corrupt,
+                       "sidecar holds the original bytes verbatim")
+        // Compare by name: the surfaced URL is built from `folder` while the
+        // directory listing resolves the /var -> /private/var symlink.
+        XCTAssertEqual(surfaced.map(\.lastPathComponent),
+                       sidecars.map(\.lastPathComponent),
+                       "quarantine is surfaced via onCorruptQuarantine")
+
+        // The new capture is not lost — the day file now parses and contains it.
+        let doc = try store.readDoc(on: now)
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_new"])
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("new capture"))
+    }
+
+    /// (b) The happy paths (absent file, valid file) never quarantine.
+    func testAbsentAndValidFilePathsCreateNoSidecar() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+
+        // Absent → first capture creates the file, nothing to quarantine.
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_1", text: "one", createdAt: now)], at: now)
+        XCTAssertEqual(try sidecarFiles().count, 0, "absent-file path quarantines nothing")
+
+        // Valid → second capture appends to a parseable file, still nothing.
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_2", text: "two", createdAt: now)], at: now)
+        XCTAssertEqual(try sidecarFiles().count, 0, "valid-file path quarantines nothing")
+    }
+
+    /// (c) A second overwrite of a re-corrupted file does not clobber the first
+    /// sidecar — both original byte-sets survive as distinct files.
+    func testSecondOverwriteDoesNotClobberFirstSidecar() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+
+        let bytesA = "corruption A, no frontmatter\n"
+        try bytesA.write(to: url, atomically: true, encoding: .utf8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "a", createdAt: now)], at: now)
+        XCTAssertEqual(try sidecarFiles().count, 1)
+
+        // Re-corrupt the SAME day file with different bytes, capture again.
+        let bytesB = "corruption B, different but still no frontmatter\n"
+        try bytesB.write(to: url, atomically: true, encoding: .utf8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_b", text: "b", createdAt: now)], at: now)
+
+        let sidecars = try sidecarFiles()
+        XCTAssertEqual(sidecars.count, 2, "second overwrite must not clobber the first sidecar")
+        let contents = Set(try sidecars.map { try String(contentsOf: $0, encoding: .utf8) })
+        XCTAssertEqual(contents, [bytesA, bytesB], "both original byte-sets preserved distinctly")
+    }
+
+    /// Sidecars matching `<name>.corrupt-*.md` in the store folder, name-sorted.
+    private func sidecarFiles() throws -> [URL] {
+        try FileManager.default
+            .contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.contains(".corrupt-") && $0.pathExtension == "md" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int, h: Int, m mn: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = mn
         c.timeZone = TimeZone(identifier: "Australia/Sydney")
