@@ -22,7 +22,7 @@ Jotty lives in your menubar. Press **⌘N** anywhere, type whatever's in your he
 - **Daily rollover** — unfinished tasks carry forward automatically; recurring tasks and snooze keep the list honest.
 - **Calendar, two-way** — time-blocked tasks become real Calendar.app events (linked back to the task), today's events read into the menubar, and edits sync both directions.
 - **⌘K command bar** — Spotlight-style fuzzy search across today's tasks, every past day file, inbox suggestions, and app actions.
-- **Unified inbox** — items assigned to you elsewhere (GitHub today) surface as suggested tasks you accept or dismiss.
+- **Unified inbox** — work assigned to you elsewhere (GitHub) and today's calendar events surface as suggested tasks you accept or dismiss.
 - **Private by default** — the default config makes zero outbound requests; API keys live only in the macOS Keychain, never on disk.
 
 ## Contents
@@ -179,9 +179,12 @@ The inbox is one `InboxSource` protocol with a transparency registry, so every p
 | Source | Status | Endpoint |
 |---|---|---|
 | **GitHub** | Shipped (Personal Access Token) | `https://api.github.com` |
+| **Calendar** | Shipped (on-device) | On-device (EventKit, no network) |
 | Gmail / Slack / Linear / Notion | Documented extension points | their respective APIs |
 
 **GitHub** is the shipped source: set a read-scoped PAT in **Settings → Integrations** (stored in the Keychain, never on disk) and Jotty suggests your assigned issues and review-requested PRs. **No background polling by default** — the inbox refreshes when you open the menubar; an opt-in "Check periodically" toggle (OFF by default, 5-minute minimum) is the only timer.
+
+**Calendar** is a shipped on-device source: turn on **Suggest today's calendar events** in **Settings → Integrations** (OFF by default, on-device only via EventKit, never prompts at launch). Today's timed events you added directly in Calendar.app then surface as suggestions with a calendar glyph. **Accept** writes a time-blocked task linked to the existing event (`time:` + `cal_event:`) — it never creates a duplicate, and the normal [two-way drift sync](#calendar) applies from there. **Dismiss** is remembered, an event already linked to a task never re-suggests, and all-day events are excluded. With the toggle off (or calendar access denied) Jotty makes zero calendar reads.
 
 ## Send to Claude
 
