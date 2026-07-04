@@ -27,6 +27,9 @@ struct IntegrationsTab: View {
 
     @State private var checkPeriodically: Bool
     @State private var intervalMinutes: Int
+    /// Phase 11 SC5: the calendar-inbox opt-in, seeded from config and persisted on
+    /// change. OFF by default so the CalendarInboxSource stays gated (zero reads).
+    @State private var suggestCalendarEvents: Bool
     /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
     @State private var persistFailed = false
 
@@ -37,6 +40,7 @@ struct IntegrationsTab: View {
         _intervalMinutes = State(
             initialValue: max(Self.minIntervalMinutes,
                               cfg.inboxCheckIntervalMinutes ?? Self.defaultIntervalMinutes))
+        _suggestCalendarEvents = State(initialValue: cfg.calendarInboxEnabled)
     }
 
     var body: some View {
@@ -77,6 +81,21 @@ struct IntegrationsTab: View {
                             .font(.system(.subheadline, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
+
+                    PersistFailureNotice(visible: persistFailed)
+                }
+            }
+
+            // (b2) Calendar suggestions — opt-in (default OFF, SC5 privacy default):
+            // on-device EventKit reads only, never prompts at launch.
+            Section(header: Text("Calendar")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Suggest today's calendar events", isOn: $suggestCalendarEvents)
+                        .onChange(of: suggestCalendarEvents) { _, on in
+                            persist { $0.calendarInboxEnabled = on }
+                        }
+                    Text("Off by default. Reads today's timed events on-device (EventKit, no network) and never prompts at launch — turn this on to surface them as suggestions in the menubar.")
+                        .font(.subheadline).foregroundStyle(.secondary)
 
                     PersistFailureNotice(visible: persistFailed)
                 }

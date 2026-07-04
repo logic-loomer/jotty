@@ -121,9 +121,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // call (SC3). A state-store open failure degrades to no Suggested section.
         if let inboxState = try? InboxStateStore() {
             inboxService = InboxService(
-                sources: [GitHubInboxSource(session: .shared,
-                                            keychain: KeychainAPIKeyStore(),
-                                            patAccount: "github")],
+                sources: [
+                    GitHubInboxSource(session: .shared,
+                                      keychain: KeychainAPIKeyStore(),
+                                      patAccount: "github"),
+                    // Phase 11: the calendar source rides the SAME app-lifetime
+                    // EventKitCalendarService (L101). `enabled` reads the toggle LIVE
+                    // (mirrors the claudeAction/calendarID closures) so a Settings flip
+                    // takes effect on the next refresh with no re-wiring; OFF by default
+                    // ⇒ isConfigured false ⇒ zero calendar reads (SC5). `linkedEventIDs`
+                    // reads today's tasks' cal_event ids FRESH from the Store each call so
+                    // the SC4 dedup filter uses current state (never a stale snapshot).
+                    CalendarInboxSource(
+                        calendar: calendar,
+                        enabled: { [weak configStore] in
+                            configStore?.config.calendarInboxEnabled ?? false
+                        },
+                        linkedEventIDs: { [weak store] in
+                            guard let store else { return [] }
+                            return Set((try? store.readDoc(on: Date()))?
+                                .tasks.compactMap(\.calEventID) ?? [])
+                        },
+                        now: Date.init,
+                        timezone: .current)
+                ],
                 state: inboxState)
         } else {
             NSLog("[Jotty] inbox state store unavailable; Suggested section disabled")
