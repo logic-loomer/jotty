@@ -1193,12 +1193,21 @@ struct MenubarListView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text("Jotty · \(model.dateLabel)")
-                    .font(.callout.weight(.semibold))
-                Spacer()
-                Text("\(model.visibleDoneCount) of \(model.visibleTasks.count) done")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                // #10: the date + "N of M done" summary read as ONE header element
+                // (VoiceOver rotor stop), combining the two Texts and ignoring the
+                // raw children in favour of a spoken-friendly label.
+                HStack {
+                    Text("Jotty · \(model.dateLabel)")
+                        .font(.callout.weight(.semibold))
+                    Spacer()
+                    Text("\(model.visibleDoneCount) of \(model.visibleTasks.count) done")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityLabel("Jotty, \(model.dateLabel). \(model.visibleDoneCount) of \(model.visibleTasks.count) tasks done.")
+
                 // Phase 8 SC4: the "Calendar canvas" item — the canvas's only
                 // entry point; opens the optional window via AppDelegate.
                 Button(action: onOpenCanvas) {
@@ -1258,6 +1267,8 @@ struct MenubarListView: View {
                             .buttonStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
+                            // #10: rotor-navigable section header for the leftovers group.
+                            .accessibilityAddTraits(.isHeader)
 
                             if !model.leftoversCollapsed {
                                 ForEach(model.leftovers, id: \.id) { task in
@@ -1874,6 +1885,8 @@ struct MenubarListView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 1)
+                    // #10: rotor-navigable section header.
+                    .accessibilityAddTraits(.isHeader)
 
                 ForEach(model.calendarEvents) { event in
                     Button(action: { openInCalendar(event) }) {
@@ -1955,6 +1968,8 @@ private struct SuggestedSection: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 1)
+                    // #10: rotor-navigable section header.
+                    .accessibilityAddTraits(.isHeader)
 
                 ForEach(service.suggestions) { item in
                     HStack(spacing: 8) {
