@@ -363,6 +363,65 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertNil(vm.calendarNotice)
     }
 
+    // MARK: - AI natural-time backfill → calendar (#time-reliability)
+
+    /// Start-of-day + hour helper in the CURRENT tz (so assertions hold under TZ=UTC too).
+    private func todayAt(_ hour: Int, _ minute: Int, now: Date) -> Date {
+        let cal = DailyFile.calendar(timezone: .current)
+        return cal.date(bySettingHour: hour, minute: minute, second: 0,
+                        of: cal.startOfDay(for: now))!
+    }
+
+    // An AI task titled "Call Asim at 9pm" with NO block is backfilled: a 21:00 block, a clean
+    // title, and exactly one calendar event.
+    func testAINaturalTimeBackfilledCreatesBlockAndEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = await makeVMInReview(with: ExtractedTask(title: "Call Asim at 9pm"),
+                                      calendar: fake, now: now)
+        await vm.commitAndWait()
+
+        XCTAssertEqual(fake.createdEvents.count, 1, "backfilled block → one event")
+        XCTAssertEqual(fake.createdEvents.first?.title, "Call Asim", "title cleaned of time phrase")
+        XCTAssertEqual(fake.createdEvents.first?.start, todayAt(21, 0, now: now))
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Call Asim" }))
+        XCTAssertNotNil(task.timeBlock, "backfilled block persists on disk")
+        XCTAssertEqual(task.calEventID, "fake-event-1")
+    }
+
+    // An AI task with no time phrase is untouched: no block, no event.
+    func testAINoTimePhraseUnchangedNoEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = await makeVMInReview(with: ExtractedTask(title: "buy milk"),
+                                      calendar: fake, now: now)
+        await vm.commitAndWait()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty, "no time phrase → no event")
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "buy milk" }))
+        XCTAssertNil(task.timeBlock)
+        XCTAssertNil(task.calEventID)
+    }
+
+    // The AI's OWN range block is preserved — backfill never overrides an existing timeBlock.
+    func testAIExistingRangeBlockPreserved() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let tb = TimeBlock(start: dateFor("2026-06-13T15:00:00+10:00"),
+                           end: dateFor("2026-06-13T16:00:00+10:00"))
+        let fake = FakeCalendarService()
+        let vm = await makeVMInReview(with: ExtractedTask(title: "meet at 3pm", timeBlock: tb, calendarBlock: true),
+                                      calendar: fake, now: now)
+        await vm.commitAndWait()
+
+        XCTAssertEqual(fake.createdEvents.count, 1)
+        XCTAssertEqual(fake.createdEvents.first?.start, tb.start, "AI's own block kept, not the natural 3pm")
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "meet at 3pm" }))
+        XCTAssertEqual(task.timeBlock, tb)
+    }
+
     // MARK: - Typed-time manual fast path → calendar (#8)
 
     /// Builds a VM with a calendar wired and runs the pure-manual fast path for `text`.

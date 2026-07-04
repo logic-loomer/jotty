@@ -64,6 +64,26 @@ enum NaturalTime {
         return nil
     }
 
+    /// Removes a matched clock-time substring (and an immediately-preceding standalone `at`
+    /// preposition, e.g. "Call Asim at 9pm" → "Call Asim") from `text`, collapsing whitespace
+    /// runs to single spaces. Shared by the manual (CaptureTokenParser) and AI (CaptureViewModel)
+    /// backfill paths so both clean titles identically. Pure.
+    static func strippedTitle(_ text: String, removing range: Range<String.Index>) -> String {
+        var prefix = String(text[..<range.lowerBound])
+        let suffix = String(text[range.upperBound...])
+        let trimmedPrefix = prefix.trimmingCharacters(in: .whitespaces)
+        if let lastSpace = trimmedPrefix.range(of: " ", options: .backwards) {
+            if trimmedPrefix[lastSpace.upperBound...].lowercased() == "at" {
+                prefix = String(trimmedPrefix[..<lastSpace.lowerBound])
+            }
+        } else if trimmedPrefix.lowercased() == "at" {
+            prefix = ""
+        }
+        let words = (prefix + " " + suffix)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        return words.joined(separator: " ")
+    }
+
     // MARK: - Classification (pure guards)
 
     /// Validates one raw regex hit against the boundary + range rules, returning 24h (h,m) or nil.

@@ -86,7 +86,7 @@ enum CaptureTokenParser {
         // or duration never matches, so a non-time line is returned unchanged.
         var naturalSaw = false
         if timeHM == nil, let nat = NaturalTime.firstMatch(in: cleanTitle) {
-            let stripped = stripTimePhrase(from: cleanTitle, range: nat.range)
+            let stripped = NaturalTime.strippedTitle(cleanTitle, removing: nat.range)
             if !stripped.isEmpty {
                 cleanTitle = stripped
                 timeHM = (nat.hour, nat.minute)
@@ -112,25 +112,6 @@ enum CaptureTokenParser {
         // dueDate is set only when a day/due token named a day; a bare `@time` schedules the
         // block for today without also stamping a due date (mirrors the AI path's independence).
         return Result(cleanTitle: cleanTitle, dueDate: dayDate, timeBlock: timeBlock)
-    }
-
-    /// Removes the matched clock-time substring (and an immediately-preceding standalone `at`
-    /// preposition, e.g. "Call Asim at 9pm" → "Call Asim") from `title`, collapsing whitespace
-    /// runs to single spaces. Pure.
-    private static func stripTimePhrase(from title: String, range: Range<String.Index>) -> String {
-        var prefix = String(title[..<range.lowerBound])
-        let suffix = String(title[range.upperBound...])
-        let trimmedPrefix = prefix.trimmingCharacters(in: .whitespaces)
-        if let lastSpace = trimmedPrefix.range(of: " ", options: .backwards) {
-            if trimmedPrefix[lastSpace.upperBound...].lowercased() == "at" {
-                prefix = String(trimmedPrefix[..<lastSpace.lowerBound])
-            }
-        } else if trimmedPrefix.lowercased() == "at" {
-            prefix = ""
-        }
-        let words = (prefix + " " + suffix)
-            .split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        return words.joined(separator: " ")
     }
 
     // MARK: - Matchers (pure)

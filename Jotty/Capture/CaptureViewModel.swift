@@ -167,6 +167,33 @@ final class CaptureViewModel: ObservableObject {
         s.components(separatedBy: "\n").contains { $0.firstMatch(of: Self.manualTaskRegex) != nil }
     }
 
+    // MARK: - AI natural-time backfill (#time-reliability)
+
+    /// After extraction, salvage the ONE gap the on-device prompt used to drop: a task the AI
+    /// left WITHOUT a timeBlock whose title still names a single natural clock time ("Call Asim
+    /// at 9pm"). Synthesize the default 30-min block (same duration a canvas drop uses) on the
+    /// task's due day (or `now`'s day), clean the title via the shared stripper, and flag
+    /// calendarBlock so Review seeds its calendar toggle ON (mirrors ISOTaskMapper). A task the
+    /// AI already time-blocked is returned untouched, as is any title with no natural time. Pure
+    /// and deterministic given `now`/`timezone`.
+    private static func backfillNaturalTimes(_ tasks: [ExtractedTask],
+                                             now: Date, timezone: TimeZone) -> [ExtractedTask] {
+        let calendar = DailyFile.calendar(timezone: timezone)
+        let durationMinutes = CanvasLayout.defaultDropDurationMinutes
+        return tasks.map { task in
+            guard task.timeBlock == nil,
+                  let nat = NaturalTime.firstMatch(in: task.title) else { return task }
+            let cleaned = NaturalTime.strippedTitle(task.title, removing: nat.range)
+            guard !cleaned.isEmpty else { return task }
+            let base = task.dueDate ?? calendar.startOfDay(for: now)
+            guard let start = calendar.date(bySettingHour: nat.hour, minute: nat.minute,
+                                            second: 0, of: base) else { return task }
+            let end = start.addingTimeInterval(TimeInterval(durationMinutes * 60))
+            return ExtractedTask(title: cleaned, dueDate: task.dueDate,
+                                 timeBlock: TimeBlock(start: start, end: end), calendarBlock: true)
+        }
+    }
+
     // MARK: - Submit
 
     func submit() {
@@ -237,10 +264,11 @@ final class CaptureViewModel: ObservableObject {
                     ? ExtractionResult(tasks: [], noteBody: "")
                     : try await p.extractTasks(from: remainingTextCopy, now: now, timezone: tz)
                 try Task.checkCancellation()
+                let backfilled = Self.backfillNaturalTimes(aiResult.tasks, now: now, timezone: tz)
                 await MainActor.run {
                     self.isExtracting = false
                     self.lastError = nil   // success — clear any stale error from a prior attempt
-                    self.enterReview(tasks: manualTasksCopy + aiResult.tasks,
+                    self.enterReview(tasks: manualTasksCopy + backfilled,
                                      noteBody: aiResult.noteBody,
                                      doneIndices: manualDoneIndicesCopy)
                 }
@@ -306,7 +334,8 @@ final class CaptureViewModel: ObservableObject {
                 : try await fallback.extractTasks(from: failedInput, now: now, timezone: tz)
             isExtracting = false
             lastError = nil
-            enterReview(tasks: lastFailedManualTasks + result.tasks,
+            let backfilled = Self.backfillNaturalTimes(result.tasks, now: now, timezone: tz)
+            enterReview(tasks: lastFailedManualTasks + backfilled,
                         noteBody: result.noteBody,
                         doneIndices: lastFailedManualDoneIndices)
             lastFailedInput = nil
