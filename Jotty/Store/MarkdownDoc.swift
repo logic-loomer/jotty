@@ -59,21 +59,32 @@ struct MarkdownDoc: Equatable {
         tasks.append(task)
     }
 
+    /// Span-aware serialize (phase 10-02). A fresh `MarkdownDoc(date:)` has no
+    /// captured spans → `canonicalSynthesize` produces today's exact canonical
+    /// layout (byte-identical to the pre-phase-10 output). A parsed doc walks its
+    /// captured spans in original order and reconciles each Jotty span against
+    /// the live `tasks`/`notes` arrays by id (`reconcileWalk`): untouched spans
+    /// re-emit their captured bytes verbatim, mutated ones re-render, deleted ids
+    /// are omitted, and brand-new ids are injected into their section.
     func serialize(timezone: TimeZone = .current) -> String {
+        spans.isEmpty
+            ? canonicalSynthesize(timezone: timezone)
+            : reconcileWalk(timezone: timezone)
+    }
+
+    /// Fresh/empty-skeleton path: synthesize today's canonical layout. This is
+    /// the pre-phase-10 serialize body, factored to call the shared
+    /// `renderTaskLine`/`renderNoteBlock` renderers so the fresh path and the
+    /// changed-span reconcile path share ONE renderer (I4/I5 live in one place).
+    /// Byte-identical to the old output for every fresh-doc/appendTodo test.
+    private func canonicalSynthesize(timezone: TimeZone) -> String {
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         dateFmt.timeZone = timezone
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "HH:mm"
-        timeFmt.timeZone = timezone
 
         let isoFmt = ISO8601DateFormatter()
         isoFmt.timeZone = timezone
         isoFmt.formatOptions = [.withInternetDateTime]
-
-        let dateOnlyFmt = DateFormatter()
-        dateOnlyFmt.dateFormat = "yyyy-MM-dd"
-        dateOnlyFmt.timeZone = timezone
 
         var out = """
         ---
@@ -86,84 +97,171 @@ struct MarkdownDoc: Equatable {
         """
 
         for task in tasks {
-            let state = task.done ? "x" : " "
-            var meta = "id:\(task.id) created:\(isoFmt.string(from: task.createdAt))"
-            if task.done, let ca = task.completedAt {
-                meta += " done:\(isoFmt.string(from: ca))"
-            }
-            if let due = task.dueDate {
-                meta += " due:\(dateOnlyFmt.string(from: due))"
-            }
-            if let rolled = task.rolledTo {
-                meta += " rolled_to:\(dateOnlyFmt.string(from: rolled))"
-            }
-            if let sn = task.sourceNote {
-                meta += " source_note:\(sn)"
-            }
-            if let tb = task.timeBlock {
-                meta += " time:\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
-            }
-            if let cal = task.calEventID,
-               // T-5-01: a whitespace-bearing id would split into a bogus token and
-               // corrupt the space-split metadata line — skip rather than corrupt.
-               !cal.contains(where: { $0.isWhitespace }) {
-                meta += " cal_event:\(cal)"
-            }
-            if let src = task.source,
-               // T-7-02: source is `sourceID:itemID` (space-free GitHub id); guard anyway so
-               // a malformed value can never split into bogus tokens.
-               !src.contains(where: { $0.isWhitespace }) {
-                meta += " source:\(src)"
-            }
-            if let su = task.sourceURL,
-               // T-7-01: a whitespace-bearing url would split into a bogus token and corrupt
-               // the space-split metadata line (Pitfall 4) — skip rather than corrupt.
-               !su.contains(where: { $0.isWhitespace }) {
-                meta += " source_url:\(su)"
-            }
-            if let r = task.recur {
-                // T-8-01: recur values are structurally space-free
-                // (daily/weekly/weekday/custom:1,3,5) — guard anyway per the
-                // established defensive pattern (Pitfall 4).
-                let value = r.serialize()
-                if !value.contains(where: { $0.isWhitespace }) {
-                    meta += " recur:\(value)"
-                }
-            }
-            if let rs = task.recurSrc,
-               // T-8-01: the marker is "<templateId>:<yyyy-MM-dd>" (space-free);
-               // a whitespace-bearing value would split into bogus tokens — skip
-               // rather than corrupt.
-               !rs.contains(where: { $0.isWhitespace }) {
-                meta += " recur_src:\(rs)"
-            }
-            if let sn = task.snooze {
-                meta += " snooze:\(dateOnlyFmt.string(from: sn))"
-            }
-            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`. The parser
-            // locates the metadata by the FIRST ` <!-- ` opener, then reads to the
-            // first ` -->` after it. Only a `<!--` in `text` can forge that opener
-            // and shift the boundary; a `-->` in text always sits BEFORE the real
-            // opener, so it can never collide. Cluster 1 / INFO fix: neutralize the
-            // comment-OPEN only, and leave `-->` untouched so ordinary arrows (e.g.
-            // calendar-sourced titles via SC4 sync) round-trip byte-identical
-            // instead of being irreversibly rewritten to `->` on every serialize.
-            let safeText = task.text
-                .replacingOccurrences(of: "<!--", with: "<!-")
-            out += "- [\(state)] \(safeText) <!-- \(meta) -->\n"
+            out += renderTaskLine(task, unknownTokens: [], timezone: timezone) + "\n"
         }
 
         out += "\n## Notes\n\n"
 
         for note in notes {
-            out += """
-
-            ### \(timeFmt.string(from: note.time)) <!-- id:\(note.id) -->
-            \(note.text)
-
-            """
+            out += "\n" + renderNoteBlock(note, timezone: timezone) + "\n"
         }
         return out
+    }
+
+    /// Renders one Jotty task line `- [x] <text> <!-- <meta> -->` WITHOUT a
+    /// trailing newline (the fresh-path loop and the reconcile walk own spacing).
+    /// Rebuilds Jotty's canonical meta tokens in fixed order (the whitespace-in-
+    /// token skip guards I4 + the IN-01 `<!--`→`<!-` neutralize I5 live here, the
+    /// single source of truth), THEN appends any captured `unknownTokens` verbatim
+    /// before the closing ` -->` so a hand-added `priority:high` survives a
+    /// re-render of a mutated line (SC3).
+    private func renderTaskLine(_ task: Todo, unknownTokens: [String],
+                                timezone: TimeZone) -> String {
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "HH:mm"
+        timeFmt.timeZone = timezone
+        let isoFmt = ISO8601DateFormatter()
+        isoFmt.timeZone = timezone
+        isoFmt.formatOptions = [.withInternetDateTime]
+        let dateOnlyFmt = DateFormatter()
+        dateOnlyFmt.dateFormat = "yyyy-MM-dd"
+        dateOnlyFmt.timeZone = timezone
+
+        let state = task.done ? "x" : " "
+        var meta = "id:\(task.id) created:\(isoFmt.string(from: task.createdAt))"
+        if task.done, let ca = task.completedAt {
+            meta += " done:\(isoFmt.string(from: ca))"
+        }
+        if let due = task.dueDate {
+            meta += " due:\(dateOnlyFmt.string(from: due))"
+        }
+        if let rolled = task.rolledTo {
+            meta += " rolled_to:\(dateOnlyFmt.string(from: rolled))"
+        }
+        if let sn = task.sourceNote {
+            meta += " source_note:\(sn)"
+        }
+        if let tb = task.timeBlock {
+            meta += " time:\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
+        }
+        if let cal = task.calEventID,
+           // T-5-01: a whitespace-bearing id would split into a bogus token and
+           // corrupt the space-split metadata line — skip rather than corrupt.
+           !cal.contains(where: { $0.isWhitespace }) {
+            meta += " cal_event:\(cal)"
+        }
+        if let src = task.source,
+           // T-7-02: source is `sourceID:itemID` (space-free GitHub id); guard anyway so
+           // a malformed value can never split into bogus tokens.
+           !src.contains(where: { $0.isWhitespace }) {
+            meta += " source:\(src)"
+        }
+        if let su = task.sourceURL,
+           // T-7-01: a whitespace-bearing url would split into a bogus token and corrupt
+           // the space-split metadata line (Pitfall 4) — skip rather than corrupt.
+           !su.contains(where: { $0.isWhitespace }) {
+            meta += " source_url:\(su)"
+        }
+        if let r = task.recur {
+            // T-8-01: recur values are structurally space-free
+            // (daily/weekly/weekday/custom:1,3,5) — guard anyway per the
+            // established defensive pattern (Pitfall 4).
+            let value = r.serialize()
+            if !value.contains(where: { $0.isWhitespace }) {
+                meta += " recur:\(value)"
+            }
+        }
+        if let rs = task.recurSrc,
+           // T-8-01: the marker is "<templateId>:<yyyy-MM-dd>" (space-free);
+           // a whitespace-bearing value would split into bogus tokens — skip
+           // rather than corrupt.
+           !rs.contains(where: { $0.isWhitespace }) {
+            meta += " recur_src:\(rs)"
+        }
+        if let sn = task.snooze {
+            meta += " snooze:\(dateOnlyFmt.string(from: sn))"
+        }
+        // SC3: re-emit unrecognized `key:value` tokens (e.g. priority:high)
+        // verbatim, in captured order, AFTER Jotty's own canonical tokens and
+        // BEFORE the closing ` -->`.
+        for token in unknownTokens {
+            meta += " \(token)"
+        }
+        // IN-01: the task line is `- [x] <text> <!-- <meta> -->`. The parser
+        // locates the metadata by the FIRST ` <!-- ` opener, then reads to the
+        // first ` -->` after it. Only a `<!--` in `text` can forge that opener
+        // and shift the boundary; a `-->` in text always sits BEFORE the real
+        // opener, so it can never collide. Cluster 1 / INFO fix: neutralize the
+        // comment-OPEN only, and leave `-->` untouched so ordinary arrows (e.g.
+        // calendar-sourced titles via SC4 sync) round-trip byte-identical
+        // instead of being irreversibly rewritten to `->` on every serialize.
+        let safeText = task.text
+            .replacingOccurrences(of: "<!--", with: "<!-")
+        return "- [\(state)] \(safeText) <!-- \(meta) -->"
+    }
+
+    /// Renders one Jotty note block (`### HH:mm <!-- id:n_… -->` header + body)
+    /// WITHOUT leading/trailing newlines; the caller owns the surrounding blank
+    /// lines. Mirrors a `NoteSpan.originalText`'s header+body shape so a changed
+    /// note re-renders into the same slot.
+    private func renderNoteBlock(_ note: Note, timezone: TimeZone) -> String {
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "HH:mm"
+        timeFmt.timeZone = timezone
+        return "### \(timeFmt.string(from: note.time)) <!-- id:\(note.id) -->\n\(note.text)"
+    }
+
+    /// Re-renders the frontmatter block from `date` alone. Only reachable for a
+    /// fresh/date-mismatch doc; a parsed doc's `date` is `let` (A1) so
+    /// `f.date == self.date` always holds and `originalBlock` is reused instead
+    /// (preserving `created:` + any unknown keys). Fresh docs route through
+    /// `canonicalSynthesize`, so this is a defensive fallback only.
+    private func reRenderFrontmatter(timezone: TimeZone) -> String {
+        let dateFmt = DateFormatter()
+        dateFmt.dateFormat = "yyyy-MM-dd"
+        dateFmt.timeZone = timezone
+        let isoFmt = ISO8601DateFormatter()
+        isoFmt.timeZone = timezone
+        isoFmt.formatOptions = [.withInternetDateTime]
+        return "---\ndate: \(dateFmt.string(from: date))\ncreated: \(isoFmt.string(from: date))\n---"
+    }
+
+    /// Populated-skeleton path: walk the captured spans in ORIGINAL ORDER and
+    /// reconcile each Jotty span against the live `tasks`/`notes` arrays by id.
+    /// Each emitted span contributes one element to `parts`; joining with "\n"
+    /// reinserts the line-boundary newlines that `parse` consumed via
+    /// `components(separatedBy:)`, so an untouched doc reconstructs
+    /// byte-identically and a deleted span drops exactly its line plus the single
+    /// terminating newline (P-Delete). New-id injection (SC4) is layered on in
+    /// Task 2; this walk emits only existing spans.
+    private func reconcileWalk(timezone: TimeZone) -> String {
+        let liveTask = Dictionary(tasks.map { ($0.id, $0) },
+                                  uniquingKeysWith: { first, _ in first })
+        let liveNote = Dictionary(notes.map { ($0.id, $0) },
+                                  uniquingKeysWith: { first, _ in first })
+
+        var parts: [String] = []
+        for span in spans {
+            switch span {
+            case .raw(let s):
+                parts.append(s)
+            case .frontmatter(let f):
+                parts.append(f.date == date
+                    ? f.originalBlock
+                    : reRenderFrontmatter(timezone: timezone))
+            case .taskLine(let ts):
+                guard let live = liveTask[ts.pristine.id] else { continue }  // id gone → omit
+                parts.append(live == ts.pristine
+                    ? ts.originalText
+                    : renderTaskLine(live, unknownTokens: ts.unknownTokens, timezone: timezone))
+            case .note(let ns):
+                guard let live = liveNote[ns.pristine.id] else { continue }  // note removed → omit
+                parts.append(live == ns.pristine
+                    ? ns.originalText
+                    : renderNoteBlock(live, timezone: timezone))
+            }
+        }
+        return parts.joined(separator: "\n")
     }
 
     static func parse(_ rawText: String, timezone: TimeZone = .current) throws -> MarkdownDoc {

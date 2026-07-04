@@ -243,10 +243,13 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(t.calEventID, "EVT:9001")
     }
 
-    // WR-04: a hand-edited `- [X]` (uppercase — standard in hand-edited markdown and
-    // many editors' checkbox toggles) must parse as DONE. The old lowercase-only
-    // comparison parsed it as not-done, and the next re-serialize silently rewrote
-    // the user's completion state as `- [ ]`.
+    // WR-04 / I6 + phase 10-02 lossless contract: a hand-edited `- [X]` (uppercase,
+    // standard in hand-edited markdown and many editors' checkbox toggles) must
+    // parse as DONE. Under the lossless byte-stable round-trip an UNTOUCHED `[X]`
+    // line is reused VERBATIM — it stays `- [X]` (NOT normalized to `[x]`) because
+    // value-equality keeps the captured originalText. Canonical `[x]` normalization
+    // happens ONLY when the line is actually mutated (P-Churn / I6). This replaces
+    // the pre-phase-10 assertion that a plain parse->serialize normalized `[X]`->`[x]`.
     func testUppercaseXParsesAsDoneAndSurvivesRoundTrip() throws {
         let tz = TimeZone(identifier: "Australia/Sydney")!
         let handEdited = """
@@ -266,13 +269,24 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(parsed.tasks.count, 1)
         XCTAssertTrue(parsed.tasks[0].done, "uppercase [X] must parse as done")
 
-        // Round-trip: the re-serialized doc must keep the task completed
-        // (normalized to the canonical lowercase form), never un-complete it.
+        // No-mutation round-trip: the untouched `[X]` line is byte-stable — it
+        // stays `- [X]` verbatim (lossless), never rewritten, and still done==true.
         let reserialized = parsed.serialize(timezone: tz)
-        XCTAssertTrue(reserialized.contains("- [x] hand-completed"),
-                      "re-serialize must preserve completion, not rewrite [X] as [ ]")
+        XCTAssertTrue(reserialized.contains("- [X] hand-completed"),
+                      "an untouched [X] stays [X] byte-stable (lossless), never rewritten")
+        XCTAssertFalse(reserialized.contains("- [x] hand-completed"),
+                       "no canonical [x] normalization on a no-op round-trip")
         let reparsed = try MarkdownDoc.parse(reserialized, timezone: tz)
         XCTAssertTrue(reparsed.tasks[0].done)
+
+        // Mutation path: renaming the task forces a canonical re-render, and the
+        // state normalizes to the canonical lowercase `[x]` (done is preserved).
+        // So normalization happens on mutation ONLY.
+        var mutated = parsed
+        mutated.tasks[0].text = "hand-completed and edited"
+        let remutated = mutated.serialize(timezone: tz)
+        XCTAssertTrue(remutated.contains("- [x] hand-completed and edited"),
+                      "a MUTATED line re-renders to canonical [x] (normalization on mutation only)")
     }
 
     // Phase 5 plan 01: a legacy task line WITHOUT time:/cal_event: still parses
@@ -964,5 +978,149 @@ final class MarkdownDocTests: XCTestCase {
         let ts = try XCTUnwrap(taskSpans(parsed).first)
         XCTAssertEqual(ts.unknownTokens, [],
                        "a line built from ONLY recognized tokens captures nothing unknown")
+    }
+
+    // MARK: - Phase 10-02 Task 1: span-aware serialize (canonicalSynthesize + reconcile walk)
+
+    /// A hand-written day file exercising every preservation class at once: an
+    /// unknown frontmatter key, a foreign section + prose, a foreign checkbox,
+    /// Jotty task lines (one carrying an unknown `priority:high` token), a note,
+    /// and a trailing foreign `## Retro` section.
+    private func losslessFixture() -> String {
+        """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        custom_key: keep me
+        ---
+
+        # Journal
+
+        Some prose here.
+
+        ## Tasks
+
+        - [ ] buy milk
+        - [ ] jotty one <!-- id:t_a created:2026-05-08T07:30:00+10:00 -->
+        - [x] jotty two <!-- id:t_b created:2026-05-08T07:30:00+10:00 done:2026-05-08T09:00:00+10:00 priority:high -->
+
+        ## Notes
+
+        ### 07:30 <!-- id:n_1 -->
+        first note
+
+        ## Retro
+
+        trailing foreign section
+        """
+    }
+
+    /// Indices of lines that differ between two multi-line strings.
+    private func lineDiffIndices(_ a: String, _ b: String) -> [Int] {
+        let la = a.components(separatedBy: "\n")
+        let lb = b.components(separatedBy: "\n")
+        var diffs: [Int] = []
+        for i in 0..<max(la.count, lb.count) {
+            let x = i < la.count ? la[i] : nil
+            let y = i < lb.count ? lb[i] : nil
+            if x != y { diffs.append(i) }
+        }
+        return diffs
+    }
+
+    // SC1: parse a canonical file carrying foreign content, serialize with NO
+    // mutation -> byte-identical (reconcile reuses originalText/originalBlock for
+    // every span; the "\n" join reinserts the line-boundary newlines).
+    func testUntouchedRoundTripIsByteStable() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        let parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        XCTAssertEqual(parsed.serialize(timezone: tz), fixture,
+                       "untouched parse->serialize must be byte-identical (SC1)")
+    }
+
+    // SC2: toggling one task's done touches ONLY that task's line; frontmatter
+    // (incl. custom_key + created:), every other task, the foreign checkbox, and
+    // the note stay byte-identical to the input.
+    func testToggleTouchesOnlyThatTaskLine() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        let idx = try XCTUnwrap(parsed.tasks.firstIndex(where: { $0.id == "t_a" }))
+        parsed.tasks[idx].done = true
+        parsed.tasks[idx].completedAt = timeFor("2026-05-08T10:15:00+10:00")
+        let out = parsed.serialize(timezone: tz)
+        let diffs = lineDiffIndices(fixture, out)
+        XCTAssertEqual(diffs.count, 1, "only the toggled task line differs")
+        let changed = out.components(separatedBy: "\n")[diffs[0]]
+        XCTAssertTrue(changed.contains("- [x] jotty one"), "state flips to [x]")
+        XCTAssertTrue(changed.contains("done:"), "done: token added on mutation")
+    }
+
+    // P-Churn: a hand-reordered-but-semantically-identical Jotty line (tokens in
+    // a non-canonical order) is reused VERBATIM on a no-mutation round-trip
+    // (value-equality is true, so no canonical rewrite / no churn).
+    func testHandReorderedTokensReusedVerbatim() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let file = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] reordered <!-- created:2026-05-08T07:30:00+10:00 id:t_r due:2026-05-09 -->
+        """
+        let parsed = try MarkdownDoc.parse(file, timezone: tz)
+        XCTAssertEqual(parsed.serialize(timezone: tz), file,
+                       "a semantically-identical hand-reorder must round-trip verbatim (P-Churn)")
+    }
+
+    // SC3: renaming a task carrying an unknown `priority:high` token re-renders
+    // the line canonically AND re-emits priority:high verbatim before ` -->`.
+    func testRenameReRendersAndReEmitsUnknownToken() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        let idx = try XCTUnwrap(parsed.tasks.firstIndex(where: { $0.id == "t_b" }))
+        parsed.tasks[idx].text = "renamed jotty two"
+        let out = parsed.serialize(timezone: tz)
+        XCTAssertTrue(out.contains("- [x] renamed jotty two <!-- id:t_b"),
+                      "renamed line re-renders canonically")
+        XCTAssertTrue(out.contains("priority:high -->"),
+                      "unknown token re-emitted verbatim before the closing -->")
+        XCTAssertFalse(out.contains("- [x] jotty two <!--"),
+                       "old text gone from the re-rendered line")
+    }
+
+    // P-Delete: deleting a Jotty task omits its line (and its single terminating
+    // newline); the foreign checkbox, the other Jotty task, and the note stay
+    // byte-identical.
+    func testDeleteOmitsOnlyThatLine() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.tasks.removeAll { $0.id == "t_a" }
+        let out = parsed.serialize(timezone: tz)
+        let expected = fixture.components(separatedBy: "\n")
+            .filter { $0 != "- [ ] jotty one <!-- id:t_a created:2026-05-08T07:30:00+10:00 -->" }
+            .joined(separator: "\n")
+        XCTAssertEqual(out, expected,
+                       "deleting t_a removes exactly its line; all else byte-identical (P-Delete)")
+    }
+
+    // SC5 fresh leg: a fresh MarkdownDoc(date:) has NO spans -> canonicalSynthesize;
+    // its output is a fixed point of the reconcile walk (parse->serialize == synth).
+    func testFreshSynthesisIsAReconcileFixedPoint() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: dateFor("2026-05-08"))
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        doc.appendTodo(Todo(id: "t_1", text: "first", createdAt: now))
+        doc.appendNote(text: "hello", at: now, id: "n_1")
+        let synth = doc.serialize(timezone: tz)
+        let reparsed = try MarkdownDoc.parse(synth, timezone: tz)
+        XCTAssertEqual(reparsed.serialize(timezone: tz), synth,
+                       "canonicalSynthesize output round-trips byte-identically through the walk")
     }
 }
