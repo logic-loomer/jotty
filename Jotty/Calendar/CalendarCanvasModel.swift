@@ -33,6 +33,15 @@ final class CalendarCanvasModel: ObservableObject {
         let end: Date
         let y: CGFloat
         let height: CGFloat
+
+        /// The BARE task id for a `.task` block (nil for `.event`), recovered by
+        /// stripping the `"task-"` namespace prefix `blocks` applies. This is the
+        /// id `MenubarListModel.dropTask(id:atSlot:)` resolves against — the same
+        /// bare id the rail drags — so a placed task block can be re-dragged to
+        /// MOVE it (CALX-01) without namespacing leaking into the drop path.
+        var taskID: String? {
+            kind == .task ? String(id.dropFirst("task-".count)) : nil
+        }
     }
 
     /// The SHARED menubar model (store + calendar seam + now() + timezone).
