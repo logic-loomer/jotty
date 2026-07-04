@@ -111,14 +111,16 @@ struct MarkdownDoc: Equatable {
             if let sn = task.snooze {
                 meta += " snooze:\(dateOnlyFmt.string(from: sn))"
             }
-            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`; a `text` containing
-            // `<!--`/`-->` would shift the comment boundary and corrupt the round-trip
-            // (calendar-sourced titles can now reach `task.text` via SC4 sync). Neutralize the
-            // comment delimiters so parsing stays stable. Sanitize-on-create/sync handles
-            // markdown; this guards the structural delimiters specifically.
+            // IN-01: the task line is `- [x] <text> <!-- <meta> -->`. The parser
+            // locates the metadata by the FIRST ` <!-- ` opener, then reads to the
+            // first ` -->` after it. Only a `<!--` in `text` can forge that opener
+            // and shift the boundary; a `-->` in text always sits BEFORE the real
+            // opener, so it can never collide. Cluster 1 / INFO fix: neutralize the
+            // comment-OPEN only, and leave `-->` untouched so ordinary arrows (e.g.
+            // calendar-sourced titles via SC4 sync) round-trip byte-identical
+            // instead of being irreversibly rewritten to `->` on every serialize.
             let safeText = task.text
                 .replacingOccurrences(of: "<!--", with: "<!-")
-                .replacingOccurrences(of: "-->", with: "->")
             out += "- [\(state)] \(safeText) <!-- \(meta) -->\n"
         }
 
@@ -135,7 +137,15 @@ struct MarkdownDoc: Equatable {
         return out
     }
 
-    static func parse(_ text: String, timezone: TimeZone = .current) throws -> MarkdownDoc {
+    static func parse(_ rawText: String, timezone: TimeZone = .current) throws -> MarkdownDoc {
+        // Cluster 1 / WARNING: normalize line endings BEFORE any regex. The note
+        // header/body patterns match `-->\n` (LF only), so a CRLF- or CR-saved
+        // daily file otherwise loses every note (tasks survive). Collapse \r\n
+        // and lone \r to \n once, up front, so all downstream matching is LF.
+        let text = rawText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         dateFmt.timeZone = timezone
@@ -245,7 +255,11 @@ struct MarkdownDoc: Equatable {
         }
 
         // Parse note entries: "### HH:mm <!-- id:n_xxx -->\n<body>"
-        let noteRegex = /### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->\n([\s\S]*?)(?=\n\n### |\z)/
+        // Cluster 1 / CRITICAL: the body terminator must anchor to a REAL note
+        // header (blank line, then `### HH:MM <!-- id:`), not any blank-line+H3.
+        // The old `(?=\n\n### |\z)` cut a note body at any ordinary markdown H3
+        // it contained -> silent truncation / permanent data loss on save.
+        let noteRegex = /### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->\n([\s\S]*?)(?=\n\n### \d{2}:\d{2} <!-- id:|\z)/
         for match in text.matches(of: noteRegex) {
             let h = Int(match.1)!
             let m = Int(match.2)!
