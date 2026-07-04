@@ -1612,4 +1612,79 @@ final class MarkdownDocTests: XCTestCase {
                        "garbage body captured as raw spans round-trips byte-identical")
     }
 
+    // CR-01: the app's REAL scaffold path. ensureDayFile writes
+    // MarkdownDoc(date:).serialize() to disk; the first capture re-parses THAT
+    // string. An empty-but-present `## Tasks` region must not shove the first
+    // task under `## Notes`. Build the scaffold exactly as the app does.
+    func testAppendTaskIntoEmptyScaffoldLandsUnderTasks() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let scaffold = MarkdownDoc(date: dateFor("2026-05-08")).serialize(timezone: tz)
+        var parsed = try MarkdownDoc.parse(scaffold, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "task",
+                               createdAt: timeFor("2026-05-08T11:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+
+        let iTasks = try XCTUnwrap(out.range(of: "## Tasks"))
+        let iTask = try XCTUnwrap(out.range(of: "id:t_new"))
+        let iNotes = try XCTUnwrap(out.range(of: "## Notes"))
+        XCTAssertTrue(iTasks.lowerBound < iTask.lowerBound,
+                      "task lands AFTER the ## Tasks header")
+        XCTAssertTrue(iTask.lowerBound < iNotes.lowerBound,
+                      "task lands UNDER ## Tasks, before ## Notes (not misfiled under Notes)")
+        XCTAssertTrue(out.contains("## Notes"), "## Notes section retained")
+        XCTAssertTrue(out.hasSuffix("\n"), "no trailing-newline drop on injection")
+    }
+
+    // CR-01 analog: a note into the same empty scaffold correctly lands under
+    // `## Notes` (and tasks section is retained), the line-precise anchor holds.
+    func testAppendNoteIntoEmptyScaffoldLandsUnderNotes() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let scaffold = MarkdownDoc(date: dateFor("2026-05-08")).serialize(timezone: tz)
+        var parsed = try MarkdownDoc.parse(scaffold, timezone: tz)
+        parsed.appendNote(text: "hello",
+                          at: timeFor("2026-05-08T08:00:00+10:00"), id: "n_1")
+        let out = parsed.serialize(timezone: tz)
+
+        let iNotes = try XCTUnwrap(out.range(of: "## Notes"))
+        let iNote = try XCTUnwrap(out.range(of: "id:n_1"))
+        XCTAssertTrue(iNotes.lowerBound < iNote.lowerBound, "note lands under ## Notes")
+        XCTAssertTrue(out.contains("## Tasks"), "## Tasks section retained")
+        XCTAssertTrue(out.hasSuffix("\n"), "no trailing-newline drop on injection")
+    }
+
+    // WR-01: an UNTOUCHED file with two task lines sharing an id must round-trip
+    // byte-identical (no by-id collapse re-rendering the 2nd line as the 1st).
+    func testDuplicateTaskIdFileRoundTripsByteStable() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = "---\ndate: 2026-05-08\n"
+            + "created: 2026-05-08T00:00:00+10:00\n---\n\n## Tasks\n\n"
+            + "- [ ] first <!-- id:t_dup created:2026-05-08T09:00:00+10:00 -->\n"
+            + "- [ ] second <!-- id:t_dup created:2026-05-08T10:00:00+10:00 -->\n"
+            + "\n## Notes\n\n"
+        let parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        XCTAssertEqual(parsed.tasks.map(\.id), ["t_dup", "t_dup"], "both dup-id tasks parsed")
+        XCTAssertEqual(parsed.serialize(timezone: tz), fixture,
+                       "dup-id file round-trips byte-identical; 2nd task not lost/rewritten")
+    }
+
+    // WR-02: a near-canonical `## Tasks ` (trailing space) + empty region must be
+    // REUSED as the injection anchor, not duplicated into a second section.
+    func testNearCanonicalTasksHeaderNotDuplicatedOnInjection() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = "---\ndate: 2026-05-08\n"
+            + "created: 2026-05-08T00:00:00+10:00\n---\n\n## Tasks \n\n## Notes\n\n"
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "task",
+                               createdAt: timeFor("2026-05-08T11:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+
+        XCTAssertEqual(out.components(separatedBy: "## Tasks").count - 1, 1,
+                       "near-canonical '## Tasks ' reused; no duplicate ## Tasks synthesized")
+        let iTasks = try XCTUnwrap(out.range(of: "## Tasks"))
+        let iTask = try XCTUnwrap(out.range(of: "id:t_new"))
+        let iNotes = try XCTUnwrap(out.range(of: "## Notes"))
+        XCTAssertTrue(iTasks.lowerBound < iTask.lowerBound && iTask.lowerBound < iNotes.lowerBound,
+                      "task injected under the existing near-canonical header")
+    }
+
 }
