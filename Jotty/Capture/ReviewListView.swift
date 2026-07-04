@@ -37,6 +37,25 @@ struct ReviewListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Cluster-2 WR: commit-time disk-write failure. A DISTINCT banner with
+            // honest copy — nothing was saved, so it must not reuse the AI-fallback
+            // "saved as a plain note" wording. The user stays in Review to retry.
+            if let saveError = vm.saveError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                    Text(saveError)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.regularMaterial)
+                .accessibilityLabel(saveError)
+            }
+
             // AI-SPEC §4.6 / §6.3: inline error banner when extraction failed.
             if let error = vm.lastError {
                 HStack(spacing: 8) {

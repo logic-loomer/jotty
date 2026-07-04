@@ -62,6 +62,13 @@ final class CaptureViewModel: ObservableObject {
     @Published var isExtracting: Bool = false
     @Published var lastError: AIProviderError?
 
+    /// Cluster-2 WR: a distinct, honest signal for a COMMIT-TIME disk-write failure.
+    /// Kept separate from `lastError` (the AI-extraction channel) so a failed
+    /// `appendCapture` no longer borrows the misleading "saved as a plain note" copy —
+    /// nothing was saved. Non-nil holds the user-facing message; the user stays in
+    /// Review with their draft intact so they can retry.
+    @Published var saveError: String?
+
     /// UX-03: true once a commit has landed on disk (manual fast path or Review
     /// commit). The view renders a brief "Saved" toast while set. A fresh VM is
     /// created per capture-window open, so this never leaks across sessions.
@@ -109,6 +116,13 @@ final class CaptureViewModel: ObservableObject {
     /// retryWithAppleFM() can re-run the SAME input through the fallback.
     private var lastFailedInput: String?
     private var lastFailedManualTasks: [ExtractedTask] = []
+    /// Cluster-2 INFO: checkbox-done state for `lastFailedManualTasks`, so a
+    /// retryWithAppleFM() rebuild preserves `- [x]` done-ness through Review.
+    private var lastFailedManualDoneIndices: Set<Int> = []
+    /// Cluster-2 INFO: review-row indices that must commit as DONE. Seeded by
+    /// `enterReview(doneIndices:)` from the manual `- [x]` lines (which are always
+    /// prepended, so their index in the review equals their manual index).
+    private var reviewManualDoneIDs: Set<Int> = []
 
     /// True iff a fallback provider is wired — drives the toast button.
     var fallbackAvailable: Bool { fallbackProvider != nil }
@@ -159,20 +173,28 @@ final class CaptureViewModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         lastError = nil
+        saveError = nil
 
         // Per-line routing: extract manual `- [ ] ` lines as ExtractedTask
         // directly (bypass AI); send the remaining prose to the AI provider.
         // The Review state then shows manual + AI tasks combined.
         var manualTasks: [ExtractedTask] = []
+        // Cluster-2 INFO: ExtractedTask carries no done flag (and is out of this
+        // cluster's scope to change), so the mixed-path checkbox state is tracked
+        // alongside. Manual tasks are ALWAYS prepended to the review list, so a
+        // done flag at manual-index i maps directly to review-index i.
+        var manualDoneFlags: [Bool] = []
         var remainingLines: [String] = []
         for line in trimmed.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: Self.manualTaskRegex) {
                 let title = String(match.2).trimmingCharacters(in: .whitespaces)
                 manualTasks.append(ExtractedTask(title: title))
+                manualDoneFlags.append(match.1 != " ")
             } else {
                 remainingLines.append(line)
             }
         }
+        let manualDoneIndices = Set(manualDoneFlags.indices.filter { manualDoneFlags[$0] })
         let remainingText = remainingLines.joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -194,6 +216,7 @@ final class CaptureViewModel: ObservableObject {
         let now = clock()
         let tz = TimeZone.current
         let manualTasksCopy = manualTasks
+        let manualDoneIndicesCopy = manualDoneIndices
         let remainingTextCopy = remainingText
         extractionTask = Task { [weak self] in
             guard let self else { return }
@@ -207,7 +230,8 @@ final class CaptureViewModel: ObservableObject {
                     self.isExtracting = false
                     self.lastError = nil   // success — clear any stale error from a prior attempt
                     self.enterReview(tasks: manualTasksCopy + aiResult.tasks,
-                                     noteBody: aiResult.noteBody)
+                                     noteBody: aiResult.noteBody,
+                                     doneIndices: manualDoneIndicesCopy)
                 }
             } catch is CancellationError {
                 return
@@ -218,8 +242,10 @@ final class CaptureViewModel: ObservableObject {
                     // Stash the failed input so retryWithAppleFM can re-run it.
                     self.lastFailedInput = remainingTextCopy
                     self.lastFailedManualTasks = manualTasksCopy
+                    self.lastFailedManualDoneIndices = manualDoneIndicesCopy
                     // Degraded review: keep manual tasks, raw remaining text as note body.
-                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
+                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy,
+                                     doneIndices: manualDoneIndicesCopy)
                 }
             } catch {
                 await MainActor.run {
@@ -227,7 +253,9 @@ final class CaptureViewModel: ObservableObject {
                     self.lastError = .underlying(message: error.localizedDescription)
                     self.lastFailedInput = remainingTextCopy
                     self.lastFailedManualTasks = manualTasksCopy
-                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy)
+                    self.lastFailedManualDoneIndices = manualDoneIndicesCopy
+                    self.enterReview(tasks: manualTasksCopy, noteBody: remainingTextCopy,
+                                     doneIndices: manualDoneIndicesCopy)
                 }
             }
         }
@@ -264,9 +292,11 @@ final class CaptureViewModel: ObservableObject {
             isExtracting = false
             lastError = nil
             enterReview(tasks: lastFailedManualTasks + result.tasks,
-                        noteBody: result.noteBody)
+                        noteBody: result.noteBody,
+                        doneIndices: lastFailedManualDoneIndices)
             lastFailedInput = nil
             lastFailedManualTasks = []
+            lastFailedManualDoneIndices = []
         } catch let e as AIProviderError {
             isExtracting = false
             lastError = e
@@ -319,13 +349,16 @@ final class CaptureViewModel: ObservableObject {
 
     // MARK: - Plan 06: Review state machine
 
-    func enterReview(tasks: [ExtractedTask], noteBody: String) {
+    func enterReview(tasks: [ExtractedTask], noteBody: String, doneIndices: Set<Int> = []) {
         let saved = self.text
         self.state = .review(tasks: tasks, noteBody: noteBody, savedInput: saved)
         self.acceptedRowIDs = Set(tasks.indices)   // all checked by default
         // UX-06: seed the calendar toggle from the AI's intent — a row starts ON
         // iff its task arrived with calendarBlock (mapper sets it for time-blocked tasks).
         self.calendarEnabledRowIDs = Set(tasks.indices.filter { tasks[$0].calendarBlock })
+        // Cluster-2 INFO: which rows commit as done (manual `- [x]` lines). Scoped to
+        // valid indices; a rename does NOT route through here, so done-ness survives edits.
+        self.reviewManualDoneIDs = doneIndices.filter { tasks.indices.contains($0) }
     }
 
     func toggleRow(_ index: Int) {
@@ -368,6 +401,10 @@ final class CaptureViewModel: ObservableObject {
     }
 
     func returnToInput() {
+        // Cluster-2 WR: an in-flight fallback extraction (retryWithAppleFM) leaves
+        // Review interactive. A ⌫ mid-await would flip to .input, and the fallback's
+        // enterReview would then resurrect Review out from under the user. Swallow it.
+        guard !isExtracting else { return }
         if case .review(_, _, let saved) = state {
             self.text = saved
         }
@@ -375,8 +412,15 @@ final class CaptureViewModel: ObservableObject {
     }
 
     func commitFromReview() {
+        // Cluster-2 WR: while an in-flight fallback extraction is running
+        // (retryWithAppleFM), Review stays interactive. A ⌘↩ mid-await would commit
+        // the STALE degraded review — dropping the fallback's about-to-arrive tasks,
+        // or double-appending the prose on a second ⌘↩. Swallow the commit; the
+        // fallback's enterReview lands the correct result when it resolves.
+        guard !isExtracting else { return }
         guard case .review(let tasks, let noteBody, _) = state else { return }
         let now = clock()
+        saveError = nil   // fresh attempt — drop any prior save-failure notice
         let acceptedIndices = acceptedRowIDs.sorted().filter { tasks.indices.contains($0) }
 
         let noteId: String? = noteBody.isEmpty
@@ -397,20 +441,24 @@ final class CaptureViewModel: ObservableObject {
         // (calendarEnabledRowIDs). Toggled-off rows take the same synchronous path as the
         // calendar-nil case: committed WITH their timeBlock, no event ever created.
         let calendarPresent = (self.calendar != nil)
-        var synchronousTasks: [ExtractedTask] = []
+        // Cluster-2 INFO: build plainTodos inside the loop so each carries its ROW
+        // index — needed to honor `reviewManualDoneIDs` (a manual `- [x]` line commits
+        // as done, not silently reopened). Manual done rows are never time-blocked, so
+        // they always take the synchronous path here.
+        var plainTodos: [Todo] = []
         var timeBlockedTasks: [ExtractedTask] = []
         for index in acceptedIndices {
             let t = tasks[index]
             if calendarPresent, t.timeBlock != nil, calendarEnabledRowIDs.contains(index) {
                 timeBlockedTasks.append(t)
             } else {
-                synchronousTasks.append(t)
+                let done = reviewManualDoneIDs.contains(index)
+                plainTodos.append(Todo(id: Todo.newID(),
+                                       text: t.title, createdAt: now,
+                                       done: done,
+                                       completedAt: done ? now : nil,
+                                       dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock))
             }
-        }
-        let plainTodos: [Todo] = synchronousTasks.map { t in
-            Todo(id: Todo.newID(),
-                 text: t.title, createdAt: now, done: false,
-                 dueDate: t.dueDate, sourceNote: noteId, timeBlock: t.timeBlock)
         }
 
         do {
@@ -418,8 +466,11 @@ final class CaptureViewModel: ObservableObject {
             // on the calendar.
             try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: plainTodos, at: now)
         } catch {
-            // Keep the user in review with their accepted rows so they can retry.
-            lastError = .underlying(message: error.localizedDescription)
+            // Cluster-2 WR: a disk-write failure is NOT an AI-extraction failure. Routing
+            // it through `lastError` borrowed the misleading "saved as a plain note" banner
+            // (nothing was saved). Raise the honest, distinct save-failure signal instead
+            // and keep the user in Review with their accepted rows + draft intact to retry.
+            saveError = "Couldn't save. Try again."
             return
         }
 
@@ -430,6 +481,7 @@ final class CaptureViewModel: ObservableObject {
         state = .input
         acceptedRowIDs = []
         calendarEnabledRowIDs = []
+        reviewManualDoneIDs = []
 
         // UX-03: both commit paths confirm — show "Saved" and ask the window
         // layer to close after the toast (replaces the view's old immediate
