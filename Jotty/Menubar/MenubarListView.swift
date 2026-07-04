@@ -120,6 +120,12 @@ final class MenubarListModel: ObservableObject {
     /// binary (D-SC1 graceful degrade): points the user to Web mode. Cleared by the view
     /// after a brief display. nil = nothing to show.
     @Published var claudeNotice: String?
+
+    /// Transient, dismissible menubar notice shown when a day file was found
+    /// unparseable and quarantined to a `.corrupt-*` sidecar before a write (#7 —
+    /// the menubar wire-up for Cluster A's `Store.onCorruptQuarantine`). A FIXED
+    /// string only — never interpolate the path or bytes (T-07.1-16). nil = nothing.
+    @Published var corruptQuarantineNotice: String?
     /// In-flight calendar refresh spawned by `reload()`, so tests (and reload callers) can
     /// await it deterministically. Kept distinct from `editTask` (WR-03) so an edit and a
     /// concurrent refresh never overwrite each other's handle and drop in-flight work.
@@ -159,7 +165,32 @@ final class MenubarListModel: ObservableObject {
         self.claudeHandoff = claudeHandoff
         self.inboxService = inboxService
         self.keybindings = keybindings
+        hookCorruptQuarantine()
         reload()
+    }
+
+    // MARK: - Corrupt-file quarantine notice (#7, wire-up)
+
+    /// Publishes the transient corrupt-quarantine recovery notice. Shared entry
+    /// point for the store callback and tests.
+    func showCorruptQuarantineNotice() {
+        corruptQuarantineNotice = "Recovered a damaged day file — a backup was saved."
+    }
+
+    /// Dismisses the corrupt-quarantine notice (non-blocking, user-dismissible).
+    func dismissCorruptQuarantineNotice() {
+        corruptQuarantineNotice = nil
+    }
+
+    /// Routes the store's `onCorruptQuarantine` (fired when a day file was
+    /// quarantined before a clobbering write) to the transient menubar notice.
+    /// Every Store write path in the app runs on the main actor, so the callback
+    /// assumes main isolation and publishes synchronously. Re-installed by
+    /// `replaceStore` so a Settings folder change keeps surfacing recoveries.
+    private func hookCorruptQuarantine() {
+        store.onCorruptQuarantine = { [weak self] _ in
+            MainActor.assumeIsolated { self?.showCorruptQuarantineNotice() }
+        }
     }
 
     // NOTE (CR-03/IN-03): every visible row is loaded from TODAY's doc —
@@ -243,6 +274,7 @@ final class MenubarListModel: ObservableObject {
     /// prompt stays reserved for genuine user-driven calendar paths (popover open, edit).
     func replaceStore(_ newStore: Store) {
         store = newStore
+        hookCorruptQuarantine()   // #7: re-hook so the new store's quarantines surface.
         reload(promptIfUndetermined: false)
     }
 
@@ -1229,6 +1261,10 @@ struct MenubarListView: View {
 
             Divider()
 
+            // #7: transient, dismissible banner when a damaged day file was recovered
+            // (quarantined to a `.corrupt-*` sidecar before a write).
+            corruptQuarantineBanner
+
             // Suggested section (Phase 7, SC2): external inbox items offered for
             // Accept/Dismiss, ABOVE the task list. Renders only when the inbox service
             // is wired AND has suggestions; nothing on the default/unconfigured config.
@@ -1811,6 +1847,37 @@ struct MenubarListView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+        }
+    }
+
+    // MARK: - Corrupt-file quarantine banner (#7)
+
+    /// A brief, dismissible recovery banner shown when Cluster A's quarantine fired
+    /// (a damaged day file was backed up before a write). Non-blocking: it stays until
+    /// the user taps dismiss (so a popover-open reload never hides it before it's seen),
+    /// and a rebuilt model starts clean.
+    @ViewBuilder
+    private var corruptQuarantineBanner: some View {
+        if let notice = model.corruptQuarantineNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(action: { model.dismissCorruptQuarantineNotice() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss recovery notice")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            Divider()
         }
     }
 

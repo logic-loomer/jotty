@@ -1134,6 +1134,57 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNotNil(model.claudeNotice, "no binary → one-line notice")
     }
 
+    // MARK: - #7: corrupt-file quarantine notice (wire-up)
+
+    func testCorruptQuarantineNoticeStateMachine() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.corruptQuarantineNotice)
+        model.showCorruptQuarantineNotice()
+        XCTAssertNotNil(model.corruptQuarantineNotice)
+        model.dismissCorruptQuarantineNotice()
+        XCTAssertNil(model.corruptQuarantineNotice, "notice is dismissible")
+    }
+
+    /// The model hooks `Store.onCorruptQuarantine`, so a write that quarantines an
+    /// unparseable day file surfaces the transient menubar notice.
+    func testStoreQuarantineSurfacesMenubarNotice() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        // Seed an unparseable day file for today (no frontmatter → parse throws).
+        let url = DailyFile.url(in: folder, on: today, timezone: tz)
+        try "corruption, no frontmatter\n".write(to: url, atomically: true, encoding: .utf8)
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.corruptQuarantineNotice)
+
+        // A write clobbering the corrupt file quarantines it and fires the hook.
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t1", text: "x", createdAt: today)], at: today)
+        XCTAssertNotNil(model.corruptQuarantineNotice,
+                        "quarantine surfaces a transient menubar notice")
+    }
+
+    /// After `replaceStore`, the NEW store's quarantine still surfaces (the hook is
+    /// re-installed on swap, not left on the old store).
+    func testCorruptQuarantineHookReinstalledOnReplaceStore() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let storeA = Store(folder: folder, timezone: tz)
+        let model = MenubarListModel(store: storeA, timezone: tz, defaults: defaults, now: { today })
+
+        let folderB = folder.appendingPathComponent("B")
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+        let storeB = Store(folder: folderB, timezone: tz)
+        let urlB = DailyFile.url(in: folderB, on: today, timezone: tz)
+        try "corruption, no frontmatter\n".write(to: urlB, atomically: true, encoding: .utf8)
+
+        model.replaceStore(storeB)
+        try storeB.appendCapture(noteText: "", noteId: nil,
+                                 tasks: [Todo(id: "t1", text: "x", createdAt: today)], at: today)
+        XCTAssertNotNil(model.corruptQuarantineNotice)
+    }
+
     func testSendToClaudeNoHandoffIsNoOp() throws {
         let store = Store(folder: folder, timezone: tz)
         let today = makeDate(2026, 6, 12, h: 8)
