@@ -135,7 +135,15 @@ struct MarkdownDoc: Equatable {
         return out
     }
 
-    static func parse(_ text: String, timezone: TimeZone = .current) throws -> MarkdownDoc {
+    static func parse(_ rawText: String, timezone: TimeZone = .current) throws -> MarkdownDoc {
+        // Cluster 1 / WARNING: normalize line endings BEFORE any regex. The note
+        // header/body patterns match `-->\n` (LF only), so a CRLF- or CR-saved
+        // daily file otherwise loses every note (tasks survive). Collapse \r\n
+        // and lone \r to \n once, up front, so all downstream matching is LF.
+        let text = rawText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd"
         dateFmt.timeZone = timezone

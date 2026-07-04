@@ -576,4 +576,27 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(doc2.notes[0].text, "first note\n\n### inner heading\ntail")
         XCTAssertEqual(doc2.notes[1].text, "second note")
     }
+
+    // Cluster 1 / WARNING: a daily file saved with CRLF line endings must parse
+    // its NOTES as well as its tasks. The note header regex requires `-->\n`
+    // (LF only); before normalization a CRLF file lost every note while tasks
+    // survived. parse() must normalize \r\n and lone \r to \n up front.
+    func testCRLFLineEndingsParseNotesAndTasks() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let now = timeFor("2026-05-08T07:30:00+10:00")
+        var doc1 = MarkdownDoc(date: dateFor("2026-05-08"))
+        doc1.appendTodo(Todo(id: "t_crlf", text: "ship it", createdAt: now))
+        doc1.appendNote(text: "a crlf note", at: now, id: "n_crlf")
+        let lf = doc1.serialize(timezone: tz)
+        // Simulate a Windows / CRLF-saved daily file.
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+
+        let doc2 = try MarkdownDoc.parse(crlf, timezone: tz)
+        XCTAssertEqual(doc2.tasks.count, 1, "tasks must survive CRLF")
+        XCTAssertEqual(doc2.tasks[0].id, "t_crlf")
+        XCTAssertEqual(doc2.notes.count, 1, "notes must survive CRLF (regression)")
+        XCTAssertEqual(doc2.notes[0].id, "n_crlf")
+        XCTAssertEqual(doc2.notes[0].text, "a crlf note",
+                       "normalized body must not carry stray \\r")
+    }
 }
