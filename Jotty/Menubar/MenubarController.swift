@@ -58,6 +58,8 @@ final class MenubarController {
         }
 
         popover.behavior = .transient
+        // #11: `animates` is (re)set at show time from the LIVE Reduce Motion signal
+        // (see showPopover) so a mid-session accessibility change is honoured.
         popover.animates = true
     }
 
@@ -103,6 +105,9 @@ final class MenubarController {
 
         popover.contentViewController = NSHostingController(rootView: view)
         guard let button = statusItem.button else { return }
+        // #11: honour Reduce Motion for the present/dismiss animation, read live so a
+        // mid-session toggle takes effect on the next open.
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
 
         // AFTER reload + show (reload clears the id; the view is now live to

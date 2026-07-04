@@ -502,8 +502,12 @@ final class MenubarListModel: ObservableObject {
             // expand/collapse (key present) is the user's choice and wins.
             // Gated on write success: a failed toggle is not an interaction.
             if wasLeftover, defaults.object(forKey: collapseKey(for: snapshot)) == nil {
-                // Same animation as the manual header toggle.
-                withAnimation(.easeInOut(duration: 0.15)) {
+                // Same animation as the manual header toggle — and, like it, honours
+                // Reduce Motion (#11): the model reads the AppKit signal at call time
+                // (it has no @Environment) so the auto-collapse snaps when reduced.
+                let anim: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? nil : .easeInOut(duration: 0.15)
+                withAnimation(anim) {
                     setCollapsed(true, at: snapshot)
                 }
             }
@@ -1250,7 +1254,9 @@ struct MenubarListView: View {
                         // yesterday — UX-05 honest labelling) above today's tasks.
                         if !model.leftovers.isEmpty {
                             Button(action: {
-                                withAnimation(.easeInOut(duration: 0.15)) {
+                                // #11: honour Reduce Motion — nil animation snaps the
+                                // leftovers collapse instead of easing it.
+                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
                                     model.setCollapsed(!model.leftoversCollapsed)
                                 }
                             }) {
