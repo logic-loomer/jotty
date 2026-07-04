@@ -744,11 +744,37 @@ final class MenubarListModel: ObservableObject {
     /// (D-SC1 graceful degrade). No-op when no handoff is injected.
     func sendToClaude(_ task: Todo) {
         guard let claudeHandoff else { return }
-        let prompt = ClaudePrompt.wrapped(task.text)
+        let context = claudeContext(for: task)
+        // Mode-aware cap: Web/URL truncates hard, Code/argv allows fuller text (#1).
+        let cap = (configStore?.config.claudeAction ?? .web) == .web
+            ? ClaudePrompt.webContextCap
+            : ClaudePrompt.codeContextCap
+        let prompt = ClaudePrompt.wrapped(taskText: task.text,
+                                          sourceNoteBody: context.body,
+                                          siblingTitles: context.siblings,
+                                          maxContextLength: cap)
         let delivered = claudeHandoff.send(prompt: prompt)
         if !delivered {
             claudeNotice = "Claude Code isn’t available — switch to Web mode in Settings → AI."
         }
+    }
+
+    /// Reads TODAY's doc (the file every visible row was loaded from, IN-03) and
+    /// gathers the Send-to-Claude context for `task` (#1): the body of the note the
+    /// task was extracted from (`sourceNote`), and the titles of its SIBLING tasks —
+    /// other tasks in the same day sharing the same `sourceNote`, excluding `task`.
+    /// Graceful when the note is missing or the read throws (empty context → the
+    /// builder degrades to the plain wrapped prompt). Pure read, no mutation.
+    private func claudeContext(for task: Todo) -> (body: String?, siblings: [String]) {
+        guard let noteID = task.sourceNote,
+              let doc = try? store.readDoc(on: now()) else {
+            return (nil, [])
+        }
+        let body = doc.notes.first { $0.id == noteID }?.text
+        let siblings = doc.tasks
+            .filter { $0.sourceNote == noteID && $0.id != task.id }
+            .map(\.text)
+        return (body, siblings)
     }
 
     /// Commits an inline rename (SC4). The store rewrites only the task's text,

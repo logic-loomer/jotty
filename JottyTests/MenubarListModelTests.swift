@@ -1074,6 +1074,48 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.claudeNotice, "binary present → no notice")
     }
 
+    /// #1: a task extracted from a note hands off the note body + sibling task
+    /// titles, not just the bare title.
+    func testSendToClaudeIncludesNoteBodyAndSiblings() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "Plan the Q3 offsite", noteId: "n_off", tasks: [
+            Todo(id: "t_main", text: "book the venue", createdAt: today, sourceNote: "n_off"),
+            Todo(id: "t_sib", text: "order catering", createdAt: today, sourceNote: "n_off"),
+            Todo(id: "t_other", text: "unrelated", createdAt: today)
+        ], at: today)
+
+        let fake = FakeClaudeHandoff()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, claudeHandoff: fake)
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_main" })
+        model.sendToClaude(task)
+
+        let prompt = try XCTUnwrap(fake.lastPrompt)
+        XCTAssertTrue(prompt.hasPrefix(ClaudePrompt.wrapped("book the venue")))
+        XCTAssertTrue(prompt.contains("Plan the Q3 offsite"), "note body included")
+        XCTAssertTrue(prompt.contains("order catering"), "sibling task included")
+        XCTAssertFalse(prompt.contains("unrelated"), "non-sibling task excluded")
+    }
+
+    /// #1: a task whose sourceNote is missing (or nil) degrades to the plain wrapped
+    /// prompt — no crash, no context noise.
+    func testSendToClaudeGracefulWhenSourceNoteMissing() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_dangling", text: "solo task", createdAt: today, sourceNote: "n_gone")
+        ], at: today)
+
+        let fake = FakeClaudeHandoff()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, claudeHandoff: fake)
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_dangling" })
+        model.sendToClaude(task)
+
+        XCTAssertEqual(fake.lastPrompt, ClaudePrompt.wrapped("solo task"))
+    }
+
     func testSendToClaudeNoBinarySetsNotice() throws {
         let store = Store(folder: folder, timezone: tz)
         let today = makeDate(2026, 6, 12, h: 8)

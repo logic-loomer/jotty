@@ -32,6 +32,58 @@ enum ClaudePrompt {
         return template + trimmed
     }
 
+    /// Context caps for the two handoff modes (#1). Web/URL mode is capped HARD so
+    /// the `claude.ai/new?q=` prefill stays well under browser/query-string limits;
+    /// Code/argv mode allows a fuller context (a single argv slot has no practical
+    /// size limit — the text still can't inject, it's one element).
+    static let webContextCap = 500
+    static let codeContextCap = 4000
+
+    /// Context-taking builder (#1): wraps the task text AND appends the source
+    /// note's body plus sibling-task titles so the handoff carries the surrounding
+    /// context, not just the bare title.
+    ///
+    /// SECURITY: this only grows the PROMPT TEXT — the single-argv construction
+    /// (`codeArgv`) and the URLComponents percent-encoding (`webURL`) downstream are
+    /// untouched, so metacharacters remain inert. The context is additionally
+    /// FLATTENED (every whitespace/newline run → a single space) so a multi-line
+    /// note body stays one contained region and cannot inject a fake template line.
+    ///
+    /// The core `wrapped(taskText)` prefix is NEVER truncated; only the appended
+    /// context is hard-capped at `maxContextLength`. Nil/empty body + empty siblings
+    /// degrade to exactly `wrapped(taskText)`.
+    static func wrapped(taskText: String,
+                        sourceNoteBody: String?,
+                        siblingTitles: [String] = [],
+                        maxContextLength: Int) -> String {
+        let base = wrapped(taskText)
+        var parts: [String] = []
+        if let body = flattenContext(sourceNoteBody), !body.isEmpty {
+            parts.append("Context from my note: \"\(body)\"")
+        }
+        let siblings = siblingTitles
+            .compactMap { flattenContext($0) }
+            .filter { !$0.isEmpty }
+        if !siblings.isEmpty {
+            parts.append("Related tasks in the same note: " + siblings.joined(separator: "; "))
+        }
+        guard !parts.isEmpty else { return base }
+        var context = " " + parts.joined(separator: " ")
+        if context.count > maxContextLength {
+            context = String(context.prefix(maxContextLength))
+        }
+        return base + context
+    }
+
+    /// Collapses every whitespace/newline run to a single space and trims — so
+    /// note-body context can never carry a raw newline (or a fake structural line)
+    /// into the prompt. Returns nil for nil input; "" for whitespace-only input.
+    private static func flattenContext(_ s: String?) -> String? {
+        guard let s else { return nil }
+        return s.split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+    }
+
     /// Builds the Web-mode URL: `https://claude.ai/new?q=<percent-encoded prompt>`.
     ///
     /// `URLComponents` + `URLQueryItem` percent-encode the value — spaces,
