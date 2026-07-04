@@ -367,15 +367,18 @@ final class MenubarListModel: ObservableObject {
         // mis-classified as missing (WR-02).
         let linked = todayLinkedTasks(from: todayStart, to: todayEnd)
         let result = CalendarDrift.driftedTasks(linked, against: calendarEvents)
-        if !result.drifted.isEmpty {
-            driftPrompt = DriftPrompt(drifted: result.drifted)
-        }
-        // Surface (do NOT silently drop, CR-02) tasks whose linked event was deleted in
-        // Calendar, offering a calendar-wins cleanup. Only on a genuine open-time refresh: a
-        // reload that FOLLOWS an edit-time create/update would otherwise race the just-written
-        // id against a not-yet-refreshed fetch and mis-classify it as missing, so the edit
-        // path passes `clearMissingLinks: false` (CR-02 must not fight the SC3 edit flow).
+        // Surface (do NOT silently drop, CR-02) both the drifted and the missing-link sets.
+        // Both are RESET to nil when their condition clears (sweep WR: driftPrompt lacked the
+        // `else = nil` its sibling missingLinkPrompt had, so a stale "Sync from Calendar?"
+        // could linger with outdated event data once the drift was resolved). Both resets are
+        // gated on the SAME `clearMissingLinks` guard: on a genuine open-time refresh they
+        // set-or-clear, but an edit-time trailing reload passes `clearMissingLinks: false` so
+        // the just-written id is never raced against a not-yet-refreshed fetch and the
+        // in-progress edit is not fought (CR-02 must not fight the SC3 edit flow).
         if clearMissingLinks {
+            driftPrompt = result.drifted.isEmpty
+                ? nil
+                : DriftPrompt(drifted: result.drifted)
             missingLinkPrompt = result.missing.isEmpty
                 ? nil
                 : MissingLinkPrompt(tasks: result.missing)
@@ -440,13 +443,18 @@ final class MenubarListModel: ObservableObject {
     // MARK: - Command bar highlight (Phase 9, SC3)
 
     /// Spotlights the row with `taskID` (command-bar Enter-on-today-task seam).
-    /// If the task sits in a COLLAPSED leftovers section, auto-expand first via
-    /// the existing `setCollapsed(false)` — a highlight the user cannot see is
-    /// useless. Highlighting a today task (or an unknown id) never touches the
-    /// collapse state. Call AFTER `reload()` — reload clears the id at entry.
+    /// If the task sits in a COLLAPSED leftovers section, auto-expand first so the
+    /// highlight is actually visible. The expand is TRANSIENT (sweep INFO): it
+    /// updates the in-memory `leftoversCollapsed` only and does NOT write the
+    /// day-keyed collapse default — going through the persisting `setCollapsed`
+    /// clobbered the user's collapsed=true for the whole day, so the section stayed
+    /// expanded across the next fresh model load. A reload re-reads the persisted
+    /// key, so the transient expand naturally lasts only until the next reload.
+    /// Highlighting a today task (or an unknown id) never touches the collapse
+    /// state. Call AFTER `reload()` — reload clears the id at entry.
     func highlight(taskID: String) {
         if leftoversCollapsed, leftovers.contains(where: { $0.id == taskID }) {
-            setCollapsed(false)
+            leftoversCollapsed = false
         }
         highlightGeneration += 1
         highlightedTaskID = taskID
@@ -1047,6 +1055,16 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// The tasks actually VISIBLE in the popover: the snooze-filtered partitions
+    /// (leftovers + today), NOT the snooze-inclusive `tasks`. The empty-state hint
+    /// and the header count gate on THIS (sweep INFO) so a day whose only tasks are
+    /// snoozed to a future date shows the "No tasks today" hint and a 0-count badge
+    /// instead of hiding the hint and over-counting invisible snoozed rows.
+    var visibleTasks: [Todo] { leftovers + todayTasks }
+    /// Done count among the visible (snooze-filtered) partitions — the numerator for
+    /// the "N of M done" header badge, so it never counts future-snoozed rows.
+    var visibleDoneCount: Int { visibleTasks.filter(\.done).count }
+
     /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
     /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
     /// the private `now()` so the canvas never needs its own clock and its
@@ -1147,7 +1165,7 @@ struct MenubarListView: View {
                 Text("Jotty · \(model.dateLabel)")
                     .font(.callout.weight(.semibold))
                 Spacer()
-                Text("\(model.doneCount) of \(model.tasks.count) done")
+                Text("\(model.visibleDoneCount) of \(model.visibleTasks.count) done")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 // Phase 8 SC4: the "Calendar canvas" item — the canvas's only
@@ -1177,7 +1195,7 @@ struct MenubarListView: View {
             }
 
             // Task list
-            if model.tasks.isEmpty {
+            if model.visibleTasks.isEmpty {
                 Text("No tasks today. ⌘N to capture.")
                     .font(.callout)
                     .foregroundStyle(.secondary)

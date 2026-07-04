@@ -55,6 +55,27 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(model.todayTasks.map(\.id), ["t_a", "t_b"])
     }
 
+    /// Sweep INFO: with every task future-snoozed, both partitions are empty, so the
+    /// visible-gated empty-state + count must read "no visible tasks / 0 done", even
+    /// though the snooze-inclusive `tasks` still holds them.
+    func testVisiblePartitionsGateEmptyStateAndCountUnderFutureSnooze() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let future = makeDate(2026, 6, 20, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t1", text: "later", createdAt: today, snooze: future),
+            Todo(id: "t2", text: "later two", createdAt: today, snooze: future)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertTrue(model.visibleTasks.isEmpty,
+                      "all future-snoozed → empty visible partitions drive the empty-state hint")
+        XCTAssertEqual(model.visibleTasks.count, 0)
+        XCTAssertEqual(model.visibleDoneCount, 0, "badge counts 0 visible under future-snooze")
+        XCTAssertEqual(model.tasks.count, 2, "the snooze-inclusive list still holds them")
+    }
+
     // WR-09: after a storage-folder change, replaceStore must swap the backing Store
     // and reload — the visible list reflects the NEW folder, not the launch-time one.
     func testReplaceStoreReloadsFromNewFolder() throws {
@@ -694,6 +715,34 @@ final class MenubarListModelTests: XCTestCase {
                                      now: { today }, calendar: fake)
         await model.awaitCalendarRefresh()
         XCTAssertNil(model.driftPrompt)
+    }
+
+    /// Sweep WR: driftPrompt must RESET to nil when the drift is resolved on a later
+    /// open — it lacked the `else = nil` its sibling missingLinkPrompt already had, so a
+    /// stale "Sync from Calendar?" lingered with outdated event data.
+    func testDriftPromptClearedWhenDriftResolvedOnNextOpen() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        // First open: the event has drifted (title + time) -> prompt set.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review (moved)",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt, "drift present on first open")
+
+        // A later open: the event now matches the task again (drift resolved).
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        model.reload()
+        await model.awaitCalendarRefresh()
+        XCTAssertNil(model.driftPrompt, "resolved drift must clear the stale prompt")
     }
 
     // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
@@ -1898,6 +1947,27 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertFalse(model.leftoversCollapsed,
                        "a highlighted leftover must be visible — collapsed section auto-expands")
         XCTAssertEqual(model.highlightedTaskID, "t_old")
+    }
+
+    func testHighlightLeftoverExpandsTransientlyWithoutPersisting() throws {
+        // Sweep INFO: the auto-expand must be TRANSIENT — it must not persist
+        // collapsed=false for the day, or a fresh model load stays expanded and
+        // overrides the user's collapse choice.
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = try makeHighlightModel()
+        model.setCollapsed(true)   // user collapses; persisted to defaults
+        model.reload()
+        XCTAssertTrue(model.leftoversCollapsed)
+
+        model.highlight(taskID: "t_old")
+        XCTAssertFalse(model.leftoversCollapsed, "expands transiently so the highlight is visible")
+
+        // A fresh model reading the SAME store/defaults must still honor collapsed=true —
+        // the transient expand must not have written the day-keyed default.
+        let fresh = MenubarListModel(store: model.store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertTrue(fresh.leftoversCollapsed,
+                      "transient expand must not persist collapsed=false across a fresh model load")
     }
 
     func testHighlightTodayTaskLeavesCollapseStateAlone() throws {
