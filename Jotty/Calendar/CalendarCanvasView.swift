@@ -87,7 +87,26 @@ struct CalendarCanvasView: View {
 
     private var axis: some View {
         ZStack(alignment: .topLeading) {
+            // Drop layer (CALX-01) at the BOTTOM of the ZStack so it catches
+            // drops EVERYWHERE on the axis — over empty space and behind every
+            // block. Covers the full 24h axis; y == 0 is exactly dayStart, so
+            // `location.y` feeds the tested CanvasLayout.slot math unchanged
+            // (T-8-11 — no ad-hoc coordinate→time math here). It sits below the
+            // blocks now (was on top) precisely so a TASK block above it can
+            // receive its own drag-start instead of this layer swallowing it.
+            Color.clear
+                .frame(height: axisHeight)
+                .contentShape(Rectangle())
+                .background(dropTargeted ? Color.accentColor.opacity(0.06) : Color.clear)
+                .dropDestination(for: String.self) { ids, location in
+                    guard let id = ids.first else { return false }
+                    model.list.dropTask(id: id, atSlot: model.slot(atY: location.y))
+                    return true
+                } isTargeted: { dropTargeted = $0 }
+
             // Hour gridlines + labels (0…24 so the day is visibly closed).
+            // Render-only: they sit ABOVE the drop layer now, so they must not
+            // intercept drops meant for the layer beneath them.
             ForEach(0..<25, id: \.self) { hour in
                 HStack(spacing: 6) {
                     Text(String(format: "%02d:00", hour % 24))
@@ -98,30 +117,55 @@ struct CalendarCanvasView: View {
                 }
                 .offset(y: CGFloat(hour) * model.pixelsPerHour - 7)
                 .id("hour-\(hour)")
+                .allowsHitTesting(false)
             }
 
-            // Positioned blocks: events + time-blocked tasks at their
-            // CanvasLayout y/height. Render-only (no hit testing) so drops
-            // over a block still land on the drop layer below/above.
+            // Positioned blocks ABOVE the drop layer. A TASK block is now
+            // DRAGGABLE (its bare task id) so re-dropping it onto the axis MOVES
+            // it via the existing model path (dropTask → editTime: same id, no
+            // duplicate event). An EVENT block (real Calendar.app event) stays
+            // read-only / non-interactive.
             ForEach(model.blocks) { block in
-                blockView(block)
-                    .allowsHitTesting(false)
+                positionedBlock(block)
             }
-
-            // Drop layer (CALX-01): covers the full 24h axis; y == 0 is exactly
-            // dayStart, so `location.y` feeds the tested CanvasLayout.slot math
-            // unchanged (T-8-11 — no ad-hoc coordinate→time math here).
-            Color.clear
-                .frame(height: axisHeight)
-                .contentShape(Rectangle())
-                .background(dropTargeted ? Color.accentColor.opacity(0.06) : Color.clear)
-                .dropDestination(for: String.self) { ids, location in
-                    guard let id = ids.first else { return false }
-                    model.list.dropTask(id: id, atSlot: model.slot(atY: location.y))
-                    return true
-                } isTargeted: { dropTargeted = $0 }
         }
         .frame(height: axisHeight, alignment: .top)
+    }
+
+    /// Wraps a positioned block with kind-specific interactivity.
+    ///
+    /// TASK blocks get `.draggable(bareTaskID)` + their OWN `.dropDestination`.
+    /// The drag makes the block re-grabbable; the per-block drop is the robust
+    /// fallback for the case where a drop released directly ON a block does not
+    /// fall through to the full-axis layer beneath (SwiftUI hit-testing does not
+    /// guarantee fall-through past an interactive/draggable view). Both paths end
+    /// in the SAME model call, so a drop resolves identically wherever it lands.
+    ///
+    /// The per-block drop converts the block-local `location.y` to the axis
+    /// coordinate the drop layer uses by ADDING `block.y` — the block's top on
+    /// the axis, computed by the tested `CanvasLayout.y`. `block.y` and the drop
+    /// layer share one origin (dayStart at y==0), so `block.y + location.y` is
+    /// the exact axis y; it is a composition of tested layout values, NOT ad-hoc
+    /// coordinate→time math (T-8-11 stays intact — `model.slot(atY:)` still owns
+    /// the y→slot inversion; the conflict alert flow is unchanged).
+    @ViewBuilder
+    private func positionedBlock(_ block: CalendarCanvasModel.Block) -> some View {
+        if block.kind == .task, let taskID = block.taskID {
+            blockView(block)
+                .draggable(taskID)
+                .dropDestination(for: String.self) { ids, location in
+                    guard let id = ids.first else { return false }
+                    model.list.dropTask(id: id,
+                                        atSlot: model.slot(atY: block.y + location.y))
+                    return true
+                } isTargeted: { dropTargeted = $0 }
+                .accessibilityElement()
+                .accessibilityLabel("Scheduled task: \(block.title)")
+                .accessibilityHint("Draggable. Drag onto the time axis to reschedule.")
+        } else {
+            blockView(block)
+                .allowsHitTesting(false)
+        }
     }
 
     /// One positioned block. Events and tasks are visually DISTINCT: events
