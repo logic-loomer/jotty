@@ -232,35 +232,104 @@ struct MarkdownDoc: Equatable {
     /// reinserts the line-boundary newlines that `parse` consumed via
     /// `components(separatedBy:)`, so an untouched doc reconstructs
     /// byte-identically and a deleted span drops exactly its line plus the single
-    /// terminating newline (P-Delete). New-id injection (SC4) is layered on in
-    /// Task 2; this walk emits only existing spans.
+    /// terminating newline (P-Delete). After the ordered walk, brand-new live ids
+    /// (present in `tasks`/`notes` but carried by no span) are injected into their
+    /// `## Tasks`/`## Notes` region — after the last existing task/note line, or
+    /// (region emptied/absent) after the header or synthesized at the canonical
+    /// position — WITHOUT moving any foreign `raw` span (SC4, P-Insert).
     private func reconcileWalk(timezone: TimeZone) -> String {
         let liveTask = Dictionary(tasks.map { ($0.id, $0) },
                                   uniquingKeysWith: { first, _ in first })
         let liveNote = Dictionary(notes.map { ($0.id, $0) },
                                   uniquingKeysWith: { first, _ in first })
 
+        // Ids the skeleton already carries a span for — everything else in the
+        // live arrays is brand-new and gets injected below (SC4).
+        var spanTaskIDs: Set<String> = []
+        var spanNoteIDs: Set<String> = []
+        for span in spans {
+            if case .taskLine(let ts) = span { spanTaskIDs.insert(ts.pristine.id) }
+            if case .note(let ns) = span { spanNoteIDs.insert(ns.pristine.id) }
+        }
+
+        // Injection anchors (indices into `parts`), captured during the walk: the
+        // last emitted task/note line; the raw span carrying each `## Tasks`/
+        // `## Notes` header (fallback when a region emitted no live line, e.g.
+        // replaceTasks emptied it); and the frontmatter position (last resort for
+        // synthesizing an absent section at the canonical spot — P-Insert).
+        var lastTaskIdx: Int? = nil
+        var lastNoteIdx: Int? = nil
+        var tasksHeaderIdx: Int? = nil
+        var notesHeaderIdx: Int? = nil
+        var frontmatterIdx: Int? = nil
+
         var parts: [String] = []
         for span in spans {
             switch span {
             case .raw(let s):
                 parts.append(s)
+                // The `## Tasks`/`## Notes` header lines live inside a raw span
+                // (the tokenizer never adopts them). Record the FIRST raw carrying
+                // each header as the fallback injection anchor.
+                let rawLines = s.split(separator: "\n", omittingEmptySubsequences: false)
+                if tasksHeaderIdx == nil, rawLines.contains(where: { String($0) == "## Tasks" }) {
+                    tasksHeaderIdx = parts.count - 1
+                }
+                if notesHeaderIdx == nil, rawLines.contains(where: { String($0) == "## Notes" }) {
+                    notesHeaderIdx = parts.count - 1
+                }
             case .frontmatter(let f):
                 parts.append(f.date == date
                     ? f.originalBlock
                     : reRenderFrontmatter(timezone: timezone))
+                frontmatterIdx = parts.count - 1
             case .taskLine(let ts):
                 guard let live = liveTask[ts.pristine.id] else { continue }  // id gone → omit
                 parts.append(live == ts.pristine
                     ? ts.originalText
                     : renderTaskLine(live, unknownTokens: ts.unknownTokens, timezone: timezone))
+                lastTaskIdx = parts.count - 1
             case .note(let ns):
                 guard let live = liveNote[ns.pristine.id] else { continue }  // note removed → omit
                 parts.append(live == ns.pristine
                     ? ns.originalText
                     : renderNoteBlock(live, timezone: timezone))
+                lastNoteIdx = parts.count - 1
             }
         }
+
+        // SC4 new-id injection. Notes FIRST (they sit lower in the document, so
+        // inserting them cannot shift the task anchors computed above); tasks
+        // second. `filter` preserves live-array order (P-Insert order).
+        let newNotes = notes.filter { !spanNoteIDs.contains($0.id) }
+        if !newNotes.isEmpty {
+            // Prefix each block with "\n" so the "\n" part-join yields the canonical
+            // blank line between note blocks (matches canonicalSynthesize spacing).
+            let rendered = newNotes.map { "\n" + renderNoteBlock($0, timezone: timezone) }
+            if let idx = lastNoteIdx ?? notesHeaderIdx {
+                parts.insert(contentsOf: rendered, at: idx + 1)
+            } else {
+                // No `## Notes` region anywhere → synthesize it after the task
+                // region (canonical: Notes follow Tasks), else after frontmatter.
+                let anchor = lastTaskIdx ?? tasksHeaderIdx ?? frontmatterIdx ?? -1
+                parts.insert(contentsOf: ["\n## Notes\n"] + rendered, at: anchor + 1)
+            }
+        }
+
+        let newTasks = tasks.filter { !spanTaskIDs.contains($0.id) }
+        if !newTasks.isEmpty {
+            let rendered = newTasks.map { renderTaskLine($0, unknownTokens: [], timezone: timezone) }
+            if let idx = lastTaskIdx ?? tasksHeaderIdx {
+                parts.insert(contentsOf: rendered, at: idx + 1)
+            } else {
+                // No `## Tasks` region → synthesize at the canonical position:
+                // immediately after frontmatter, before any foreign body span
+                // (and before a `## Notes` that may have just been injected).
+                let anchor = frontmatterIdx ?? -1
+                parts.insert(contentsOf: ["\n## Tasks\n"] + rendered, at: anchor + 1)
+            }
+        }
+
         return parts.joined(separator: "\n")
     }
 
