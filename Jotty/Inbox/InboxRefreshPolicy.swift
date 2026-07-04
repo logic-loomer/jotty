@@ -17,9 +17,16 @@ enum InboxRefreshPolicy {
     static let minIntervalMinutes = 5
     /// Default interval applied when the toggle is first turned on (interval was nil).
     static let defaultIntervalMinutes = 15
+    /// Maximum opt-in interval in minutes (24h). Upper ceiling (IN-05): a corrupt or
+    /// hand-edited config could otherwise ask for an absurd interval whose `* 60`
+    /// seconds conversion overflows Int and traps when scheduling the timer.
+    static let maxIntervalMinutes = 1440
 
-    /// Clamps a requested interval (minutes) to never go below the floor.
+    /// Clamps a requested interval (minutes) into `[minIntervalMinutes, maxIntervalMinutes]`.
+    /// The floor keeps the timer from polling a third-party API too often (Pitfall 1);
+    /// the ceiling keeps the `* 60` seconds conversion in scheduleInboxTimer from
+    /// overflowing Int on a corrupt value (IN-05).
     static func flooredMinutes(_ requested: Int) -> Int {
-        max(minIntervalMinutes, requested)
+        min(maxIntervalMinutes, max(minIntervalMinutes, requested))
     }
 }

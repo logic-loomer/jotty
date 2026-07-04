@@ -27,5 +27,22 @@ final class InboxRefreshPolicyTests: XCTestCase {
     func testPolicyConstantsArePinned() {
         XCTAssertEqual(InboxRefreshPolicy.minIntervalMinutes, 5)
         XCTAssertEqual(InboxRefreshPolicy.defaultIntervalMinutes, 15)
+        XCTAssertEqual(InboxRefreshPolicy.maxIntervalMinutes, 1440)
+    }
+
+    /// IN-05: the ceiling pins at 24h (1440 min). An absurd hand-edited value
+    /// clamps DOWN so the `* 60` seconds conversion in scheduleInboxTimer can
+    /// never overflow Int and trap.
+    func testCeilingPinsAtMaxMinutes() {
+        XCTAssertEqual(InboxRefreshPolicy.flooredMinutes(1440), 1440)
+        XCTAssertEqual(InboxRefreshPolicy.flooredMinutes(1441), 1440)
+        XCTAssertEqual(InboxRefreshPolicy.flooredMinutes(Int.max), 1440)
+    }
+
+    /// The clamped value survives the `* 60` seconds conversion without trapping,
+    /// even for the most extreme corrupt input.
+    func testClampedValueTimesSixtyNeverOverflows() {
+        let seconds = InboxRefreshPolicy.flooredMinutes(Int.max) * 60
+        XCTAssertEqual(seconds, 1440 * 60)
     }
 }
