@@ -106,6 +106,16 @@ final class MenubarListModel: ObservableObject {
     /// nil when unbound or no store is injected.
     var sendToClaudeCombo: KeyCombo? { keybindings?.combo(for: .sendToClaude) }
 
+    /// The LIVE ⌘K command-bar combo for the discoverable "Search…" footer (#2);
+    /// nil when unbound or no store is injected (footer degrades to no key hint).
+    var commandBarCombo: KeyCombo? { keybindings?.combo(for: .globalCommandBar) }
+
+    /// Reference "now" for metadata-badge derivations (overdue / relative-due),
+    /// and a timezone-pinned calendar matching the day partitioning (#3), so the
+    /// menubar pills agree with the leftover/today split.
+    var badgeAsOf: Date { now() }
+    var badgeCalendar: Calendar { DailyFile.calendar(timezone: timezone) }
+
     /// One-line, transient notice shown when Code-mode Send-to-Claude finds no `claude`
     /// binary (D-SC1 graceful degrade): points the user to Web mode. Cleared by the view
     /// after a brief display. nil = nothing to show.
@@ -1258,6 +1268,7 @@ struct MenubarListView: View {
                                         // label is the single actionable direction.
                                         .accessibilityLabel("Mark done")
                                         rowTitle(task, isLeftover: true)
+                                        metadataBadges(task)
                                         // UX-05: origin date for rows older than yesterday
                                         // (the "Earlier" header already implies yesterday).
                                         if let origin = model.originLabel(for: task) {
@@ -1291,6 +1302,7 @@ struct MenubarListView: View {
                                 // the toggle will take, not the current state.
                                 .accessibilityLabel(task.done ? "Mark not done" : "Mark done")
                                 rowTitle(task, isLeftover: false)
+                                metadataBadges(task)
                                 Spacer()
                                 rowOverflowMenu(task)
                             }
@@ -1649,6 +1661,66 @@ struct MenubarListView: View {
     private func rowTextStyle(_ task: Todo, isLeftover: Bool) -> HierarchicalShapeStyle {
         if isLeftover { return .secondary }
         return task.done ? .secondary : .primary
+    }
+
+    // MARK: - Metadata badges (#3)
+
+    /// Compact metadata pills for a task row — the menubar list was the only
+    /// surface that was metadata-blind (Review + command bar already show badges).
+    /// Renders, in order: an HH:mm time-block pill, a relative due-date pill (tinted
+    /// orange with a `!` when overdue), and a recurring glyph. All strings come from
+    /// the SHARED `TaskBadge` formatter so every surface agrees. Nothing when the
+    /// task carries no metadata.
+    @ViewBuilder
+    private func metadataBadges(_ task: Todo) -> some View {
+        let glyph = TaskBadge.recurringGlyph(task)
+        if task.timeBlock != nil || task.dueDate != nil || glyph != nil {
+            let cal = model.badgeCalendar
+            let asOf = model.badgeAsOf
+            HStack(spacing: 4) {
+                if let tb = task.timeBlock {
+                    badgePill(TaskBadge.timeBlockPill(tb, timezone: model.timezone),
+                              a11y: "At \(TaskBadge.timeBlockPill(tb, timezone: model.timezone))")
+                }
+                if let due = task.dueDate {
+                    let overdue = TaskBadge.isOverdue(task, asOf: asOf, calendar: cal)
+                    let label = TaskBadge.dueLabel(due, asOf: asOf, calendar: cal)
+                    badgePill(label,
+                              systemImage: overdue ? "exclamationmark.circle" : nil,
+                              tint: overdue ? .orange : .secondary,
+                              a11y: overdue ? "Overdue, due \(label)" : "Due \(label)")
+                }
+                if let glyph {
+                    Image(systemName: glyph)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Repeats")
+                }
+            }
+        }
+    }
+
+    /// A single rounded metadata pill with an optional leading glyph + tint. The
+    /// `a11y` label replaces the raw glyph/text for VoiceOver.
+    @ViewBuilder
+    private func badgePill(_ text: String,
+                           systemImage: String? = nil,
+                           tint: Color = .secondary,
+                           a11y: String) -> some View {
+        HStack(spacing: 2) {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(text)
+        }
+        .font(.caption2)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(a11y)
     }
 
     private func beginRename(_ task: Todo) {

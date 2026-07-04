@@ -290,7 +290,8 @@ private extension CommandBarView {
         switch item {
         case .todayTask(let t):
             if let block = t.timeBlock {
-                Text(Self.timeFormatter.string(from: block.start))
+                // #3: shared formatter so this HH:mm pill matches the menubar list.
+                Text(TaskBadge.timeBlockPill(block, timezone: .current))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
@@ -310,7 +311,7 @@ private extension CommandBarView {
         case .todayTask(let t):
             var label = "Today's task: \(t.text), \(t.done ? "done" : "not done")"
             if let block = t.timeBlock {
-                label += ", scheduled \(Self.timeFormatter.string(from: block.start))"
+                label += ", scheduled \(TaskBadge.timeBlockPill(block, timezone: .current))"
             }
             return label
         case .inbox(let i):
@@ -324,11 +325,7 @@ private extension CommandBarView {
 
     // MARK: Date/time formatting (07.1 origin-date idiom)
 
-    static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f
-    }()
+    // Time-block start formatting moved to the shared `TaskBadge.timeBlockPill` (#3).
 
     /// Earlier origin date: "MMM d", adding ", yyyy" when not the current year.
     static func originLabel(_ day: Date) -> String {

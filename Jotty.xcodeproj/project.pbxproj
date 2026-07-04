@@ -25,6 +25,7 @@
 		24C3A1050859A957D9C0D897 /* OllamaInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4094049BA724125B54C206D /* OllamaInstallerTests.swift */; };
 		27A18BC23BB19F258170C636 /* CaptureViewModelAIPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */; };
 		28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E549027F93BB23F8A8121 /* CaptureViewModelFallbackTests.swift */; };
+		2AA565D66C3EA90E7B0DC256 /* TaskBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5594F7906F98D16824535A /* TaskBadgeTests.swift */; };
 		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
 		2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */; };
 		301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */; };
@@ -73,6 +74,7 @@
 		6A34ACDBA9F78E078E70E54D /* InboxServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D258ED7D377FA81D9B65BC /* InboxServiceTests.swift */; };
 		6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C10305FCA786584DA748E1 /* DailyFileTests.swift */; };
 		6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */; };
+		6F88CB448B54A859C52F5AAD /* TaskBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD4F7231C515D0F74EE4D3E /* TaskBadge.swift */; };
 		6FBC2FAAA7AF4FEAD6C3D190 /* cross-provider-tolerances.json in Resources */ = {isa = PBXBuildFile; fileRef = 710A6F66A2A74516838B1E0E /* cross-provider-tolerances.json */; };
 		70202616D4F4B5A052D5F4AD /* OllamaBinaryLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2474B13F10234BC19952AA10 /* OllamaBinaryLocator.swift */; };
 		70D150082AA2813E27919EAF /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF53336FF61CC3ABFDDD2A /* CaptureWindow.swift */; };
@@ -214,6 +216,7 @@
 		2B8D9F79747D2AEE1CC04ADD /* CalendarCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarCanvasView.swift; sourceTree = "<group>"; };
 		2BAD23F9436F343AD92FE459 /* OllamaSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaSettingsSection.swift; sourceTree = "<group>"; };
 		2D1A3C43F920384C287A9C41 /* PersistFailureNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistFailureNotice.swift; sourceTree = "<group>"; };
+		2E5594F7906F98D16824535A /* TaskBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBadgeTests.swift; sourceTree = "<group>"; };
 		2FE80CD595DDAA8675E4921D /* InboxSourceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalog.swift; sourceTree = "<group>"; };
 		2FFBC5AD3C122C78A8B11811 /* CommandBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarPanel.swift; sourceTree = "<group>"; };
 		30C4DA54EBC9CBC6FD045CDF /* PullProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullProgress.swift; sourceTree = "<group>"; };
@@ -285,6 +288,7 @@
 		844D4B65E21DF680B648E59A /* CommandBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarView.swift; sourceTree = "<group>"; };
 		88B479C8DBBC174CCACF42C1 /* InboxSourceCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalogTests.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
+		8DD4F7231C515D0F74EE4D3E /* TaskBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBadge.swift; sourceTree = "<group>"; };
 		8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailability.swift; sourceTree = "<group>"; };
 		8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManagerTests.swift; sourceTree = "<group>"; };
 		9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPrompt.swift; sourceTree = "<group>"; };
@@ -392,6 +396,7 @@
 				B74F35AEAC40DCE682986CCC /* SmokeTest.swift */,
 				A5536334E5276877A353B5FC /* StoreRenameTests.swift */,
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
+				2E5594F7906F98D16824535A /* TaskBadgeTests.swift */,
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
 				547C70B02E19E956E281543A /* AI */,
 				66278E9AE794B036093FAE80 /* Calendar */,
@@ -617,6 +622,7 @@
 				3CDA0A15DCF13E839E64C340 /* DailyFile.swift */,
 				49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */,
 				49657BD3B4A790B6E76F2286 /* Store.swift */,
+				8DD4F7231C515D0F74EE4D3E /* TaskBadge.swift */,
 				E454A8AE1874899F469A5E8C /* Todo.swift */,
 			);
 			path = Store;
@@ -939,6 +945,7 @@
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
 				8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */,
 				A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */,
+				2AA565D66C3EA90E7B0DC256 /* TaskBadgeTests.swift in Sources */,
 				659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1035,6 +1042,7 @@
 				91E39FCEDBF5174DA577A0D4 /* StorageTab.swift in Sources */,
 				396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */,
 				1143FCA70958F285D810FE6C /* SystemClaudeHandoff.swift in Sources */,
+				6F88CB448B54A859C52F5AAD /* TaskBadge.swift in Sources */,
 				98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */,
 				18BAC487B1E51BF1AB0FB1D0 /* Todo.swift in Sources */,
 			);

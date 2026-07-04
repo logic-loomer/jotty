@@ -302,48 +302,17 @@ private struct ReviewRowView: View {
         }
     }
 
+    /// #3: badges now route through the SHARED `TaskBadge` formatter so this
+    /// surface, the menubar list, and the command bar render identical strings.
     private var badges: [String] {
         var result: [String] = []
+        let cal = Calendar.current
         if let tb = task.timeBlock {
-            result.append("📅 " + formatTimeBlock(tb))
+            result.append("📅 " + TaskBadge.timeBlockLabel(tb, asOf: Date(), calendar: cal))
         } else if let due = task.dueDate {
-            result.append("📅 due " + formatDue(due))
+            result.append("📅 due " + TaskBadge.dueLabel(due, asOf: Date(), calendar: cal))
         }
         return result
-    }
-
-    private func formatDue(_ date: Date) -> String {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let target = cal.startOfDay(for: date)
-        let days = cal.dateComponents([.day], from: today, to: target).day ?? 0
-        switch days {
-        case 0: return "today"
-        case 1: return "tomorrow"
-        case 2...6:
-            let fmt = DateFormatter()
-            fmt.dateFormat = "EEEE"   // full weekday name
-            return fmt.string(from: date)
-        default:
-            let fmt = DateFormatter()
-            fmt.dateFormat = "MMM d"
-            return fmt.string(from: date)
-        }
-    }
-
-    private func formatTimeBlock(_ tb: TimeBlock) -> String {
-        let cal = Calendar.current
-        let isToday = cal.isDateInToday(tb.start)
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "H:mm"
-        let range = "\(timeFmt.string(from: tb.start))–\(timeFmt.string(from: tb.end))"
-        if isToday {
-            return "today \(range)"
-        } else {
-            let dayFmt = DateFormatter()
-            dayFmt.dateFormat = "EEE"
-            return "\(dayFmt.string(from: tb.start)) \(range)"
-        }
     }
 }
 
