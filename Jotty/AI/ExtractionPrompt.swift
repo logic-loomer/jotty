@@ -38,7 +38,7 @@ enum ExtractionPrompt {
             "Output rules:",
             "- title: preserve the user's wording verbatim or near-verbatim. No outcome-rewriting, no corporatizing, no truncation of modifiers.",
             "- dueDateISO: yyyy-MM-dd. Set ONLY for explicit deadlines — phrases like 'by Friday', 'due tomorrow', 'before EOM', 'due next Monday', 'by end of week'. Resolve the named day or phrase against the anchor date and emit the concrete yyyy-MM-dd. For vague phrasing ('soon', 'later', 'eventually', 'at some point'), OMIT the field.",
-            "- blockStartISO + blockEndISO: full ISO-8601 with timezone offset. Set ONLY when the user named both a start AND an end clock time ('1-2pm', 'from 9 to 11', 'block 14:00-15:30'). For bare time mentions ('at 5pm', 'around 3') or durations ('1-2 hours of focus'), OMIT both.",
+            "- blockStartISO + blockEndISO: full ISO-8601 with timezone offset. Set whenever the user named a concrete clock time. A start-AND-end range ('1-2pm', 'from 9 to 11', 'block 14:00-15:30') uses those exact endpoints. A SINGLE named clock time ('at 5pm', '9pm', 'call at 17:00') sets blockStartISO to that time and blockEndISO to 30 minutes later. A concrete clock time is digits with am/pm or an explicit HH:MM. A vague or approximate mention ('around 3', 'this evening', 'later', 'soon', 'eventually', 'at some point', 'sometime after lunch') is NOT concrete, so OMIT both — these NEVER produce a block. Durations ('1-2 hours of focus', '30 min', 'an hour') set NEITHER (see the bare-duration rule below).",
             "- Skip non-actionable text: observations, feelings, past-tense reports, venting.",
             "- Tolerate typos, lowercase, missing punctuation, run-ons, bullet variants.",
             "- Empty `tasks` array is the correct answer for venting or pure prose.",
@@ -49,6 +49,12 @@ enum ExtractionPrompt {
 
             "Input: 'email Jamie re Q2 plan today, block 1-2pm laptop setup, domain renewal due Friday'",
             "Tasks: 3. (1) title 'email Jamie re Q2 plan', dueDateISO=<today>. (2) title 'laptop setup', blockStartISO=<today>T13:00, blockEndISO=<today>T14:00. (3) title 'domain renewal', dueDateISO=<this Friday>.",
+
+            "Input: 'call Asim at 9pm today'",
+            "Tasks: 1. title 'call Asim', blockStartISO=<today>T21:00, blockEndISO=<today>T21:30. A single named clock time gets a 30-minute block.",
+
+            "Input: 'gym at 5pm'",
+            "Tasks: 1. title 'gym', blockStartISO=<today>T17:00, blockEndISO=<today>T17:30.",
 
             "Input: 'I'm exhausted, this week has been brutal'",
             "Tasks: empty. This is venting, not a task.",

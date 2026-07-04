@@ -18,7 +18,7 @@
     "lost_modifier": "Modifying clauses must be preserved in title; truncation is a fail.",
     "run_on_split_failure": "Punctuation-light run-ons must split into multiple tasks on intent boundaries.",
     "confident_wrong_weekday": "Same-day weekday name resolves to next occurrence (today + 7), never today.",
-    "calendar_block_default": "calendarBlock = (timeBlock != nil); 'remind me at 5pm' is NOT a calendar block.",
+    "calendar_block_default": "calendarBlock = (timeBlock != nil); a single named clock time ('remind me at 5pm') IS a 30-minute calendar block, while a vague mention ('around 3') is not.",
     "note_preservation": "Surrounding prose flows into note body alongside extracted tasks.",
     "happy_path": "Canonical correct extraction; baseline that the system works at all."
   },
@@ -501,17 +501,20 @@
       "failure_mode_tested": "confident_wrong_weekday"
     },
     {
-      "id": "calblock-001-remind-at-5pm-no-block",
+      "id": "calblock-001-single-time-5pm-block",
       "input": "remind me to call mom at 5pm",
       "now": "2026-05-04T09:00:00-07:00",
       "timezone": "America/Los_Angeles",
       "expected": {
         "tasks": [
           {
-            "title": "call mom at 5pm",
+            "title": "call mom",
             "dueDate": null,
-            "timeBlock": null,
-            "calendarBlock": false
+            "timeBlock": {
+              "start": "2026-05-04T17:00:00-07:00",
+              "end": "2026-05-04T17:30:00-07:00"
+            },
+            "calendarBlock": true
           }
         ],
         "note_body": "remind me to call mom at 5pm"
