@@ -76,10 +76,44 @@ final class RecordComboCommandModifierTests: XCTestCase {
         XCTAssertTrue(RecorderView.isAcceptable(bareEsc, allowsBareKey: true))
     }
 
-    func testTabEnforcementSetMatchesMonitorRoutingSet() {
+    func testTabEnforcementSetSupersetsMonitorRoutingSet() {
+        // Every monitor-routed app-level action must STILL require a command-like
+        // modifier (WR-02) — the recorder rule can never drop below the monitor's.
+        XCTAssertTrue(KeybindingsTab.requiresCommandModifierActions
+                        .isSuperset(of: ActionDispatcher.appLevelActions),
+                      "recorder validation must cover every monitor-routed action")
+        // The set is EXACTLY appLevelActions ∪ the global hotkeys — no drift, no extras.
         XCTAssertEqual(KeybindingsTab.requiresCommandModifierActions,
-                       ActionDispatcher.appLevelActions,
-                       "recorder validation and monitor routing must gate the SAME actions")
+                       ActionDispatcher.appLevelActions
+                        .union(KeybindingsTab.requiresModifierActions))
+    }
+
+    /// Cluster-4 WR: the Carbon-registered GLOBAL hotkeys must reject a ⇧-only combo.
+    /// A ⇧-only global (e.g. ⇧A) is grabbed system-wide by HotkeyManager.register and
+    /// hijacks that key everywhere; only ⌘/⌃/⌥ combos are safe. Drives the SAME flags
+    /// KeybindingsTab wires into RecordComboField for each global action.
+    func testShiftOnlyComboRejectedForGlobalHotkey() {
+        for global: Action in [.globalToggleCapture, .globalCommandBar] {
+            let requires = KeybindingsTab.requiresCommandModifierActions.contains(global)
+            let allowsBare = !KeybindingsTab.requiresModifierActions.contains(global)
+            XCTAssertTrue(requires,
+                          "\(global) must require a command-like modifier (system-wide grab risk)")
+
+            let shiftA = KeyCombo(keyCode: 0, modifiers: [.shift])
+            XCTAssertFalse(RecorderView.isAcceptable(shiftA, allowsBareKey: allowsBare,
+                                                     requiresCommandLikeModifier: requires),
+                           "a ⇧-only global combo must be rejected")
+
+            let bareA = KeyCombo(keyCode: 0, modifiers: [])
+            XCTAssertFalse(RecorderView.isAcceptable(bareA, allowsBareKey: allowsBare,
+                                                     requiresCommandLikeModifier: requires),
+                           "a modifier-less global combo must still be rejected")
+
+            let cmdA = KeyCombo(keyCode: 0, modifiers: [.cmd])
+            XCTAssertTrue(RecorderView.isAcceptable(cmdA, allowsBareKey: allowsBare,
+                                                    requiresCommandLikeModifier: requires),
+                          "a ⌘ global combo is accepted")
+        }
     }
 }
 

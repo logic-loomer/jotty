@@ -56,11 +56,17 @@ struct KeybindingsTab: View {
     /// grabbed system-wide and hijack that key everywhere. BOTH globals qualify.
     static let requiresModifierActions: Set<Action> = [.globalToggleCapture, .globalCommandBar]
 
-    /// Phase 9 review WR-02: APP-LEVEL actions fire through the AppDelegate local
-    /// monitor, which requires ⌘/⌃/⌥ — so the recorder must enforce the same rule
-    /// or a bare/⇧-only combo records as a permanently dead binding. The SAME set
-    /// the monitor routes, so the two rules can never drift apart.
-    static let requiresCommandModifierActions: Set<Action> = ActionDispatcher.appLevelActions
+    /// Actions whose recorded combo MUST include a command-like modifier (⌘/⌃/⌥):
+    ///  - Phase 9 review WR-02: APP-LEVEL actions fire through the AppDelegate local
+    ///    monitor, which only fires on ⌘/⌃/⌥ — a bare/⇧-only combo would record as a
+    ///    displayed-but-permanently-dead binding.
+    ///  - Cluster-4 WR: the GLOBAL hotkeys are Carbon-registered system-wide; a ⇧-only
+    ///    combo (e.g. ⇧A) would be grabbed by HotkeyManager.register and hijack that key
+    ///    everywhere. Requiring a command-like modifier prevents the system-wide grab.
+    /// DERIVED as `appLevelActions ∪ {globals}` so the monitor-routed rule can never
+    /// drift below the recorder's, and the two globals are always covered.
+    static let requiresCommandModifierActions: Set<Action> =
+        ActionDispatcher.appLevelActions.union(requiresModifierActions)
 
     private var currentConflicts: [KeybindingConflict] {
         conflicts(in: bindings)
