@@ -238,8 +238,14 @@ struct MarkdownDoc: Equatable {
     /// (region emptied/absent) after the header or synthesized at the canonical
     /// position — WITHOUT moving any foreign `raw` span (SC4, P-Insert).
     private func reconcileWalk(timezone: TimeZone) -> String {
-        let liveTask = Dictionary(tasks.map { ($0.id, $0) },
-                                  uniquingKeysWith: { first, _ in first })
+        // WR-01: group live tasks by id in array order so N spans sharing an id map
+        // POSITIONALLY to N live tasks (not all to the first). Previously a by-id
+        // dictionary collapsed duplicates, so the second same-id span re-rendered as
+        // the first — silent data loss and a dup-id file was not byte-stable. With
+        // per-id occurrence tracking the k-th span pairs to the k-th live entry.
+        var liveTasksByID: [String: [Todo]] = [:]
+        for t in tasks { liveTasksByID[t.id, default: []].append(t) }
+        var taskOccurrence: [String: Int] = [:]
         let liveNote = Dictionary(notes.map { ($0.id, $0) },
                                   uniquingKeysWith: { first, _ in first })
 
@@ -272,10 +278,12 @@ struct MarkdownDoc: Equatable {
                 // (the tokenizer never adopts them). Record the FIRST raw carrying
                 // each header as the fallback injection anchor.
                 let rawLines = s.split(separator: "\n", omittingEmptySubsequences: false)
-                if tasksHeaderIdx == nil, rawLines.contains(where: { String($0) == "## Tasks" }) {
+                if tasksHeaderIdx == nil,
+                   rawLines.contains(where: { Self.sectionHeader(of: String($0)) == "## Tasks" }) {
                     tasksHeaderIdx = parts.count - 1
                 }
-                if notesHeaderIdx == nil, rawLines.contains(where: { String($0) == "## Notes" }) {
+                if notesHeaderIdx == nil,
+                   rawLines.contains(where: { Self.sectionHeader(of: String($0)) == "## Notes" }) {
                     notesHeaderIdx = parts.count - 1
                 }
             case .frontmatter(let f):
@@ -284,7 +292,12 @@ struct MarkdownDoc: Equatable {
                     : reRenderFrontmatter(timezone: timezone))
                 frontmatterIdx = parts.count - 1
             case .taskLine(let ts):
-                guard let live = liveTask[ts.pristine.id] else { continue }  // id gone → omit
+                let tid = ts.pristine.id
+                let k = taskOccurrence[tid, default: 0]
+                // id gone (or fewer live copies than spans → this duplicate deleted): omit.
+                guard let group = liveTasksByID[tid], k < group.count else { continue }
+                let live = group[k]
+                taskOccurrence[tid] = k + 1
                 parts.append(live == ts.pristine
                     ? ts.originalText
                     : renderTaskLine(live, unknownTokens: ts.unknownTokens, timezone: timezone))
@@ -442,11 +455,39 @@ struct MarkdownDoc: Equatable {
                 continue
             }
 
+            // CR-01/WR-02: emit a `## Tasks`/`## Notes` header line as its OWN raw
+            // span so serialize's injection anchor is line-precise. Otherwise a bare
+            // header coalesces with the downstream tail (incl. the NEXT header) into
+            // one span, and a new task injected after `## Tasks` lands under `## Notes`.
+            // Splitting at an existing `\n` boundary is byte-neutral (reconcileWalk
+            // re-joins with "\n"). The header line is captured VERBATIM (trailing
+            // whitespace preserved for byte-stability) but recognized via
+            // `sectionHeader` which ignores trailing whitespace (WR-02) so a
+            // near-canonical `## Tasks ` is reused, not duplicated.
+            if MarkdownDoc.sectionHeader(of: line) != nil {
+                flushRaw()
+                doc.spans.append(.raw(line))
+                i += 1
+                continue
+            }
+
             pendingRaw.append(line)
             i += 1
         }
         flushRaw()
         return doc
+    }
+
+    /// Returns the canonical section header (`## Tasks`/`## Notes`) a line denotes,
+    /// ignoring trailing whitespace (WR-02), else nil. Shared by `parse` (to break
+    /// the header onto its own raw span) and `reconcileWalk` (to recognize the
+    /// injection anchor) so a near-canonical header is reused, never duplicated.
+    private static func sectionHeader(of line: String) -> String? {
+        let trimmed = line.replacingOccurrences(of: "\\s+$", with: "",
+                                                options: .regularExpression)
+        if trimmed == "## Tasks" { return "## Tasks" }
+        if trimmed == "## Notes" { return "## Notes" }
+        return nil
     }
 
     /// Parses one recognized Jotty task line's `<state> text <!-- meta -->` into
