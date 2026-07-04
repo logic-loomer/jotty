@@ -175,6 +175,11 @@ final class CaptureViewModel: ObservableObject {
         lastError = nil
         saveError = nil
 
+        // #8: pin one `now`/`tz` for the whole submit so the manual token parser and
+        // the (mixed-path) AI extraction agree on the same clock + zone.
+        let now = clock()
+        let tz = TimeZone.current
+
         // Per-line routing: extract manual `- [ ] ` lines as ExtractedTask
         // directly (bypass AI); send the remaining prose to the AI provider.
         // The Review state then shows manual + AI tasks combined.
@@ -187,8 +192,16 @@ final class CaptureViewModel: ObservableObject {
         var remainingLines: [String] = []
         for line in trimmed.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: Self.manualTaskRegex) {
-                let title = String(match.2).trimmingCharacters(in: .whitespaces)
-                manualTasks.append(ExtractedTask(title: title))
+                // #8: typed time/due tokens (@3pm, @tomorrow, due:fri, …) give
+                // non-AI users a schedule-at-capture path. The parser strips tokens
+                // from the title and returns due/time; calendarBlock seeds the Review
+                // toggle ON for a time-blocked manual task (mirrors the AI path).
+                let rawTitle = String(match.2).trimmingCharacters(in: .whitespaces)
+                let parsed = CaptureTokenParser.parse(rawTitle, asOf: now, timezone: tz)
+                manualTasks.append(ExtractedTask(title: parsed.cleanTitle,
+                                                 dueDate: parsed.dueDate,
+                                                 timeBlock: parsed.timeBlock,
+                                                 calendarBlock: parsed.timeBlock != nil))
                 manualDoneFlags.append(match.1 != " ")
             } else {
                 remainingLines.append(line)
@@ -202,7 +215,7 @@ final class CaptureViewModel: ObservableObject {
         // skipping the Review state. Fast path for typed checklists.
         if !manualTasks.isEmpty && remainingText.isEmpty {
             do {
-                try submitManual(trimmed)
+                try submitManual(trimmed, at: now)
             } catch {
                 lastError = .underlying(message: error.localizedDescription)
             }
@@ -213,8 +226,6 @@ final class CaptureViewModel: ObservableObject {
         // any manual tasks into the Review state.
         isExtracting = true
         extractionTask?.cancel()
-        let now = clock()
-        let tz = TimeZone.current
         let manualTasksCopy = manualTasks
         let manualDoneIndicesCopy = manualDoneIndices
         let remainingTextCopy = remainingText
@@ -308,18 +319,24 @@ final class CaptureViewModel: ObservableObject {
 
     // MARK: - Manual path
 
-    private func submitManual(_ input: String) throws {
-        let now = clock()
+    private func submitManual(_ input: String, at now: Date) throws {
+        let tz = TimeZone.current
         var noteLines: [String] = []
         var tasks: [Todo] = []
 
         for line in input.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: Self.manualTaskRegex) {
                 let done = match.1 != " "
-                let title = String(match.2).trimmingCharacters(in: .whitespaces)
-                tasks.append(Todo(id: Todo.newID(), text: title, createdAt: now,
+                // #8: parse typed time/due tokens on the pure-manual fast path too, so a
+                // no-AI user's `- [ ] Call dentist @tomorrow @3pm` commits WITH its due
+                // date + time block (written to markdown) instead of as a bare task.
+                let rawTitle = String(match.2).trimmingCharacters(in: .whitespaces)
+                let parsed = CaptureTokenParser.parse(rawTitle, asOf: now, timezone: tz)
+                tasks.append(Todo(id: Todo.newID(), text: parsed.cleanTitle, createdAt: now,
                                   done: done,
-                                  completedAt: done ? now : nil))
+                                  completedAt: done ? now : nil,
+                                  dueDate: parsed.dueDate,
+                                  timeBlock: parsed.timeBlock))
             } else {
                 noteLines.append(line)
             }

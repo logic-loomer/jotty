@@ -69,6 +69,29 @@ follow-up: check prod logs after lunch
 Click the menubar `📝` icon to see today's tasks; click checkboxes to toggle.
 Incomplete tasks roll forward to today's file at app launch and at midnight.
 
+### Typed time/due tokens
+
+Manual task lines accept a small set of inline tokens so you can schedule a task
+at capture without an AI provider. Tokens are whitespace-delimited, matched
+case-insensitively, and stripped from the saved title:
+
+| Token | Meaning |
+| --- | --- |
+| `@3pm`, `@9am`, `@3:30pm` | time block (12-hour, hour 1–12, optional `:mm`) |
+| `@15:00`, `@9:30` | time block (24-hour, colon form) |
+| `@9`, `@15` | time block, bare hour is 24-hour (so `@9` is 09:00, not 9pm) |
+| `@today`, `@tomorrow` | due date (and the day for any `@time` on the line) |
+| `@mon`…`@sun`, `@friday` | due date on the next matching weekday (today counts) |
+| `due:fri`, `due:tomorrow` | due date (same day words as `@`) |
+| `due:2026-07-10` | due date (ISO `yyyy-MM-dd`) |
+
+Example: `- [ ] Call dentist @tomorrow @3pm` saves the task "Call dentist" due
+tomorrow with a time block at 3:00–3:30pm. A bare `@time` schedules for today. A
+time block defaults to 30 minutes (the same length as a canvas drop). Words that
+merely start with `@`/`due:` but don't match the grammar (`jane@work.com`,
+`due:soon`) are left untouched, and a line with no recognized token behaves
+exactly as before.
+
 ## AI task extraction (Phase 3)
 
 Type a freeform brain-dump, press ⌘↩, and the app silently extracts tasks, due dates, and time blocks using on-device Apple Foundation Models. A Review state appears with rows for each extracted item, showing metadata badges (`📅 today 1–2pm`, `📅 due Friday`). Navigate with ↑↓, toggle rows with space, press ⌘↩ to commit, or ⎋ to return and edit the original text. No network requests. Apple FM is the default and requires macOS 26+; older systems fall back to manual `- [ ] ` syntax parsing.
@@ -81,7 +104,7 @@ call mom by Friday, block 1-2pm for standup, domain renewal
 
 → extraction creates three tasks ("call mom", "standup", "domain renewal") with due date, time block, and calendar block metadata. Review state displays all three with badges. Accept them and they land in today's `## Tasks` with full metadata preserved; reject and return to edit.
 
-**Manual syntax still works as an escape hatch:** if you type `- [ ] call mom`, it bypasses AI and lands directly as a task.
+**Manual syntax still works as an escape hatch:** if you type `- [ ] call mom`, it bypasses AI and lands directly as a task. The [typed time/due tokens](#typed-timedue-tokens) (`@3pm`, `@tomorrow`, `due:fri`, …) also work on this manual path, so you can schedule at capture with no AI provider configured.
 
 **Known limits (Phase 3):**
 - Time blocks are extracted and displayed in Review, but do not yet write calendar events (Phase 5).
