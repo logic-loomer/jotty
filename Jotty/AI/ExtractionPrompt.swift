@@ -25,8 +25,7 @@ enum ExtractionPrompt {
     /// past-tense fixtures).
     static func lines(now: Date, timezone: TimeZone) -> [String] {
         let nowISO = ISO8601DateFormatter().string(from: now)
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let weekdayName = cal.weekdaySymbols[cal.component(.weekday, from: now) - 1]
 
         let lines: [String] = [

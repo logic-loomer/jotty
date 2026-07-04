@@ -44,8 +44,7 @@ enum DurationGuardrail {
     /// the supplied `now` (NOT `Date()`) so test fixtures resolve correctly.
     private static func inferDueDate(from input: String, now: Date, timezone: TimeZone) -> Date? {
         let lower = input.lowercased()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         if lower.range(of: #"\btoday\b"#, options: .regularExpression) != nil {
             return cal.startOfDay(for: now)
         }

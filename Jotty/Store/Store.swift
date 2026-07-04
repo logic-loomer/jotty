@@ -112,8 +112,7 @@ final class Store {
     /// no-op move re-reads/rewrites the same file consistently (the remove-then-append
     /// round-trips through one document).
     func moveTodoToTomorrow(id: String, from sourceDate: Date, now: Date) throws {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let tomorrowStart = cal.date(byAdding: .day, value: 1, to: startOfDay(now))!
 
         let sourceURL = DailyFile.url(in: folder, on: sourceDate, timezone: timezone)
@@ -199,8 +198,6 @@ final class Store {
     }
 
     private func startOfDay(_ d: Date) -> Date {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
-        return cal.startOfDay(for: d)
+        DailyFile.calendar(timezone: timezone).startOfDay(for: d)
     }
 }

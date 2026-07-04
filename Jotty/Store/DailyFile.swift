@@ -15,10 +15,24 @@ enum DailyFile {
     static func dayFormatter(timezone: TimeZone) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = Calendar(identifier: .gregorian)
+        f.calendar = calendar(timezone: timezone)
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = timezone
         return f
+    }
+
+    /// The ONE Gregorian calendar factory: an explicit `.gregorian` identifier
+    /// pinned to `timezone` (same discipline as `dayFormatter`). Replaces the
+    /// ~18 inline `var cal = Calendar(identifier: .gregorian); cal.timeZone = tz`
+    /// sites across the app so a FORGOTTEN `timeZone` — a silent day-boundary
+    /// bug (startOfDay / weekday / date-add landing on the wrong calendar day) —
+    /// is impossible by construction. Callers that only need day arithmetic pass
+    /// the store/menubar `timezone`; formatter `.calendar` assignments pass the
+    /// formatter's own zone.
+    static func calendar(timezone: TimeZone) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = timezone
+        return c
     }
 
     static func url(in folder: URL, on date: Date, timezone: TimeZone) -> URL {

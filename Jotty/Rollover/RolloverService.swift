@@ -188,6 +188,6 @@ final class RolloverService {
     }
 
     private func calendar() -> Calendar {
-        var c = Calendar(identifier: .gregorian); c.timeZone = timezone; return c
+        DailyFile.calendar(timezone: timezone)
     }
 }

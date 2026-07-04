@@ -67,7 +67,7 @@ enum CommandItem: Identifiable, Equatable {
     private static let dayLabelFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = Calendar(identifier: .gregorian)
+        f.calendar = DailyFile.calendar(timezone: .current)
         f.dateFormat = "EEE MMM d yyyy"
         f.timeZone = .current
         return f

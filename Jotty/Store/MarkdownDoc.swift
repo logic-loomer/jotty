@@ -159,8 +159,7 @@ struct MarkdownDoc: Equatable {
 
         var doc = MarkdownDoc(date: parsedDate)
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timezone
+        let calendar = DailyFile.calendar(timezone: timezone)
 
         // Parse tasks: "- [<state>] <text> <!-- <metadata> -->"
         let taskRegex = /- \[(.)\] (.*?) <!-- (.+?) -->/

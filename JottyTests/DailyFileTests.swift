@@ -65,6 +65,19 @@ final class DailyFileTests: XCTestCase {
                        "url -> allDayDates must round-trip to the exact day; junk skipped")
     }
 
+    /// #5: the ONE calendar factory must pin BOTH the Gregorian identifier and
+    /// the caller's timeZone — a forgotten timeZone is the exact silent
+    /// day-boundary bug the factory exists to prevent.
+    func testCalendarFactoryPinsIdentifierAndTimeZone() {
+        let cal = DailyFile.calendar(timezone: tz)
+        XCTAssertEqual(cal.identifier, .gregorian)
+        XCTAssertEqual(cal.timeZone, tz)
+
+        // A different zone flows through (not hard-pinned to one zone).
+        let utc = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(DailyFile.calendar(timezone: utc).timeZone, utc)
+    }
+
     private func makeDate(_ y: Int, _ m: Int, _ d: Int) -> Date {
         var c = DateComponents(); c.year = y; c.month = m; c.day = d; c.hour = 12
         c.timeZone = TimeZone(identifier: "Australia/Sydney")

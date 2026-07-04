@@ -3,7 +3,7 @@ import Foundation
 enum ISOTaskMapper {
     static func map(_ ai: [ExtractedTaskAI], in tz: TimeZone) -> [ExtractedTask] {
         let dayFmt = DateFormatter()
-        dayFmt.calendar = Calendar(identifier: .gregorian)
+        dayFmt.calendar = DailyFile.calendar(timezone: tz)
         dayFmt.locale = Locale(identifier: "en_US_POSIX")
         dayFmt.timeZone = tz
         dayFmt.dateFormat = "yyyy-MM-dd"

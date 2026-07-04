@@ -175,8 +175,7 @@ final class MenubarListModel: ObservableObject {
         // Single snapshot: grouping, collapse key, and dateLabel must all
         // derive from the same instant (midnight Timer reloads an open popover).
         let snapshot = now()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: snapshot)
 
         do {
@@ -336,8 +335,7 @@ final class MenubarListModel: ObservableObject {
 
         // Today's range in the model's timezone (matches task partitioning).
         let snapshot = now()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: snapshot)
         guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else {
             calendarEvents = []
@@ -701,8 +699,7 @@ final class MenubarListModel: ObservableObject {
         }
 
         if let calendar, let eventID = task.calEventID {
-            var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = timezone
+            let cal = DailyFile.calendar(timezone: timezone)
             let tomorrowStart = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: snapshot))!
             // Re-read the block the store actually re-anchored onto tomorrow (exact
             // wall-clock match, DST-correct) so the event lands on the same slot as the task.
@@ -842,8 +839,7 @@ final class MenubarListModel: ObservableObject {
     private func setTemplateRecurrence(templateID: String, to recurrence: Recurrence?,
                                        instance: Todo) throws {
         let snapshot = now()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: snapshot)
 
         let templateDay = store.allDayDates().sorted(by: >).first { day in
@@ -888,8 +884,7 @@ final class MenubarListModel: ObservableObject {
     var snoozeNextWeekDate: Date { snoozeDate(daysFromToday: 7) }
 
     private func snoozeDate(daysFromToday days: Int) -> Date {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: now())
         return cal.date(byAdding: .day, value: days, to: todayStart) ?? todayStart
     }
@@ -937,8 +932,7 @@ final class MenubarListModel: ObservableObject {
         // sync with the created event. The latest allowed start sits one snap
         // step short of the exact day-end fit, so the clamped start stays
         // grid-aligned AND the block's end lands strictly before midnight.
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let dayStart = cal.startOfDay(for: snapshot)
         let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)
             ?? dayStart.addingTimeInterval(24 * 3600)
@@ -1070,8 +1064,7 @@ final class MenubarListModel: ObservableObject {
     /// the private `now()` so the canvas never needs its own clock and its
     /// positions agree with the partitioning above by construction.
     var startOfToday: Date {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         return cal.startOfDay(for: now())
     }
 
@@ -1081,8 +1074,7 @@ final class MenubarListModel: ObservableObject {
     /// rule set on a Tuesday fire on Tuesdays, even for a task created on another
     /// weekday.
     var currentWeekday: Int {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         return cal.component(.weekday, from: now())
     }
 
@@ -1090,8 +1082,7 @@ final class MenubarListModel: ObservableObject {
     /// originated yesterday — the common case needs no per-row date (UX-05). Display-only:
     /// never feeds the leftover grouping/filter itself (Phase 8 owns the TZ rework).
     func originLabel(for task: Todo) -> String? {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timezone
+        let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: now())
         guard let yesterdayStart = cal.date(byAdding: .day, value: -1, to: todayStart),
               cal.startOfDay(for: task.createdAt) != yesterdayStart else { return nil }
