@@ -190,128 +190,197 @@ struct MarkdownDoc: Equatable {
 
         let calendar = DailyFile.calendar(timezone: timezone)
 
-        // Parse tasks: "- [<state>] <text> <!-- <metadata> -->"
+        // Line-oriented tokenizer: assign every line to exactly one ordered
+        // Span (phase 10-01). Replaces the three whole-file `matches(of:)`
+        // sweeps that discarded document order + interstitial content. The three
+        // classifiers below are the same regexes, now applied per line/block.
         let taskRegex = /- \[(.)\] (.*?) <!-- (.+?) -->/
+        // A note header is a WHOLE line "### HH:mm <!-- id:<non-space> -->".
+        let noteHeaderRegex = /^### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->/
+
+        let lines = text.components(separatedBy: "\n")
+        var pendingRaw: [String] = []
+
+        // Coalesce a run of consecutive non-Jotty lines (prose, blanks, `##`
+        // headers, foreign checkboxes, the tail) into a single `.raw` span.
+        func flushRaw() {
+            if !pendingRaw.isEmpty {
+                doc.spans.append(.raw(pendingRaw.joined(separator: "\n")))
+                pendingRaw.removeAll(keepingCapacity: true)
+            }
+        }
+
+        var i = 0
+
+        // Frontmatter head block: "---" … "---" at the top, captured VERBATIM so
+        // plan 02's serialize can reuse `created:` + any unknown keys instead of
+        // re-deriving them (L1/L2 fix). `date` is Jotty-owned (== doc.date).
+        if lines.first == "---", let close = lines[1...].firstIndex(of: "---") {
+            doc.spans.append(.frontmatter(FrontmatterSpan(
+                originalBlock: lines[0...close].joined(separator: "\n"),
+                date: parsedDate)))
+            i = close + 1
+        }
+
+        while i < lines.count {
+            let line = lines[i]
+
+            // Note block: header line + body up to the terminator — the next real
+            // note header, the next `## ` H2 section, or EOF (I2). A non-note
+            // `### heading` inside the body stays put; a trailing foreign `## `
+            // section is NOT swallowed (the Obsidian-fixture regression).
+            if let nh = line.firstMatch(of: noteHeaderRegex) {
+                flushRaw()
+                var j = i + 1
+                while j < lines.count {
+                    let bodyLine = lines[j]
+                    if bodyLine.firstMatch(of: noteHeaderRegex) != nil { break }
+                    if bodyLine.hasPrefix("## ") { break }
+                    j += 1
+                }
+                let originalText = lines[i..<j].joined(separator: "\n")
+                let body = lines[(i + 1)..<j].joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let h = Int(nh.1)!
+                let m = Int(nh.2)!
+                let id = String(nh.3)
+                var comps = calendar.dateComponents([.year, .month, .day], from: parsedDate)
+                comps.hour = h
+                comps.minute = m
+                let time = calendar.date(from: comps) ?? parsedDate
+
+                let note = Note(id: id, time: time, text: body)
+                doc.spans.append(.note(NoteSpan(pristine: note, originalText: originalText)))
+                doc.notes.append(note)
+                i = j
+                continue
+            }
+
+            // Task line: matches the task regex AND yields a non-empty `id:`
+            // (mirror the L165 match + L255 empty-id guard). Otherwise the line
+            // is foreign (P-Foreign) and falls through to `.raw` — never adopted.
+            if let tm = line.firstMatch(of: taskRegex),
+               let (todo, unknown) = parseTaskLine(state: String(tm.1),
+                                                    text: String(tm.2),
+                                                    metaBlob: String(tm.3),
+                                                    on: parsedDate,
+                                                    calendar: calendar) {
+                flushRaw()
+                doc.spans.append(.taskLine(TaskSpan(pristine: todo,
+                                                    originalText: line,
+                                                    unknownTokens: unknown)))
+                doc.tasks.append(todo)
+                i += 1
+                continue
+            }
+
+            pendingRaw.append(line)
+            i += 1
+        }
+        flushRaw()
+        return doc
+    }
+
+    /// Parses one recognized Jotty task line's `<state> text <!-- meta -->` into
+    /// its Todo plus the unrecognized `key:value` tokens (captured in file order,
+    /// SC3). Returns nil when the meta blob carries no non-empty `id:` (the L255
+    /// guard) so the caller classifies the line as a foreign `.raw` span.
+    private static func parseTaskLine(state stateChar: String,
+                                      text taskText: String,
+                                      metaBlob: String,
+                                      on parsedDate: Date,
+                                      calendar: Calendar) -> (Todo, [String])? {
         let isoFmt = ISO8601DateFormatter()
         let dateOnlyFmt = DateFormatter()
         dateOnlyFmt.dateFormat = "yyyy-MM-dd"
-        dateOnlyFmt.timeZone = timezone
+        dateOnlyFmt.timeZone = calendar.timeZone
 
-        for match in text.matches(of: taskRegex) {
-            let stateChar = String(match.1)
-            let taskText = String(match.2)
-            let metaBlob = String(match.3)
+        var id = ""
+        var createdAt: Date = parsedDate
+        // WR-04/I6: accept uppercase X as done — hand-edited markdown (and many
+        // editors' checkbox toggles) writes `- [X]`; parsing it as not-done would
+        // silently rewrite the user's completion state as `- [ ]` on re-serialize.
+        let done = stateChar.lowercased() == "x"
+        var completedAt: Date? = nil
+        var dueDate: Date? = nil
+        var rolledTo: Date? = nil
+        var sourceNote: String? = nil
+        var timeBlock: TimeBlock? = nil
+        var calEventID: String? = nil
+        var source: String? = nil
+        var sourceURL: String? = nil
+        var recur: Recurrence? = nil
+        var recurSrc: String? = nil
+        var snooze: Date? = nil
+        var unknownTokens: [String] = []
 
-            // Parse whitespace-separated key:value tokens
-            var id = ""
-            var createdAt: Date = parsedDate
-            // WR-04: accept uppercase X as done — hand-edited markdown (and many
-            // editors' checkbox toggles) writes `- [X]`, and every mutation path
-            // re-serializes the parsed doc, so parsing it as not-done would
-            // silently rewrite the user's completion state as `- [ ]`. `let`
-            // (IN-03): the `done:` metadata token only sets completedAt.
-            let done = stateChar.lowercased() == "x"
-            var completedAt: Date? = nil
-            var dueDate: Date? = nil
-            var rolledTo: Date? = nil
-            var sourceNote: String? = nil
-            var timeBlock: TimeBlock? = nil
-            var calEventID: String? = nil
-            var source: String? = nil
-            var sourceURL: String? = nil
-            var recur: Recurrence? = nil
-            var recurSrc: String? = nil
-            var snooze: Date? = nil
-
-            let tokens = metaBlob.split(separator: " ", omittingEmptySubsequences: true)
-            for token in tokens {
-                let parts = token.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                let key = String(parts[0])
-                let value = String(parts[1])
-                switch key {
-                case "id":
-                    id = value
-                case "created":
-                    if let d = isoFmt.date(from: value) { createdAt = d }
-                case "done":
-                    if let d = isoFmt.date(from: value) { completedAt = d }
-                case "due":
-                    dueDate = dateOnlyFmt.date(from: value)
-                case "rolled_to":
-                    rolledTo = dateOnlyFmt.date(from: value)
-                case "source_note":
-                    sourceNote = value
-                case "time":
-                    // value is "HH:mm-HH:mm"; build absolute Dates on parsedDate.
-                    let halves = value.split(separator: "-", maxSplits: 1)
-                    if halves.count == 2,
-                       let startDate = absoluteTime(String(halves[0]),
-                                                    on: parsedDate, calendar: calendar),
-                       var endDate = absoluteTime(String(halves[1]),
-                                                  on: parsedDate, calendar: calendar) {
-                        // A block whose wall-clock end falls at or before its start
-                        // crossed midnight in the pinned timezone (e.g. 23:00-00:00).
-                        // Roll the end forward one day so the reconstructed interval
-                        // matches the original regardless of timezone — without this a
-                        // block that crosses local midnight silently loses a day on
-                        // round-trip (only visible when the pinned zone puts the end
-                        // past 24:00, e.g. a UTC CI runner).
-                        if endDate < startDate {
-                            endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
-                        }
-                        timeBlock = TimeBlock(start: startDate, end: endDate)
+        let tokens = metaBlob.split(separator: " ", omittingEmptySubsequences: true)
+        for token in tokens {
+            let parts = token.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = String(parts[0])
+            let value = String(parts[1])
+            switch key {
+            case "id":
+                id = value
+            case "created":
+                if let d = isoFmt.date(from: value) { createdAt = d }
+            case "done":
+                if let d = isoFmt.date(from: value) { completedAt = d }
+            case "due":
+                dueDate = dateOnlyFmt.date(from: value)
+            case "rolled_to":
+                rolledTo = dateOnlyFmt.date(from: value)
+            case "source_note":
+                sourceNote = value
+            case "time":
+                // value is "HH:mm-HH:mm"; build absolute Dates on parsedDate.
+                let halves = value.split(separator: "-", maxSplits: 1)
+                if halves.count == 2,
+                   let startDate = absoluteTime(String(halves[0]),
+                                                on: parsedDate, calendar: calendar),
+                   var endDate = absoluteTime(String(halves[1]),
+                                              on: parsedDate, calendar: calendar) {
+                    // I3: a wall-clock end at/before its start crossed midnight in
+                    // the pinned timezone (e.g. 23:00-00:00) — roll the end forward
+                    // one day so the interval survives round-trip in any zone.
+                    if endDate < startDate {
+                        endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
                     }
-                case "cal_event":
-                    calEventID = value
-                case "source":
-                    source = value
-                case "source_url":
-                    sourceURL = value
-                case "recur":
-                    // T-8-02: a hand-edited malformed rule parses to nil — the
-                    // task degrades to non-recurring rather than crashing.
-                    recur = Recurrence.parse(value)
-                case "recur_src":
-                    recurSrc = value
-                case "snooze":
-                    snooze = dateOnlyFmt.date(from: value)
-                default:
-                    break
+                    timeBlock = TimeBlock(start: startDate, end: endDate)
                 }
+            case "cal_event":
+                calEventID = value
+            case "source":
+                source = value
+            case "source_url":
+                sourceURL = value
+            case "recur":
+                // I8/T-8-02: a hand-edited malformed rule parses to nil — the task
+                // degrades to non-recurring rather than crashing.
+                recur = Recurrence.parse(value)
+            case "recur_src":
+                recurSrc = value
+            case "snooze":
+                snooze = dateOnlyFmt.date(from: value)
+            default:
+                // SC3 capture: a well-formed `key:value` with an UNRECOGNIZED key
+                // (e.g. `priority:high`) is captured verbatim instead of discarded,
+                // so plan 02's serialize can re-emit it on a rewrite of this line.
+                unknownTokens.append(String(token))
             }
-
-            guard !id.isEmpty else { continue }
-
-            let todo = Todo(id: id, text: taskText, createdAt: createdAt,
-                            done: done, completedAt: completedAt,
-                            dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote,
-                            timeBlock: timeBlock, calEventID: calEventID,
-                            source: source, sourceURL: sourceURL,
-                            recur: recur, recurSrc: recurSrc, snooze: snooze)
-            doc.tasks.append(todo)
         }
 
-        // Parse note entries: "### HH:mm <!-- id:n_xxx -->\n<body>"
-        // Cluster 1 / CRITICAL: the body terminator must anchor to a REAL note
-        // header (blank line, then `### HH:MM <!-- id:`), not any blank-line+H3.
-        // The old `(?=\n\n### |\z)` cut a note body at any ordinary markdown H3
-        // it contained -> silent truncation / permanent data loss on save.
-        let noteRegex = /### (\d{2}):(\d{2}) <!-- id:([^ ]+) -->\n([\s\S]*?)(?=\n\n### \d{2}:\d{2} <!-- id:|\z)/
-        for match in text.matches(of: noteRegex) {
-            let h = Int(match.1)!
-            let m = Int(match.2)!
-            let id = String(match.3)
-            let body = String(match.4).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return nil }
 
-            var comps = calendar.dateComponents([.year, .month, .day], from: parsedDate)
-            comps.hour = h
-            comps.minute = m
-            let time = calendar.date(from: comps) ?? parsedDate
-
-            doc.notes.append(Note(id: id, time: time, text: body))
-        }
-        return doc
+        let todo = Todo(id: id, text: taskText, createdAt: createdAt,
+                        done: done, completedAt: completedAt,
+                        dueDate: dueDate, rolledTo: rolledTo, sourceNote: sourceNote,
+                        timeBlock: timeBlock, calEventID: calEventID,
+                        source: source, sourceURL: sourceURL,
+                        recur: recur, recurSrc: recurSrc, snooze: snooze)
+        return (todo, unknownTokens)
     }
 
     /// Builds an absolute Date for an "HH:mm" wall-clock time on the given day,

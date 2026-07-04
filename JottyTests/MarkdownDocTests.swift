@@ -645,11 +645,15 @@ final class MarkdownDocTests: XCTestCase {
 
     // MARK: - Phase 10-01: span model + line-tokenizer parse
 
-    /// Collapse consecutive equal span kinds so tests assert the ORDER of span
-    /// classes without pinning exact raw-run boundaries (finalized in plan 02).
+    /// Coalesce consecutive `raw` runs so tests assert the ORDER of span classes
+    /// without pinning exact raw-run boundaries (finalized in plan 02). Distinct
+    /// Jotty spans (taskLine/note/frontmatter) are always kept individually.
     private func compressedKinds(_ doc: MarkdownDoc) -> [String] {
         var out: [String] = []
-        for k in doc.spanKindsForTesting where out.last != k { out.append(k) }
+        for k in doc.spanKindsForTesting {
+            if k == "raw", out.last == "raw" { continue }
+            out.append(k)
+        }
         return out
     }
 
