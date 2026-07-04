@@ -367,15 +367,18 @@ final class MenubarListModel: ObservableObject {
         // mis-classified as missing (WR-02).
         let linked = todayLinkedTasks(from: todayStart, to: todayEnd)
         let result = CalendarDrift.driftedTasks(linked, against: calendarEvents)
-        if !result.drifted.isEmpty {
-            driftPrompt = DriftPrompt(drifted: result.drifted)
-        }
-        // Surface (do NOT silently drop, CR-02) tasks whose linked event was deleted in
-        // Calendar, offering a calendar-wins cleanup. Only on a genuine open-time refresh: a
-        // reload that FOLLOWS an edit-time create/update would otherwise race the just-written
-        // id against a not-yet-refreshed fetch and mis-classify it as missing, so the edit
-        // path passes `clearMissingLinks: false` (CR-02 must not fight the SC3 edit flow).
+        // Surface (do NOT silently drop, CR-02) both the drifted and the missing-link sets.
+        // Both are RESET to nil when their condition clears (sweep WR: driftPrompt lacked the
+        // `else = nil` its sibling missingLinkPrompt had, so a stale "Sync from Calendar?"
+        // could linger with outdated event data once the drift was resolved). Both resets are
+        // gated on the SAME `clearMissingLinks` guard: on a genuine open-time refresh they
+        // set-or-clear, but an edit-time trailing reload passes `clearMissingLinks: false` so
+        // the just-written id is never raced against a not-yet-refreshed fetch and the
+        // in-progress edit is not fought (CR-02 must not fight the SC3 edit flow).
         if clearMissingLinks {
+            driftPrompt = result.drifted.isEmpty
+                ? nil
+                : DriftPrompt(drifted: result.drifted)
             missingLinkPrompt = result.missing.isEmpty
                 ? nil
                 : MissingLinkPrompt(tasks: result.missing)
@@ -440,13 +443,18 @@ final class MenubarListModel: ObservableObject {
     // MARK: - Command bar highlight (Phase 9, SC3)
 
     /// Spotlights the row with `taskID` (command-bar Enter-on-today-task seam).
-    /// If the task sits in a COLLAPSED leftovers section, auto-expand first via
-    /// the existing `setCollapsed(false)` — a highlight the user cannot see is
-    /// useless. Highlighting a today task (or an unknown id) never touches the
-    /// collapse state. Call AFTER `reload()` — reload clears the id at entry.
+    /// If the task sits in a COLLAPSED leftovers section, auto-expand first so the
+    /// highlight is actually visible. The expand is TRANSIENT (sweep INFO): it
+    /// updates the in-memory `leftoversCollapsed` only and does NOT write the
+    /// day-keyed collapse default — going through the persisting `setCollapsed`
+    /// clobbered the user's collapsed=true for the whole day, so the section stayed
+    /// expanded across the next fresh model load. A reload re-reads the persisted
+    /// key, so the transient expand naturally lasts only until the next reload.
+    /// Highlighting a today task (or an unknown id) never touches the collapse
+    /// state. Call AFTER `reload()` — reload clears the id at entry.
     func highlight(taskID: String) {
         if leftoversCollapsed, leftovers.contains(where: { $0.id == taskID }) {
-            setCollapsed(false)
+            leftoversCollapsed = false
         }
         highlightGeneration += 1
         highlightedTaskID = taskID
@@ -674,15 +682,52 @@ final class MenubarListModel: ObservableObject {
     /// createdAt-day file holds only the hidden rolled_to:-marked line, so a createdAt
     /// source left the visible copy in place and duplicated onto tomorrow). Disk is the
     /// source of truth: the store removes it from today and lands it on tomorrow
-    /// (re-partitioned createdAt), then we reload so it leaves today's list. A linked
-    /// calendar event is left untouched here (the time block keeps its wall-clock slot on
-    /// the new day; a later edit re-syncs the event). A failure logs, never crashes.
+    /// (re-partitioned createdAt), then we reload so it leaves today's list.
+    ///
+    /// Sweep WR: the store re-anchors the task's `time:` block to TOMORROW's wall-clock
+    /// slot during the move, but a linked calendar EVENT stays on its original day.
+    /// Left unmoved, the next day's day-filtered calendar fetch cannot find the event
+    /// (now a day behind the task's block) and the drift pass FALSELY classifies the
+    /// task as missing — whose "clear dead link" confirm then orphans the still-live
+    /// event. So for a linked task we move the event too: update it in place to the
+    /// re-anchored block (recreate-and-relink if it was deleted), mirroring `editTime`,
+    /// so the link stays valid across the move. A failure logs, never crashes.
     func moveToTomorrow(_ task: Todo) {
+        let snapshot = now()
         do {
-            try store.moveTodoToTomorrow(id: task.id, from: now(), now: now())
+            try store.moveTodoToTomorrow(id: task.id, from: snapshot, now: snapshot)
         } catch {
             NSLog("[Jotty] moveToTomorrow failed: \(error.localizedDescription)")
         }
+
+        if let calendar, let eventID = task.calEventID {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = timezone
+            let tomorrowStart = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: snapshot))!
+            // Re-read the block the store actually re-anchored onto tomorrow (exact
+            // wall-clock match, DST-correct) so the event lands on the same slot as the task.
+            let movedBlock = (try? store.readDoc(on: tomorrowStart))?
+                .tasks.first { $0.id == task.id }?.timeBlock
+            if let movedBlock {
+                let title = CalendarDrift.sanitize(title: task.text)
+                editTask = Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await calendar.updateEvent(id: eventID, title: title,
+                                                       start: movedBlock.start, end: movedBlock.end)
+                    } catch CalendarError.eventNotFound {
+                        // Event deleted in Calendar: recreate on tomorrow + rewrite the new id.
+                        await self.recreateAndRelink(task: task, title: title, block: movedBlock,
+                                                     on: tomorrowStart, calendar: calendar)
+                    } catch {
+                        await MainActor.run {
+                            NSLog("[Jotty] moveToTomorrow updateEvent failed: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+
         reload()
     }
 
@@ -1010,6 +1055,16 @@ final class MenubarListModel: ObservableObject {
 
     var doneCount: Int { tasks.filter(\.done).count }
 
+    /// The tasks actually VISIBLE in the popover: the snooze-filtered partitions
+    /// (leftovers + today), NOT the snooze-inclusive `tasks`. The empty-state hint
+    /// and the header count gate on THIS (sweep INFO) so a day whose only tasks are
+    /// snoozed to a future date shows the "No tasks today" hint and a 0-count badge
+    /// instead of hiding the hint and over-counting invisible snoozed rows.
+    var visibleTasks: [Todo] { leftovers + todayTasks }
+    /// Done count among the visible (snooze-filtered) partitions — the numerator for
+    /// the "N of M done" header badge, so it never counts future-snoozed rows.
+    var visibleDoneCount: Int { visibleTasks.filter(\.done).count }
+
     /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
     /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
     /// the private `now()` so the canvas never needs its own clock and its
@@ -1018,6 +1073,17 @@ final class MenubarListModel: ObservableObject {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timezone
         return cal.startOfDay(for: now())
+    }
+
+    /// Today's gregorian weekday (1=Sun…7=Sat) in the model timezone — the weekday
+    /// a "Weekly" Repeat choice anchors to (sweep INFO). Capturing the CHOSEN
+    /// weekday (rather than deriving it from the task's createdAt) makes a Weekly
+    /// rule set on a Tuesday fire on Tuesdays, even for a task created on another
+    /// weekday.
+    var currentWeekday: Int {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timezone
+        return cal.component(.weekday, from: now())
     }
 
     /// Abbreviated origin-day label ("Jun 28") for a leftover row, or nil when the task
@@ -1099,7 +1165,7 @@ struct MenubarListView: View {
                 Text("Jotty · \(model.dateLabel)")
                     .font(.callout.weight(.semibold))
                 Spacer()
-                Text("\(model.doneCount) of \(model.tasks.count) done")
+                Text("\(model.visibleDoneCount) of \(model.visibleTasks.count) done")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 // Phase 8 SC4: the "Calendar canvas" item — the canvas's only
@@ -1129,7 +1195,7 @@ struct MenubarListView: View {
             }
 
             // Task list
-            if model.tasks.isEmpty {
+            if model.visibleTasks.isEmpty {
                 Text("No tasks today. ⌘N to capture.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -1376,8 +1442,25 @@ struct MenubarListView: View {
             recurrenceChoice("None", rule: nil, for: task)
             recurrenceChoice("Daily", rule: .daily, for: task)
             recurrenceChoice("Weekdays", rule: .weekday, for: task)
-            recurrenceChoice("Weekly", rule: .weekly, for: task)
+            weeklyChoice(task)
             customWeekdaysSubmenu(task)
+        }
+    }
+
+    /// The Weekly Repeat choice (sweep INFO): sets weekly on the weekday the user
+    /// PICKS it (today's weekday via `model.currentWeekday`), captured in the
+    /// `weekly:<wd>` token — not the task's createdAt weekday. The checkmark
+    /// matches ANY stored `.weekly(_)`, so it shows regardless of which weekday
+    /// the rule was set on.
+    @ViewBuilder
+    private func weeklyChoice(_ task: Todo) -> some View {
+        let isWeekly: Bool = { if case .weekly = task.recur { return true }; return false }()
+        Button(action: { model.setRecurrence(task, to: .weekly(model.currentWeekday)) }) {
+            if isWeekly {
+                Label("Weekly", systemImage: "checkmark")
+            } else {
+                Text("Weekly")
+            }
         }
     }
 

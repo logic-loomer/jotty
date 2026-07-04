@@ -244,6 +244,58 @@ final class RolloverServiceTests: XCTestCase {
                        "exactly the one moved copy lives on tomorrow")
     }
 
+    /// Sweep WR: a never-completed daily template must yield EXACTLY ONE live
+    /// (not-done) instance per day — the fresh one — not an unbounded pile of
+    /// uncompleted instances rolled forward and stacked on each fresh one.
+    func testUncompletedRecurringInstanceDoesNotPileUp() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)   // Thursday
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        // Run four consecutive days WITHOUT ever completing the instance.
+        for d in 8...11 { try svc.run(now: makeDate(2026, 5, d)) }
+
+        for d in 8...11 {
+            let live = try store.readDoc(on: makeDate(2026, 5, d)).tasks
+                .filter { !$0.done && ($0.recurSrc?.hasPrefix("t_tpl:") ?? false) }
+            XCTAssertEqual(live.count, 1,
+                           "2026-05-\(d) must hold exactly one live instance, not a pile")
+        }
+    }
+
+    /// Sweep WR companion: completing an instance archives it (stays done on its
+    /// day, never rolled); the NEXT day a fresh instance still appears — a
+    /// completed instance never suppresses the recurrence.
+    func testCompletedRecurringInstanceArchivesAndFreshOneStillAppears() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let origin = makeDate(2026, 5, 7, h: 9)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_tpl", text: "water plants",
+                                             createdAt: origin, recur: .daily)],
+                                at: origin)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: makeDate(2026, 5, 8))
+        let inst = try XCTUnwrap(try store.readDoc(on: makeDate(2026, 5, 8))
+                                    .tasks.first { $0.recurSrc == "t_tpl:2026-05-08" })
+        try store.toggleTodo(id: inst.id, on: makeDate(2026, 5, 8))   // complete it
+
+        try svc.run(now: makeDate(2026, 5, 9))
+        // A fresh instance appears on day 9.
+        XCTAssertEqual(try store.readDoc(on: makeDate(2026, 5, 9)).tasks
+                        .filter { !$0.done && $0.recurSrc == "t_tpl:2026-05-09" }.count, 1)
+        // The completed day-8 instance stays archived on its day, not rolled.
+        let day8 = try store.readDoc(on: makeDate(2026, 5, 8))
+        XCTAssertTrue(day8.tasks.contains { $0.id == inst.id && $0.done },
+                      "completed instance stays archived on its origin day")
+    }
+
     /// .weekday rule: no instance on Saturday, one on Monday.
     func testWeekdayTemplateSkipsSaturdayInstancesMonday() throws {
         let store = Store(folder: folder, timezone: tz)
@@ -265,13 +317,13 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertEqual(instances.count, 1)
     }
 
-    /// .weekly rule: instances only on the template's createdAt weekday (Wed).
+    /// Legacy bare .weekly(nil): instances only on the template's createdAt weekday (Wed).
     func testWeeklyTemplateInstancesOnlyOnTemplateWeekday() throws {
         let store = Store(folder: folder, timezone: tz)
         let wednesday = makeDate(2026, 5, 6, h: 9)
         try store.appendCapture(noteText: "", noteId: nil,
                                 tasks: [Todo(id: "t_wk", text: "weekly review",
-                                             createdAt: wednesday, recur: .weekly)],
+                                             createdAt: wednesday, recur: .weekly(nil))],
                                 at: wednesday)
         try statePath.write(string: "2026-05-06")
 
@@ -284,6 +336,32 @@ final class RolloverServiceTests: XCTestCase {
         let wedDoc = try store.readDoc(on: makeDate(2026, 5, 13))
         let instances = wedDoc.tasks.filter { $0.recurSrc == "t_wk:2026-05-13" }
         XCTAssertEqual(instances.count, 1)
+    }
+
+    /// Sweep INFO: a Weekly rule set on a Tuesday for a task CREATED on a Thursday
+    /// must fire on Tuesdays (the chosen weekday captured in `weekly:<wd>`), not on
+    /// the createdAt weekday. Thursday 2026-05-07 template; recur weekly:3 (Tuesday).
+    func testWeeklyTemplateWithExplicitWeekdayFiresOnChosenNotCreatedWeekday() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let thursday = makeDate(2026, 5, 7, h: 9)   // createdAt weekday = Thursday (5)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_wk", text: "weekly sync",
+                                             createdAt: thursday, recur: .weekly(3))], // Tuesday
+                                at: thursday)
+        try statePath.write(string: "2026-05-07")
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        // Runs advance chronologically (rollover only instances on first-run-of-day).
+        // Tuesday 2026-05-12 (the chosen weekday) — must fire.
+        try svc.run(now: makeDate(2026, 5, 12))   // Tuesday
+        XCTAssertEqual(try store.readDoc(on: makeDate(2026, 5, 12))
+                        .tasks.filter { $0.recurSrc == "t_wk:2026-05-12" }.count, 1,
+                       "weekly:3 must fire on Tuesday, the weekday it was set")
+        // Thursday 2026-05-14 (the createdAt weekday) — must NOT fire a fresh instance.
+        try svc.run(now: makeDate(2026, 5, 14))
+        XCTAssertTrue(try store.readDoc(on: makeDate(2026, 5, 14))
+                        .tasks.filter { $0.recurSrc == "t_wk:2026-05-14" }.isEmpty,
+                      "weekly:3 must not fire a fresh instance on the createdAt (Thursday) weekday")
     }
 
     /// custom:1,5 rule: instances only on Sunday (1) and Thursday (5).

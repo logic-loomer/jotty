@@ -13,7 +13,13 @@ import Foundation
 /// timezones and region calendars (RESEARCH Pitfall: timezone weekday math).
 enum Recurrence: Equatable, Sendable {
     case daily
-    case weekly
+    /// Repeats weekly on a specific gregorian weekday (1=Sun…7=Sat).
+    ///
+    /// The associated value is the weekday the user CHOSE the rule on (sweep INFO):
+    /// serialized as `weekly:<wd>`. A `nil` value is a legacy bare `weekly` token
+    /// (pre-sweep, or hand-edited) which falls back to the template's createdAt
+    /// weekday — the old behavior — so on-disk files stay backward compatible.
+    case weekly(Int?)
     case weekday
     /// Repeats on the listed gregorian weekdays (1=Sun…7=Sat).
     case custom(Set<Int>)
@@ -28,9 +34,14 @@ enum Recurrence: Equatable, Sendable {
     static func parse(_ s: String) -> Recurrence? {
         switch s {
         case "daily": return .daily
-        case "weekly": return .weekly
+        case "weekly": return .weekly(nil)   // back-compat: bare token → createdAt-weekday fallback
         case "weekday": return .weekday
         default:
+            if s.hasPrefix("weekly:") {
+                let wd = s.dropFirst("weekly:".count)
+                guard let n = Int(wd), (1...7).contains(n) else { return nil }
+                return .weekly(n)
+            }
             guard s.hasPrefix("custom:") else { return nil }
             let csv = s.dropFirst("custom:".count)
             var days = Set<Int>()
@@ -50,7 +61,11 @@ enum Recurrence: Equatable, Sendable {
     func serialize() -> String {
         switch self {
         case .daily: return "daily"
-        case .weekly: return "weekly"
+        case .weekly(let wd):
+            // Explicit weekday → `weekly:<wd>`; a legacy nil stays the bare `weekly`
+            // token so files written before this fix round-trip unchanged.
+            if let wd { return "weekly:\(wd)" }
+            return "weekly"
         case .weekday: return "weekday"
         case .custom(let days):
             return "custom:" + days.sorted().map(String.init).joined(separator: ",")
@@ -71,7 +86,8 @@ enum Recurrence: Equatable, Sendable {
         switch self {
         case .daily: return true
         case .weekday: return (2...6).contains(wd)
-        case .weekly: return wd == templateWeekday
+        // Explicit chosen weekday when set; else the legacy createdAt-weekday fallback.
+        case .weekly(let target): return wd == (target ?? templateWeekday)
         case .custom(let days): return days.contains(wd)
         }
     }

@@ -173,6 +173,19 @@ final class ConflictDetectionTests: XCTestCase {
         XCTAssertEqual(CalendarDrift.sanitize(title: once), once)
     }
 
+    /// Sweep WR (CalendarDrift.swift:120): a `#` that only becomes leading AFTER
+    /// backtick/emphasis/whitespace stripping was removed on the SECOND pass —
+    /// so sanitize was not a fixed point for these titles → perpetual false
+    /// drift + silent loss of the user's `#`. Every case must satisfy
+    /// sanitize(x) == sanitize(sanitize(x)).
+    func testSanitizeIsIdempotentForHashExposedByOtherSteps() {
+        for title in ["**#1 priority**", "`#tag`", "  # x", "__#note__", "* #starred"] {
+            let once = CalendarDrift.sanitize(title: title)
+            XCTAssertEqual(CalendarDrift.sanitize(title: once), once,
+                           "sanitize must be a fixed point for \(title.debugDescription)")
+        }
+    }
+
     func testSanitizePlainTitleUnchanged() {
         XCTAssertEqual(CalendarDrift.sanitize(title: "Standup at 9"), "Standup at 9")
     }
