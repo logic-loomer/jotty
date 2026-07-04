@@ -674,15 +674,52 @@ final class MenubarListModel: ObservableObject {
     /// createdAt-day file holds only the hidden rolled_to:-marked line, so a createdAt
     /// source left the visible copy in place and duplicated onto tomorrow). Disk is the
     /// source of truth: the store removes it from today and lands it on tomorrow
-    /// (re-partitioned createdAt), then we reload so it leaves today's list. A linked
-    /// calendar event is left untouched here (the time block keeps its wall-clock slot on
-    /// the new day; a later edit re-syncs the event). A failure logs, never crashes.
+    /// (re-partitioned createdAt), then we reload so it leaves today's list.
+    ///
+    /// Sweep WR: the store re-anchors the task's `time:` block to TOMORROW's wall-clock
+    /// slot during the move, but a linked calendar EVENT stays on its original day.
+    /// Left unmoved, the next day's day-filtered calendar fetch cannot find the event
+    /// (now a day behind the task's block) and the drift pass FALSELY classifies the
+    /// task as missing — whose "clear dead link" confirm then orphans the still-live
+    /// event. So for a linked task we move the event too: update it in place to the
+    /// re-anchored block (recreate-and-relink if it was deleted), mirroring `editTime`,
+    /// so the link stays valid across the move. A failure logs, never crashes.
     func moveToTomorrow(_ task: Todo) {
+        let snapshot = now()
         do {
-            try store.moveTodoToTomorrow(id: task.id, from: now(), now: now())
+            try store.moveTodoToTomorrow(id: task.id, from: snapshot, now: snapshot)
         } catch {
             NSLog("[Jotty] moveToTomorrow failed: \(error.localizedDescription)")
         }
+
+        if let calendar, let eventID = task.calEventID {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = timezone
+            let tomorrowStart = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: snapshot))!
+            // Re-read the block the store actually re-anchored onto tomorrow (exact
+            // wall-clock match, DST-correct) so the event lands on the same slot as the task.
+            let movedBlock = (try? store.readDoc(on: tomorrowStart))?
+                .tasks.first { $0.id == task.id }?.timeBlock
+            if let movedBlock {
+                let title = CalendarDrift.sanitize(title: task.text)
+                editTask = Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await calendar.updateEvent(id: eventID, title: title,
+                                                       start: movedBlock.start, end: movedBlock.end)
+                    } catch CalendarError.eventNotFound {
+                        // Event deleted in Calendar: recreate on tomorrow + rewrite the new id.
+                        await self.recreateAndRelink(task: task, title: title, block: movedBlock,
+                                                     on: tomorrowStart, calendar: calendar)
+                    } catch {
+                        await MainActor.run {
+                            NSLog("[Jotty] moveToTomorrow updateEvent failed: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+
         reload()
     }
 

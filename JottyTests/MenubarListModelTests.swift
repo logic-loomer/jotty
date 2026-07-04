@@ -896,6 +896,49 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNotNil(originLine.rolledTo)
     }
 
+    func testMoveLinkedTaskToTomorrowMovesEventAndAvoidsFalseMissing() async throws {
+        // Sweep WR: the store re-anchors a linked task's time block to TOMORROW's slot on
+        // move; the calendar event must move with it. Otherwise next day's day-filtered
+        // fetch can't find the (still-on-original-day) event and falsely classifies the
+        // task missing — orphaning the live event on confirm.
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.moveToTomorrow(task)
+        await model.awaitCalendarRefresh()   // awaits the event move (editTask) + reload refresh
+
+        // The linked event moved with the task (red on the old no-op behavior).
+        XCTAssertEqual(fake.updatedEventIDs, ["evt-1"], "the linked event must move with the task")
+        // The moved task on tomorrow keeps a VALID link + its re-anchored block.
+        let tomorrow = makeDate(2026, 6, 13, h: 8)
+        let moved = try XCTUnwrap(try store.readDoc(on: tomorrow).tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(moved.calEventID, "evt-1", "the link stays valid across the move")
+        XCTAssertEqual(moved.timeBlock,
+                       TimeBlock(start: makeDate(2026, 6, 13, h: 14), end: makeDate(2026, 6, 13, h: 15)))
+
+        // Next-day open: the event now lives on tomorrow, so the fetch finds it -> no
+        // false missing-link classification.
+        fake.cannedEvents = [
+            CalendarEvent(id: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 13, h: 14),
+                          end: makeDate(2026, 6, 13, h: 15), calendarTitle: "Work")
+        ]
+        let nextModel = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                         now: { tomorrow }, calendar: fake)
+        await nextModel.awaitCalendarRefresh()
+        XCTAssertNil(nextModel.missingLinkPrompt,
+                     "a moved linked task whose event still exists must not surface a false missing-link")
+    }
+
     func testRenameRolledLeftoverEditsVisibleCopyNotHiddenOriginLine() throws {
         // IN-03: renaming a rolled leftover must rewrite the visible today copy;
         // writing the hidden origin line let the reload revert the user's edit.
