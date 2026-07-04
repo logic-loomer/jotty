@@ -1110,6 +1110,93 @@ final class MarkdownDocTests: XCTestCase {
                        "deleting t_a removes exactly its line; all else byte-identical (P-Delete)")
     }
 
+    // SC4 / P-Insert: appendTodo into a parsed doc injects the new task line
+    // immediately after the LAST existing Jotty task line, inside `## Tasks`.
+    // The output is the fixture with EXACTLY that one line spliced in -> every
+    // foreign span (# Journal, buy milk, ## Retro) is byte-identical and unmoved.
+    func testAppendTaskInjectsAfterLastTaskWithoutMovingForeign() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "new task",
+                               createdAt: timeFor("2026-05-08T11:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+
+        let newLine = "- [ ] new task <!-- id:t_new created:2026-05-08T11:00:00+10:00 -->"
+        var lines = fixture.components(separatedBy: "\n")
+        let anchor = try XCTUnwrap(lines.firstIndex(where: { $0.contains("id:t_b") }))
+        lines.insert(newLine, at: anchor + 1)
+        XCTAssertEqual(out, lines.joined(separator: "\n"),
+                       "new task lands after the last Jotty task line; foreign byte-identical (SC4)")
+
+        // Injected id is now a real span; foreign content survives a re-parse.
+        let reparsed = try MarkdownDoc.parse(out, timezone: tz)
+        XCTAssertEqual(reparsed.tasks.map(\.id), ["t_a", "t_b", "t_new"])
+        XCTAssertTrue(out.contains("- [ ] buy milk"), "foreign checkbox preserved")
+        XCTAssertTrue(out.contains("## Retro"), "trailing foreign section preserved")
+    }
+
+    // SC4: appendNote injects a new note block into `## Notes` after the last
+    // existing note; the trailing foreign `## Retro` section is not moved.
+    func testAppendNoteInjectsIntoNotesRegionWithoutMovingForeign() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = losslessFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.appendNote(text: "second note",
+                          at: timeFor("2026-05-08T08:15:00+10:00"), id: "n_2")
+        let out = parsed.serialize(timezone: tz)
+
+        XCTAssertTrue(out.contains("### 08:15 <!-- id:n_2 -->\nsecond note"),
+                      "new note rendered canonically in the ## Notes region")
+        let iN1 = try XCTUnwrap(out.range(of: "id:n_1"))
+        let iN2 = try XCTUnwrap(out.range(of: "id:n_2"))
+        let iRetro = try XCTUnwrap(out.range(of: "## Retro"))
+        XCTAssertTrue(iN1.lowerBound < iN2.lowerBound, "new note after existing note")
+        XCTAssertTrue(iN2.lowerBound < iRetro.lowerBound, "new note before foreign ## Retro")
+
+        let reparsed = try MarkdownDoc.parse(out, timezone: tz)
+        XCTAssertEqual(reparsed.notes.map(\.id), ["n_1", "n_2"])
+        XCTAssertTrue(out.contains("trailing foreign section"), "foreign tail preserved")
+    }
+
+    // SC4 / P-Insert: appendTodo into a parsed foreign doc with NO `## Tasks`
+    // region synthesizes the header at the canonical position (after frontmatter,
+    // before the foreign body) and places the new line there; foreign unmoved.
+    func testAppendTaskSynthesizesTasksHeaderWhenAbsent() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let foreign = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        # Journal
+        some prose
+        """
+        var parsed = try MarkdownDoc.parse(foreign, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "task",
+                               createdAt: timeFor("2026-05-08T11:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+
+        let expected = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] task <!-- id:t_new created:2026-05-08T11:00:00+10:00 -->
+
+        # Journal
+        some prose
+        """
+        XCTAssertEqual(out, expected,
+                       "## Tasks synthesized after frontmatter, before foreign body; foreign preserved")
+        let reparsed = try MarkdownDoc.parse(out, timezone: tz)
+        XCTAssertEqual(reparsed.tasks.map(\.id), ["t_new"])
+    }
+
     // SC5 fresh leg: a fresh MarkdownDoc(date:) has NO spans -> canonicalSynthesize;
     // its output is a fixed point of the reconcile walk (parse->serialize == synth).
     func testFreshSynthesisIsAReconcileFixedPoint() throws {
