@@ -272,10 +272,14 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
-    /// Awaits in-flight extraction; for tests only.
+    /// Awaits in-flight extraction; for tests only. Also awaits the pure-manual fast path's
+    /// best-effort calendar pass (#8) so a `@time` manual capture's createEvent/write-back has
+    /// resolved before the test asserts. Mixed/prose paths spawn no `calendarTask` on submit,
+    /// so the second await is a no-op there (fresh VM starts with `calendarTask == nil`).
     func submitAndWait() async {
         submit()
         if let t = extractionTask { _ = await t.value }
+        if let t = calendarTask { _ = await t.value }
     }
 
     // MARK: - Apple FM fallback (plan 04-10, ROADMAP Phase 4 SC4)
@@ -321,8 +325,17 @@ final class CaptureViewModel: ObservableObject {
 
     private func submitManual(_ input: String, at now: Date) throws {
         let tz = TimeZone.current
+        // #8: a typed time on a manual line ("date + time mentioned → add it to the
+        // calendar") routes through the SAME best-effort calendar pass the Review/commit
+        // and dropTask paths use — `processTimeBlockedTasks` (sanitize → conflict gate →
+        // createEvent → `cal_event:` write-back). Split the lines: a NOT-done, time-blocked
+        // task (with a calendar wired) is deferred as an ExtractedTask for that pass;
+        // everything else commits synchronously below, disk-first, carrying its timeBlock
+        // but creating no event. A `due:`-only line has no timeBlock, so it never schedules.
+        let calendarPresent = (self.calendar != nil)
         var noteLines: [String] = []
-        var tasks: [Todo] = []
+        var plainTasks: [Todo] = []
+        var timeBlockedTasks: [ExtractedTask] = []
 
         for line in input.components(separatedBy: "\n") {
             if let match = line.firstMatch(of: Self.manualTaskRegex) {
@@ -332,11 +345,23 @@ final class CaptureViewModel: ObservableObject {
                 // date + time block (written to markdown) instead of as a bare task.
                 let rawTitle = String(match.2).trimmingCharacters(in: .whitespaces)
                 let parsed = CaptureTokenParser.parse(rawTitle, asOf: now, timezone: tz)
-                tasks.append(Todo(id: Todo.newID(), text: parsed.cleanTitle, createdAt: now,
-                                  done: done,
-                                  completedAt: done ? now : nil,
-                                  dueDate: parsed.dueDate,
-                                  timeBlock: parsed.timeBlock))
+                // Route a typed time into the calendar pass (which creates the event), but
+                // ONLY when a calendar is available AND the line isn't already done — a
+                // `- [x]` line is history, not something to schedule. `due:`-only lines
+                // (timeBlock == nil) and the no-calendar case fall through to the plain
+                // synchronous commit: they still carry their timeBlock/due date, no event.
+                if calendarPresent, parsed.timeBlock != nil, !done {
+                    timeBlockedTasks.append(ExtractedTask(title: parsed.cleanTitle,
+                                                          dueDate: parsed.dueDate,
+                                                          timeBlock: parsed.timeBlock,
+                                                          calendarBlock: true))
+                } else {
+                    plainTasks.append(Todo(id: Todo.newID(), text: parsed.cleanTitle, createdAt: now,
+                                           done: done,
+                                           completedAt: done ? now : nil,
+                                           dueDate: parsed.dueDate,
+                                           timeBlock: parsed.timeBlock))
+                }
             } else {
                 noteLines.append(line)
             }
@@ -346,18 +371,36 @@ final class CaptureViewModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let noteId = noteBody.isEmpty ? nil : Note.newID()
 
-        try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: tasks, at: now)
+        // Disk is source of truth — note + non-time-blocked tasks land FIRST, never gated
+        // on the calendar. A throw here surfaces via the caller's `lastError` (unchanged).
+        try store.appendCapture(noteText: noteBody, noteId: noteId, tasks: plainTasks, at: now)
 
         text = ""
         autosaveTask?.cancel()
         try? FileManager.default.removeItem(at: draftURL)
 
-        // UX-03: the manual fast path used to clear the editor silently — signal
-        // success so the view shows "Saved" and the window layer closes, matching
-        // the prose path's commit feedback. Only reached when appendCapture didn't
-        // throw, so these fire on genuine commit success only.
+        // UX-03: the manual fast path used to clear the editor silently — signal success so
+        // the view shows "Saved" and the window layer closes, matching the prose path's
+        // commit feedback. Only reached when appendCapture didn't throw.
+        calendarNotice = nil
         showSavedConfirmation = true
-        dismissRequested = true
+
+        // Best-effort calendar pass for typed-time manual tasks (mirrors commitFromReview):
+        // per task run the lazy access gate, the conflict gate (SC5), createEvent, then the
+        // `cal_event:` write-back. A failure/denial NEVER rolls back the markdown above and
+        // is surfaced on the shared `calendarNotice` channel (not swallowed). CR-01: request
+        // dismissal only AFTER the pass resolves, since a conflict prompt owns the window;
+        // with no calendar work there is nothing to wait for.
+        if calendarPresent, !timeBlockedTasks.isEmpty {
+            calendarTask = Task { [weak self] in
+                guard let self else { return }
+                await self.processTimeBlockedTasks(timeBlockedTasks, noteId: noteId, at: now)
+                self.dismissRequested = true
+            }
+        } else {
+            calendarTask = nil
+            dismissRequested = true
+        }
     }
 
     func cancel() {
