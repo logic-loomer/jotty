@@ -1210,4 +1210,406 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertEqual(reparsed.serialize(timezone: tz), synth,
                        "canonicalSynthesize output round-trips byte-identically through the walk")
     }
+
+    // MARK: - Phase 10-03: acceptance suite (byte-stable property + Obsidian fixture + matrix)
+
+    /// The LOCKED Obsidian-style acceptance fixture (10-03 interfaces block). One
+    /// hand-written day file exercising every loss class at once: unknown
+    /// frontmatter keys (`tags`, multi-line `aliases`), a real non-midnight
+    /// `created:` (09:12:33), a `# Journal` foreign H1 + prose, a `## Tasks`
+    /// mixing a foreign `- [ ]` checkbox (no id) with two Jotty tasks (t_a done +
+    /// carrying `priority:high`, t_b open), a note whose body contains a non-note
+    /// `### inner heading`, and a trailing foreign `## Retro` section. Distinct
+    /// from `losslessFixture()` (there priority:high rides the OPEN task; here it
+    /// rides the DONE task t_a, the frontmatter is multi-line, and n_1's body
+    /// carries the inner heading — stressing frontmatter + note-terminator reuse).
+    private func obsidianFixture() -> String {
+        """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T09:12:33+10:00
+        tags: [daily, work]
+        aliases:
+          - eight-may
+        ---
+
+        # Journal
+        woke up late, coffee first.
+
+        ## Tasks
+
+        - [ ] buy milk
+        - [x] ship PR <!-- id:t_a created:2026-05-08T09:20:00+10:00 priority:high -->
+        - [ ] call bank <!-- id:t_b created:2026-05-08T10:00:00+10:00 -->
+
+        ## Notes
+
+        ### 09:30 <!-- id:n_1 -->
+        standup notes
+        ### inner heading
+        more notes
+
+        ## Retro
+        - learned spans
+        """
+    }
+
+    /// Foreign lines that MUST stay byte-identical across every mutation of the
+    /// Obsidian fixture (P-Foreign + document order preservation).
+    private let obsidianForeignLines = [
+        "# Journal", "woke up late, coffee first.",
+        "- [ ] buy milk", "## Retro", "- learned spans",
+    ]
+
+    /// A canonical Jotty corpus fixture (full token set). Round-trips byte-stable
+    /// because reconcile reuses each span's captured bytes on a no-op serialize.
+    private func canonicalCorpusFixture() -> String {
+        """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T09:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [x] full <!-- id:t_c created:2026-05-08T07:30:00+10:00 done:2026-05-08T09:00:00+10:00 due:2026-05-09 time:08:00-09:30 cal_event:EVT:7 source:github:42 recur:daily -->
+
+        ## Notes
+
+        ### 07:30 <!-- id:n_c -->
+        canonical note body
+        """
+    }
+
+    /// A legacy corpus fixture: NO time/cal/source/recur tokens (pre-Phase-5
+    /// shape). Guards back-compat byte-stability.
+    private func legacyCorpusFixture() -> String {
+        """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] legacy one <!-- id:t_l1 created:2026-05-08T07:30:00+10:00 due:2026-05-09 -->
+        - [x] legacy two <!-- id:t_l2 created:2026-05-08T08:00:00+10:00 -->
+
+        ## Notes
+
+        ### 08:15 <!-- id:n_l -->
+        legacy note
+        """
+    }
+
+    // SC1 acceptance property: for a CORPUS of inputs with NO model mutation,
+    // `parse(text).serialize(tz)` is byte-identical to the expected LF form. The
+    // corpus is {canonical, legacy, Obsidian} asserted verbatim, plus a CRLF
+    // fixture (built from canonical) asserted against the LF-normalized form (I1:
+    // a CRLF input round-trips as LF — the documented contract). No such
+    // multi-fixture byte-equality property existed before this plan.
+    func testRoundTripByteStable_Corpus() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let lfCorpus: [(String, String)] = [
+            ("canonical", canonicalCorpusFixture()),
+            ("legacy", legacyCorpusFixture()),
+            ("obsidian", obsidianFixture()),
+        ]
+        for (name, text) in lfCorpus {
+            let out = try MarkdownDoc.parse(text, timezone: tz).serialize(timezone: tz)
+            XCTAssertEqual(out, text, "\(name): untouched parse->serialize must be byte-identical (SC1)")
+        }
+        // CRLF leg (I1): the same bytes with \n->\r\n must round-trip to the LF form.
+        let canonical = canonicalCorpusFixture()
+        let crlf = canonical.replacingOccurrences(of: "\n", with: "\r\n")
+        let crlfOut = try MarkdownDoc.parse(crlf, timezone: tz).serialize(timezone: tz)
+        XCTAssertEqual(crlfOut, canonical, "CRLF input round-trips as the LF-normalized form (I1)")
+    }
+
+    // SC1/P-Foreign: the Obsidian fixture parses to Jotty content ONLY — the two
+    // id-bearing lines are tasks, the note is n_1, and the foreign `- [ ] buy
+    // milk` checkbox is never adopted.
+    func testObsidianFixtureParsesJottyContentOnly() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let doc = try MarkdownDoc.parse(obsidianFixture(), timezone: tz)
+        XCTAssertEqual(doc.tasks.map(\.id), ["t_a", "t_b"], "only id-bearing lines are tasks")
+        XCTAssertEqual(doc.notes.map(\.id), ["n_1"], "the single Jotty note is n_1")
+        XCTAssertFalse(doc.tasks.contains { $0.text == "buy milk" },
+                       "foreign checkbox excluded from tasks (P-Foreign)")
+        XCTAssertEqual(doc.notes[0].text, "standup notes\n### inner heading\nmore notes",
+                       "inner ### heading stays in the note body; ## Retro not swallowed (I2)")
+    }
+
+    // SC3: the unknown `priority:high` token on t_a survives a no-op round-trip
+    // (captured at parse, re-emitted verbatim) and stays on the t_a line.
+    func testObsidianFixtureUnknownTokenSurvives() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let out = try MarkdownDoc.parse(obsidianFixture(), timezone: tz).serialize(timezone: tz)
+        XCTAssertTrue(out.contains("priority:high"), "unknown token re-emitted (SC3)")
+        let taLine = try XCTUnwrap(out.components(separatedBy: "\n").first { $0.contains("id:t_a") })
+        XCTAssertTrue(taLine.contains("priority:high"), "priority:high stays on the t_a line")
+    }
+
+    // L1/L2: unknown frontmatter keys (`tags`, multi-line `aliases`) AND the real
+    // non-midnight `created:` (09:12:33, NOT a midnight re-derivation from `date`)
+    // survive verbatim — the frontmatter originalBlock is reused, never rebuilt.
+    func testObsidianFixtureUnknownFrontmatterSurvives() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let out = try MarkdownDoc.parse(obsidianFixture(), timezone: tz).serialize(timezone: tz)
+        XCTAssertTrue(out.contains("tags: [daily, work]"), "unknown scalar-list key survives (L1)")
+        XCTAssertTrue(out.contains("aliases:\n  - eight-may"), "multi-line unknown key survives (L1)")
+        XCTAssertTrue(out.contains("created: 2026-05-08T09:12:33+10:00"),
+                      "real created: instant preserved, not re-derived to midnight (L2)")
+    }
+
+    // L8/I2: the trailing foreign `## Retro` / `- learned spans` block is emitted
+    // byte-identical at the document tail (NOT swallowed into n_1's body).
+    func testObsidianFixtureTrailingSectionSurvives() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let out = try MarkdownDoc.parse(obsidianFixture(), timezone: tz).serialize(timezone: tz)
+        XCTAssertTrue(out.hasSuffix("## Retro\n- learned spans"),
+                      "trailing foreign section survives byte-identical at the tail (L8/I2)")
+    }
+
+    /// Assert every foreign line of the Obsidian fixture is present byte-identical
+    /// AND in original relative order in `out` (P-Foreign + order preservation).
+    private func assertObsidianForeignSurvives(_ out: String, _ msg: String) {
+        var cursor = out.startIndex
+        for line in obsidianForeignLines {
+            guard let r = out.range(of: line, range: cursor..<out.endIndex) else {
+                XCTFail("\(msg): foreign line missing or out of order: \(line)")
+                return
+            }
+            cursor = r.upperBound
+        }
+    }
+
+    // MATRIX / SC2: toggling t_b done touches ONLY t_b's line; t_a (with
+    // priority:high), the foreign checkbox, # Journal, n_1 and ## Retro are all
+    // byte-identical and in order.
+    func testObsidianToggleTBTouchesOnlyThatLine() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        let idx = try XCTUnwrap(parsed.tasks.firstIndex(where: { $0.id == "t_b" }))
+        parsed.tasks[idx].done = true
+        parsed.tasks[idx].completedAt = timeFor("2026-05-08T11:00:00+10:00")
+        let out = parsed.serialize(timezone: tz)
+        let diffs = lineDiffIndices(fixture, out)
+        XCTAssertEqual(diffs.count, 1, "only t_b's line differs")
+        let changed = out.components(separatedBy: "\n")[diffs[0]]
+        XCTAssertTrue(changed.contains("- [x] call bank") && changed.contains("done:"),
+                      "t_b flips to [x] with a done: token")
+        XCTAssertTrue(out.contains("id:t_a created:2026-05-08T09:20:00+10:00 priority:high"),
+                      "t_a line (incl priority:high) untouched")
+        assertObsidianForeignSurvives(out, "toggle t_b")
+    }
+
+    // MATRIX / SC3: renaming t_a re-renders its line canonically and re-emits its
+    // unknown priority:high token; only t_a's line differs; foreign survives.
+    func testObsidianRenameTAKeepsPriorityHigh() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        let idx = try XCTUnwrap(parsed.tasks.firstIndex(where: { $0.id == "t_a" }))
+        parsed.tasks[idx].text = "ship the release"
+        let out = parsed.serialize(timezone: tz)
+        let diffs = lineDiffIndices(fixture, out)
+        XCTAssertEqual(diffs.count, 1, "only t_a's line differs")
+        XCTAssertTrue(out.contains("- [x] ship the release <!-- id:t_a"), "renamed canonically")
+        XCTAssertTrue(out.contains("priority:high -->"), "priority:high re-emitted (SC3)")
+        assertObsidianForeignSurvives(out, "rename t_a")
+    }
+
+    // MATRIX / SC2+SC3: rolling t_a (set rolledTo) re-renders ONLY t_a with a
+    // rolled_to: token while its priority:high still survives; foreign untouched.
+    // (New mutation class not exercised elsewhere.)
+    func testObsidianRollTARewritesOnlyThatLine() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        let idx = try XCTUnwrap(parsed.tasks.firstIndex(where: { $0.id == "t_a" }))
+        parsed.tasks[idx].rolledTo = dateFor("2026-05-09")
+        let out = parsed.serialize(timezone: tz)
+        let diffs = lineDiffIndices(fixture, out)
+        XCTAssertEqual(diffs.count, 1, "only t_a's line differs on roll")
+        let changed = out.components(separatedBy: "\n")[diffs[0]]
+        XCTAssertTrue(changed.contains("rolled_to:2026-05-09"), "rolled_to: token added")
+        XCTAssertTrue(changed.contains("priority:high"), "priority:high survives the roll (SC3)")
+        assertObsidianForeignSurvives(out, "roll t_a")
+    }
+
+    // MATRIX / SC4: appendTodo splices the new line AFTER the last Jotty task
+    // (t_b) and BEFORE `## Notes`; the output is the fixture with exactly that one
+    // line inserted (foreign byte-identical, unmoved).
+    func testObsidianAppendTodoInjectsAfterLastTask() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "new task",
+                               createdAt: timeFor("2026-05-08T12:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+        let newLine = "- [ ] new task <!-- id:t_new created:2026-05-08T12:00:00+10:00 -->"
+        var lines = fixture.components(separatedBy: "\n")
+        let anchor = try XCTUnwrap(lines.firstIndex(where: { $0.contains("id:t_b") }))
+        lines.insert(newLine, at: anchor + 1)
+        XCTAssertEqual(out, lines.joined(separator: "\n"),
+                       "new task lands after t_b; everything else byte-identical (SC4)")
+    }
+
+    // MATRIX / SC4: appendNote injects a new block into `## Notes` after n_1 and
+    // BEFORE the trailing foreign `## Retro`; foreign survives, order preserved.
+    func testObsidianAppendNoteInjectsBeforeRetro() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.appendNote(text: "second note",
+                          at: timeFor("2026-05-08T10:30:00+10:00"), id: "n_2")
+        let out = parsed.serialize(timezone: tz)
+        XCTAssertTrue(out.contains("### 10:30 <!-- id:n_2 -->\nsecond note"),
+                      "new note rendered canonically in ## Notes")
+        let iN1 = try XCTUnwrap(out.range(of: "id:n_1"))
+        let iN2 = try XCTUnwrap(out.range(of: "id:n_2"))
+        let iRetro = try XCTUnwrap(out.range(of: "## Retro"))
+        XCTAssertTrue(iN1.lowerBound < iN2.lowerBound && iN2.lowerBound < iRetro.lowerBound,
+                      "n_2 sits after n_1 and before foreign ## Retro")
+        assertObsidianForeignSurvives(out, "append note")
+        XCTAssertEqual(try MarkdownDoc.parse(out, timezone: tz).notes.map(\.id), ["n_1", "n_2"])
+    }
+
+    // MATRIX / P-Delete: deleting t_a omits exactly its line; the foreign checkbox
+    // above it, t_b, n_1 and ## Retro are byte-identical (fixture minus one line).
+    func testObsidianDeleteTARemovesOnlyThatLine() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = obsidianFixture()
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.tasks.removeAll { $0.id == "t_a" }
+        let out = parsed.serialize(timezone: tz)
+        let expected = fixture.components(separatedBy: "\n")
+            .filter { !$0.contains("id:t_a") }
+            .joined(separator: "\n")
+        XCTAssertEqual(out, expected, "only t_a's line removed; all else byte-identical (P-Delete)")
+        assertObsidianForeignSurvives(out, "delete t_a")
+    }
+
+    // MATRIX / SC4: appendTodo to a file with NO `## Tasks` region synthesizes the
+    // header at the canonical position (after frontmatter, before the foreign
+    // body) while the foreign `# Journal` prose, a foreign checkbox, and a
+    // trailing `## Retro` are all left in place, byte-identical.
+    func testObsidianAppendTodoToNoTasksFile() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let noTasks = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        # Journal
+        some prose
+        - [ ] foreign box
+
+        ## Retro
+        - learned spans
+        """
+        var parsed = try MarkdownDoc.parse(noTasks, timezone: tz)
+        parsed.appendTodo(Todo(id: "t_new", text: "task",
+                               createdAt: timeFor("2026-05-08T11:00:00+10:00")))
+        let out = parsed.serialize(timezone: tz)
+        let expected = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] task <!-- id:t_new created:2026-05-08T11:00:00+10:00 -->
+
+        # Journal
+        some prose
+        - [ ] foreign box
+
+        ## Retro
+        - learned spans
+        """
+        XCTAssertEqual(out, expected,
+                       "## Tasks synthesized after frontmatter; foreign prose/box/Retro unmoved (SC4)")
+    }
+
+    // P-Delete spacing: deleting the MIDDLE of three Jotty tasks removes exactly
+    // its line — the foreign checkbox, the surrounding tasks, and the blank-line
+    // count do NOT drift.
+    func testDeleteMiddleTaskKeepsForeignSpacing() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let fixture = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+
+        - [ ] one <!-- id:t_1 created:2026-05-08T07:00:00+10:00 -->
+        - [ ] two <!-- id:t_2 created:2026-05-08T07:00:00+10:00 -->
+        - [ ] three <!-- id:t_3 created:2026-05-08T07:00:00+10:00 -->
+        - [ ] foreign box
+
+        ## Notes
+        """
+        var parsed = try MarkdownDoc.parse(fixture, timezone: tz)
+        parsed.tasks.removeAll { $0.id == "t_2" }
+        let out = parsed.serialize(timezone: tz)
+        let expected = fixture.components(separatedBy: "\n")
+            .filter { !$0.contains("id:t_2") }
+            .joined(separator: "\n")
+        XCTAssertEqual(out, expected, "middle task removed; foreign box + spacing intact (P-Delete)")
+        let blanksIn = fixture.components(separatedBy: "\n").filter { $0.isEmpty }.count
+        let blanksOut = out.components(separatedBy: "\n").filter { $0.isEmpty }.count
+        XCTAssertEqual(blanksIn, blanksOut, "blank-line count must not drift on a middle delete")
+        XCTAssertTrue(out.contains("- [ ] foreign box"), "foreign checkbox byte-identical")
+    }
+
+    // SC5 / I7: a file whose frontmatter `date` is PRESENT but not a valid
+    // calendar date still throws from parse — Store sidecars it unchanged. The
+    // quarantine bar is date-scoped, not content-scoped.
+    func testQuarantineThrowsOnInvalidFrontmatterDate() {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let invalid = """
+        ---
+        date: 2026-13-40
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        ## Tasks
+        """
+        XCTAssertThrowsError(try MarkdownDoc.parse(invalid, timezone: tz),
+                             "an invalid frontmatter date must still throw (I7 quarantine)")
+    }
+
+    // SC5 / I7 bar rises: a VALID-date file whose body is otherwise foreign/garbage
+    // now PARSES (garbage -> raw spans) instead of throwing, and round-trips
+    // byte-stable — so it reaches the model, never the corrupt sidecar.
+    func testValidDateForeignHeavyFileParses() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let garbage = """
+        ---
+        date: 2026-05-08
+        created: 2026-05-08T00:00:00+10:00
+        ---
+
+        !!! not markdown ###
+        <html>oops</html>
+        - [ ] orphan checkbox
+        random | table | row
+        > a blockquote
+        """
+        var doc: MarkdownDoc?
+        XCTAssertNoThrow(doc = try MarkdownDoc.parse(garbage, timezone: tz),
+                         "valid-date foreign-heavy body parses, never quarantined")
+        let parsed = try XCTUnwrap(doc)
+        XCTAssertTrue(parsed.tasks.isEmpty && parsed.notes.isEmpty, "no Jotty content in garbage")
+        XCTAssertEqual(parsed.serialize(timezone: tz), garbage,
+                       "garbage body captured as raw spans round-trips byte-identical")
+    }
+
 }
