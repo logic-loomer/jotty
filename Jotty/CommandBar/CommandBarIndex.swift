@@ -59,12 +59,12 @@ enum CommandItem: Identifiable, Equatable {
     /// Cached formatters (review IN-02): `rescore()` evaluates `searchText` for
     /// every corpus item on EVERY keystroke — constructing a formatter per call
     /// (well over a thousand per keystroke at multi-year scale) undercut the
-    /// documented sub-ms re-rank budget. `nonisolated(unsafe)` is sound:
-    /// DateFormatter is documented thread-safe on macOS 10.9+, and both are
-    /// fully configured at init and never mutated afterwards.
-    private nonisolated(unsafe) static let dayKeyFormatter =
+    /// documented sub-ms re-rank budget. DateFormatter is `Sendable`, and both are
+    /// fully configured at init and never mutated afterwards, so a plain `static let`
+    /// is concurrency-safe — no `nonisolated(unsafe)` needed.
+    private static let dayKeyFormatter =
         DailyFile.dayFormatter(timezone: .current)
-    private nonisolated(unsafe) static let dayLabelFormatter: DateFormatter = {
+    private static let dayLabelFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.calendar = Calendar(identifier: .gregorian)
