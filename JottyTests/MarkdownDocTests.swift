@@ -21,6 +21,25 @@ final class MarkdownDocTests: XCTestCase {
         XCTAssertTrue(text.contains("first thought"))
     }
 
+    // A time block that crosses midnight in the pinned/serialization timezone
+    // (wall-clock end <= start, e.g. 23:00-00:00) must reconstruct with the end
+    // rolled to the next day, not lose a day. Pinning UTC makes this deterministic
+    // everywhere (regression for the CI/UTC-only failure).
+    func testTimeBlockCrossingMidnightRoundTripsInUTC() throws {
+        let utc = TimeZone(identifier: "UTC")!
+        let day = timeFor("2026-06-12T12:00:00+00:00")   // noon UTC → UTC calendar day is the 12th
+        var doc1 = MarkdownDoc(date: day)
+        let start = timeFor("2026-06-12T23:00:00+00:00")
+        let end = timeFor("2026-06-13T00:00:00+00:00")   // crosses UTC midnight
+        doc1.appendTodo(Todo(id: "t_cross001", text: "late block", createdAt: day,
+                             timeBlock: TimeBlock(start: start, end: end)))
+        let text = doc1.serialize(timezone: utc)
+        let doc2 = try MarkdownDoc.parse(text, timezone: utc)
+        let tb = try XCTUnwrap(doc2.tasks.first(where: { $0.id == "t_cross001" })?.timeBlock)
+        XCTAssertEqual(tb.start, start, "start reconstructs unchanged")
+        XCTAssertEqual(tb.end, end, "end rolls to next day, not back a day")
+    }
+
     func testRoundTrip() throws {
         let tz = TimeZone(identifier: "Australia/Sydney")!
         var doc1 = MarkdownDoc(date: dateFor("2026-05-08"))

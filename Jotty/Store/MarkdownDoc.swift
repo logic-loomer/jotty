@@ -219,8 +219,18 @@ struct MarkdownDoc: Equatable {
                     if halves.count == 2,
                        let startDate = absoluteTime(String(halves[0]),
                                                     on: parsedDate, calendar: calendar),
-                       let endDate = absoluteTime(String(halves[1]),
+                       var endDate = absoluteTime(String(halves[1]),
                                                   on: parsedDate, calendar: calendar) {
+                        // A block whose wall-clock end falls at or before its start
+                        // crossed midnight in the pinned timezone (e.g. 23:00-00:00).
+                        // Roll the end forward one day so the reconstructed interval
+                        // matches the original regardless of timezone — without this a
+                        // block that crosses local midnight silently loses a day on
+                        // round-trip (only visible when the pinned zone puts the end
+                        // past 24:00, e.g. a UTC CI runner).
+                        if endDate < startDate {
+                            endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
+                        }
                         timeBlock = TimeBlock(start: startDate, end: endDate)
                     }
                 case "cal_event":
