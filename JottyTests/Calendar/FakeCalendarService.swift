@@ -44,6 +44,12 @@ final class FakeCalendarService: CalendarService {
         var calls: [Call] = []
         var requestAccessCallCount = 0
         var createCounter = 0
+        /// Window of the most recent `eventsInRange(start:end:)` call, so the
+        /// today-window test (plan 11-02) can assert the source queries exactly
+        /// [startOfDay(now), +1d) in the injected timezone. Additive; no existing
+        /// Phase 5 behavior reads it.
+        var lastEventsInRangeStart: Date?
+        var lastEventsInRangeEnd: Date?
     }
 
     /// Recorded inputs to a `createEvent` call.
@@ -101,6 +107,9 @@ final class FakeCalendarService: CalendarService {
     /// Ordered call log; supports "X called once" / "Y NOT called" assertions.
     var calls: [Call] { state.withLock { $0.calls } }
     var requestAccessCallCount: Int { state.withLock { $0.requestAccessCallCount } }
+    /// Start/end of the most recent `eventsInRange` query (plan 11-02 today-window assert).
+    var lastEventsInRangeStart: Date? { state.withLock { $0.lastEventsInRangeStart } }
+    var lastEventsInRangeEnd: Date? { state.withLock { $0.lastEventsInRangeEnd } }
 
     // MARK: CalendarService
 
@@ -149,6 +158,8 @@ final class FakeCalendarService: CalendarService {
     func eventsInRange(start: Date, end: Date) async throws -> [CalendarEvent] {
         try state.withLock {
             $0.calls.append(.eventsInRange)
+            $0.lastEventsInRangeStart = start
+            $0.lastEventsInRangeEnd = end
             if let error = $0.errorToThrow { throw error }
             return $0.cannedEvents
         }
