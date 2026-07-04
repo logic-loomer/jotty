@@ -293,6 +293,12 @@ final class MenubarListModel: ObservableObject {
     /// write fails, a leaked dedupe entry (no task) is harmless, whereas the reverse order
     /// could write a duplicate task on re-accept. Best-effort — any error degrades
     /// gracefully (logged), never crashes the popover.
+    ///
+    /// A CALENDAR item (Phase 11) additionally carries `item.timeBlock` and `item.calEventID`,
+    /// so the written task gains `time:` + `cal_event:<existing id>` tokens — a LINK to the
+    /// already-existing event. Accept NEVER calls `createEvent`/`updateEvent` (contrast
+    /// `dropTask`): the event exists, we only reference it. For every other source both fields
+    /// are nil, so the token pair is omitted and that branch is byte-identical to before.
     func acceptSuggestion(_ item: InboxItem) {
         guard let inboxService else { return }
         let when = now()
@@ -300,8 +306,10 @@ final class MenubarListModel: ObservableObject {
             id: UUID().uuidString,
             text: item.title,
             createdAt: when,
-            source: item.id,        // composite "<sourceID>:<itemID>" → source: token
-            sourceURL: item.url)    // canonical link → source_url: token
+            timeBlock: item.timeBlock,   // calendar only → time: token; nil elsewhere
+            calEventID: item.calEventID, // calendar only → cal_event: LINK; nil elsewhere
+            source: item.id,             // composite "<sourceID>:<itemID>" → source: token
+            sourceURL: item.url.isEmpty ? nil : item.url)  // P5: empty local url → omit source_url:
         do {
             // WR-01: record acceptance (dedupe id) BEFORE the visible task write. If the
             // task write then throws, the worst case is a leaked dedupe entry (the item
@@ -2092,7 +2100,8 @@ private struct SuggestedSection: View {
 enum InboxSourceGlyph {
     static func glyph(for sourceID: String) -> String {
         switch sourceID {
-        case "github": return "chevron.left.forwardslash.chevron.right"
+        case "github":   return "chevron.left.forwardslash.chevron.right"
+        case "calendar": return "calendar"
         case "gmail":  return "envelope"
         case "slack":  return "number"
         case "linear": return "line.3.horizontal"

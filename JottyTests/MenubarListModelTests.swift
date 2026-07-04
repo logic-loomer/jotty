@@ -1967,6 +1967,150 @@ final class MenubarListModelTests: XCTestCase {
                        "dismissed id must never be re-suggested (SC2)")
     }
 
+    // MARK: - Calendar accept LINKS an existing event (Phase 11, SC2/SC3)
+
+    /// A calendar-source InboxItem carrying the plan-01 timeBlock/calEventID payload.
+    private func calendarInboxItem(
+        _ id: String = "calendar:evt-1",
+        title: String = "Standup",
+        url: String = "calshow:evt-1",
+        start: Date,
+        end: Date,
+        calEventID: String = "evt-1"
+    ) -> InboxItem {
+        InboxItem(id: id, sourceID: "calendar", title: title, url: url,
+                  timestamp: Date(timeIntervalSince1970: 0), rawText: title,
+                  timeBlock: TimeBlock(start: start, end: end), calEventID: calEventID)
+    }
+
+    /// SC2 / P1: accepting a calendar suggestion writes a LINKED task carrying the event's
+    /// `time:` block + `cal_event:<existing id>` + `source:calendar:` provenance — and it
+    /// NEVER calls `createEvent` (it links the existing event, never duplicates it).
+    func testAcceptCalendarItemWritesLinkedTaskNoCreate() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let start = makeDate(2026, 6, 12, h: 9)
+        let end = makeDate(2026, 6, 12, h: 10)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "calendar", isConfigured: true)
+        let item = calendarInboxItem(start: start, end: end)
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+
+        let fake = FakeCalendarService()
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, inboxService: service)
+
+        model.acceptSuggestion(item)
+
+        // Written to today's file, carrying time: + cal_event: + source: (round-trip).
+        let doc = try store.readDoc(on: today)
+        let written = try XCTUnwrap(doc.tasks.first { $0.text == item.title })
+        XCTAssertEqual(written.timeBlock, TimeBlock(start: start, end: end))
+        XCTAssertEqual(written.calEventID, "evt-1")
+        XCTAssertEqual(written.source, "calendar:evt-1")
+        XCTAssertEqual(written.sourceURL, "calshow:evt-1")
+
+        // P1: LINK, not create — the event already exists.
+        XCTAssertTrue(fake.createdEvents.isEmpty, "accept must NOT create a duplicate event")
+        XCTAssertFalse(fake.calls.contains(.createEvent), "createEvent must not be called on accept")
+    }
+
+    /// P5: a calendar item with an empty url writes NO bogus `source_url:` (nil).
+    func testAcceptCalendarItemWithEmptyURLOmitsSourceURL() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let start = makeDate(2026, 6, 12, h: 9)
+        let end = makeDate(2026, 6, 12, h: 10)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "calendar", isConfigured: true)
+        let item = calendarInboxItem(url: "", start: start, end: end)
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: FakeCalendarService(),
+                                     inboxService: service)
+        model.acceptSuggestion(item)
+
+        let doc = try store.readDoc(on: today)
+        let written = try XCTUnwrap(doc.tasks.first { $0.text == item.title })
+        XCTAssertNil(written.sourceURL, "empty url must omit source_url:")
+        XCTAssertEqual(written.calEventID, "evt-1")
+    }
+
+    /// SC3: accept records the id — dropped from suggestions and never re-suggested.
+    func testAcceptCalendarItemRecordsIdAndDropsSuggestion() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let start = makeDate(2026, 6, 12, h: 9)
+        let end = makeDate(2026, 6, 12, h: 10)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "calendar", isConfigured: true)
+        let item = calendarInboxItem(start: start, end: end)
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+        XCTAssertEqual(service.suggestions.map(\.id), ["calendar:evt-1"])
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: FakeCalendarService(),
+                                     inboxService: service)
+        model.acceptSuggestion(item)
+
+        XCTAssertFalse(service.suggestions.contains { $0.id == "calendar:evt-1" })
+        await service.refresh()
+        XCTAssertFalse(service.suggestions.contains { $0.id == "calendar:evt-1" },
+                       "accepted calendar id must never be re-suggested (SC3)")
+    }
+
+    /// SC3: dismissing a calendar item records the id and writes NO task.
+    func testDismissCalendarItemRemembered() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let start = makeDate(2026, 6, 12, h: 9)
+        let end = makeDate(2026, 6, 12, h: 10)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "calendar", isConfigured: true)
+        let item = calendarInboxItem(start: start, end: end)
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: FakeCalendarService(),
+                                     inboxService: service)
+        model.dismissSuggestion(item)
+
+        let doc = try store.readDoc(on: today)
+        XCTAssertFalse(doc.tasks.contains { $0.source == "calendar:evt-1" }, "dismiss writes no task")
+        XCTAssertFalse(service.suggestions.contains { $0.id == "calendar:evt-1" })
+        await service.refresh()
+        XCTAssertFalse(service.suggestions.contains { $0.id == "calendar:evt-1" },
+                       "dismissed calendar id must never be re-suggested (SC3)")
+    }
+
+    /// Regression: a GitHub accept still writes source:/source_url: with NO time:/cal_event:
+    /// (the calendar-only fields stay nil — the branch is byte-identical to today).
+    func testAcceptGitHubItemUnchangedNoTimeOrCalEvent() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let src = FakeInboxSource(id: "github", isConfigured: true)
+        let item = inboxItem("github:99")
+        src.cannedItems = [item]
+        let service = InboxService(sources: [src], state: try makeInboxState())
+        await service.refresh()
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, inboxService: service)
+        model.acceptSuggestion(item)
+
+        let doc = try store.readDoc(on: today)
+        let written = try XCTUnwrap(doc.tasks.first { $0.text == item.title })
+        XCTAssertEqual(written.source, "github:99")
+        XCTAssertEqual(written.sourceURL, "https://github.com/org/repo/issues/1")
+        XCTAssertNil(written.timeBlock, "GitHub accept carries no time block")
+        XCTAssertNil(written.calEventID, "GitHub accept carries no cal_event link")
+    }
+
     /// SC3: the open-time refresh hook makes NO network call when no source is
     /// configured — the privacy default. Asserted through the wiring path
     /// (`refreshInbox()` → `InboxService.refresh()`) via the fake's call count.
