@@ -229,4 +229,44 @@ final class GitHubInboxSourceTests: XCTestCase {
         try keychain.delete(account: patAccount)
         XCTAssertFalse(configured.isConfigured)
     }
+
+    // MARK: Test 9 — GitHub path leaves the calendar-only fields nil (Phase 11 additive contract)
+
+    func testMappedGitHubItemHasNilCalendarFields() async throws {
+        let assigned = arrayBody([
+            issueObject(id: 606, number: 40, title: "No calendar fields",
+                        htmlURL: "https://github.com/org/repo/issues/40",
+                        updatedAt: "2026-06-14T09:00:00Z", repo: "org/repo")
+        ])
+        queue(assigned: assigned, search: searchBody([]))
+        let source = try makeSource()
+
+        let items = try await source.fetchItems()
+
+        let item = try XCTUnwrap(items.first { $0.id == "github:606" })
+        XCTAssertNil(item.timeBlock, "GitHub source must never set timeBlock")
+        XCTAssertNil(item.calEventID, "GitHub source must never set calEventID")
+    }
+
+    // MARK: Test 10 — InboxItem round-trips the optional calendar fields + stays Equatable
+
+    func testInboxItemRoundTripsCalendarFieldsAndStaysEquatable() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let block = TimeBlock(start: start, end: start.addingTimeInterval(3600))
+        let base = InboxItem(
+            id: "calendar:evt-1", sourceID: "calendar", title: "Standup",
+            url: "", timestamp: start, rawText: "Standup",
+            timeBlock: block, calEventID: "evt-1"
+        )
+        XCTAssertEqual(base.timeBlock, block)
+        XCTAssertEqual(base.calEventID, "evt-1")
+
+        // Two items differing only in calEventID must be unequal.
+        let other = InboxItem(
+            id: "calendar:evt-1", sourceID: "calendar", title: "Standup",
+            url: "", timestamp: start, rawText: "Standup",
+            timeBlock: block, calEventID: "evt-2"
+        )
+        XCTAssertNotEqual(base, other)
+    }
 }

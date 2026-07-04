@@ -25,4 +25,12 @@ struct InboxItem: Sendable, Equatable, Identifiable {
     let timestamp: Date
     /// Verbatim source text, kept as a display fallback when `title` is empty.
     let rawText: String
+    /// Calendar-source only: the event's time block, written as the `time:` token on accept.
+    /// `nil` for every other source (GitHub, Gmail, ...). `var` with a `= nil` default so the
+    /// synthesized memberwise init gains a defaulted trailing param (SE-0242): the GitHub 6-arg
+    /// call site stays untouched, while the calendar path can construct with the field set.
+    var timeBlock: TimeBlock? = nil
+    /// Calendar-source only: the source event's identifier, written as the `cal_event:` token
+    /// (a LINK back to the existing event, never a create). `nil` for every other source.
+    var calEventID: String? = nil
 }
