@@ -5,3 +5,8 @@ build/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+
+# GSD internal planning — kept local, not published
+.planning/
+docs/phase1-plan.md
+docs/phase2-plan.md
