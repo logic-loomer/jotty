@@ -363,6 +363,129 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertNil(vm.calendarNotice)
     }
 
+    // MARK: - Typed-time manual fast path → calendar (#8)
+
+    /// Builds a VM with a calendar wired and runs the pure-manual fast path for `text`.
+    /// `submitAndWait()` also awaits the fast path's best-effort calendar pass.
+    private func makeManualVM(calendar: FakeCalendarService?, now: Date) -> CaptureViewModel {
+        CaptureViewModel(store: store, draftURL: draftURL,
+                         provider: makeNoOpProvider(), calendar: calendar, clock: { now })
+    }
+
+    // (a) `@3pm` on a manual line + available calendar → exactly one createEvent and the
+    // task is linked back via cal_event:<id> (same pipeline as Review/commit + dropTask).
+    func testManualTypedTimeCreatesEventAndWritesCalEventID() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [ ] Call dentist @3pm"
+        await vm.submitAndWait()
+
+        XCTAssertEqual(fake.createdEvents.count, 1, "typed time → exactly one createEvent")
+        XCTAssertEqual(fake.createdEvents.first?.title, "Call dentist")
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Call dentist" }))
+        XCTAssertNotNil(task.timeBlock, "the typed time block persists on disk")
+        XCTAssertEqual(task.calEventID, "fake-event-1", "cal_event:<id> linked back")
+    }
+
+    // (b) `due:fri` only (no time) → zero createEvent; due date persists, no cal_event.
+    func testManualDueOnlyCreatesNoEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")   // a Saturday
+        let fake = FakeCalendarService()
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [ ] pay rent due:fri"
+        await vm.submitAndWait()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty, "due-only token → no event")
+        XCTAssertFalse(fake.calls.contains(.createEvent))
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "pay rent" }))
+        XCTAssertNotNil(task.dueDate, "due date still persists")
+        XCTAssertNil(task.timeBlock, "due-only → no time block")
+        XCTAssertNil(task.calEventID)
+    }
+
+    // (c) plain manual line, no tokens → zero createEvent, behavior unchanged.
+    func testManualNoTokensCreatesNoEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [ ] buy milk"
+        await vm.submitAndWait()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty, "no token → no event")
+        XCTAssertFalse(fake.calls.contains(.createEvent))
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "buy milk" }))
+        XCTAssertNil(task.timeBlock)
+        XCTAssertNil(task.calEventID)
+    }
+
+    // (d) disk-first: createEvent throws → the typed time block still persists and the
+    // failure is surfaced on the shared notice channel (not swallowed).
+    func testManualTypedTimeCreateFailureKeepsBlockAndSurfacesError() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "calendar save failed")
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [ ] Call dentist @3pm"
+        await vm.submitAndWait()
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Call dentist" }))
+        XCTAssertNotNil(task.timeBlock, "disk wins: the time block persists despite the failure")
+        XCTAssertNil(task.calEventID, "no cal_event on write failure")
+        XCTAssertEqual(vm.calendarNotice, .writeFailed(message: "calendar save failed"),
+                       "the failure is surfaced, not swallowed")
+    }
+
+    // (e) the event title is sanitized BEFORE the EventKit write (markdown text is untouched).
+    func testManualTypedTimeSanitizesEventTitle() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [ ] **Standup** @3pm"
+        await vm.submitAndWait()
+
+        XCTAssertEqual(fake.createdEvents.first?.title, "Standup", "event title is sanitized")
+        let doc = try store.readDoc(on: now)
+        XCTAssertNotNil(doc.tasks.first(where: { $0.text == "**Standup**" }),
+                        "markdown keeps the raw title; only the event title is sanitized")
+    }
+
+    // Guard: a done `- [x]` line with a typed time takes the synchronous path (history,
+    // not something to schedule) → no event, but the block still persists.
+    func testManualDoneTypedTimeCreatesNoEvent() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        let vm = makeManualVM(calendar: fake, now: now)
+        vm.text = "- [x] Standup @3pm"
+        await vm.submitAndWait()
+
+        XCTAssertTrue(fake.createdEvents.isEmpty, "done line → no event")
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Standup" }))
+        XCTAssertTrue(task.done)
+        XCTAssertNotNil(task.timeBlock, "the time block still persists")
+        XCTAssertNil(task.calEventID)
+    }
+
+    // Back-compat: no calendar injected → typed time persists on disk, no event, no notice.
+    func testManualTypedTimeNoCalendarInjected() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let vm = makeManualVM(calendar: nil, now: now)
+        vm.text = "- [ ] Call dentist @3pm"
+        await vm.submitAndWait()
+
+        let doc = try store.readDoc(on: now)
+        let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Call dentist" }))
+        XCTAssertNotNil(task.timeBlock, "no calendar → time block still written to disk")
+        XCTAssertNil(task.calEventID)
+        XCTAssertNil(vm.calendarNotice)
+    }
+
     // MARK: - Per-row calendar toggle (UX-06, plan 07.1-09)
 
     // UX-06: enterReview seeds the toggle set from each task's calendarBlock —
