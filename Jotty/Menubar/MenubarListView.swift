@@ -1143,6 +1143,10 @@ struct MenubarListView: View {
     @ObservedObject var model: MenubarListModel
     let onCapture: () -> Void
     let onSettings: () -> Void
+    /// Toggles the ⌘K command bar (#2) — the SAME `toggleCommandBar()` the global
+    /// hotkey calls, routed through MenubarController so the popover closes first.
+    /// nil-defaulted so existing tests/previews build the view without it.
+    var onCommandBar: () -> Void = {}
     /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04) via
     /// AppDelegate's `openCalendarCanvas()`; this header item is the canvas's
     /// only entry point (menubar-item-only, IN-01). The canvas is an OPTIONAL
@@ -1338,6 +1342,11 @@ struct MenubarListView: View {
             // CR-02: surface tasks whose linked event was deleted in Calendar and whose
             // dead `cal_event:` link was just cleared (one-line, non-blocking).
             missingLinkNotice
+
+            // #2: discoverable ⌘K entry — a "Search…" affordance revealing the
+            // flagship command bar plus its LIVE combo (the bar was dispatchable
+            // but invisible in the running UI).
+            searchAffordance
 
             Divider()
 
@@ -1786,6 +1795,47 @@ struct MenubarListView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
+    }
+
+    // MARK: - Search affordance (#2)
+
+    /// The discoverable ⌘K entry point: a full-width "Search…" row with a
+    /// magnifying-glass glyph and the LIVE command-bar combo on the trailing edge
+    /// (reuses the `sendToClaudeItem` live-combo pattern via `model.commandBarCombo`).
+    /// Tapping toggles the SAME command bar the global hotkey opens — the view holds
+    /// no local ⌘K equivalent (Pitfall 10), so this is a click affordance, not a
+    /// keyboard shortcut.
+    @ViewBuilder
+    private var searchAffordance: some View {
+        Divider()
+        Button(action: { onCommandBar() }) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption.weight(.semibold))
+                Text("Search…")
+                    .font(.subheadline)
+                Spacer()
+                if let combo = model.commandBarCombo {
+                    Text(combo.displayString)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .accessibilityLabel(searchAffordanceLabel)
+    }
+
+    /// VoiceOver label naming the action AND the live combo (never a hardcoded key).
+    private var searchAffordanceLabel: String {
+        if let combo = model.commandBarCombo {
+            return "Search tasks and actions, \(combo.displayString)"
+        }
+        return "Search tasks and actions"
     }
 
     // MARK: - Calendar section (SC2)

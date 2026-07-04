@@ -6,6 +6,11 @@ final class MenubarController {
     let statusItem: NSStatusItem
     var onCapture: (() -> Void)?
     var onSettings: (() -> Void)?
+    /// Toggles the ⌘K command bar (#2); AppDelegate wires this to its
+    /// `toggleCommandBar()` — the SAME entry point the global hotkey uses. The
+    /// popover closes first (mirrors `onCapture`) so the transient popover is not
+    /// still key when the command-bar panel opens.
+    var onCommandBar: (() -> Void)?
     /// Opens the calendar canvas window (Phase 8 SC4 / CALX-04); AppDelegate
     /// wires this to its `openCalendarCanvas()`. The popover item is the ONLY
     /// entry point (no Action case / key combo, IN-01). nil (e.g. in tests)
@@ -85,6 +90,10 @@ final class MenubarController {
             onSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onSettings?()
+            },
+            onCommandBar: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onCommandBar?()
             },
             onOpenCanvas: { [weak self] in
                 self?.popover.performClose(nil)

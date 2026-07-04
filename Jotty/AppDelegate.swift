@@ -143,6 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     keybindings: keybindings)
         menubar.onCapture = { [weak self] in self?.openCapture() }
         menubar.onSettings = { [weak self] in self?.openSettings() }
+        // #2: the popover's "Search…" affordance opens the SAME ⌘K command bar the
+        // global hotkey toggles — one entry point, no divergent open path.
+        menubar.onCommandBar = { [weak self] in self?.toggleCommandBar() }
         // Phase 8 SC4: the popover's "Calendar canvas" item — the canvas's
         // only entry point (menubar-item-only, IN-01) — routes here.
         menubar.onOpenCanvas = { [weak self] in self?.openCalendarCanvas() }
