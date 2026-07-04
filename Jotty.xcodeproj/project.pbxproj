@@ -26,6 +26,7 @@
 		27A18BC23BB19F258170C636 /* CaptureViewModelAIPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */; };
 		28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E549027F93BB23F8A8121 /* CaptureViewModelFallbackTests.swift */; };
 		2AA565D66C3EA90E7B0DC256 /* TaskBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5594F7906F98D16824535A /* TaskBadgeTests.swift */; };
+		2CE220166288B094D14B486E /* CalendarInboxSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8551D206161FBA16129AA93 /* CalendarInboxSourceTests.swift */; };
 		2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D15F27F50F6B7596C1DD1 /* AppleFMProviderSubsetTests.swift */; };
 		2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */; };
 		301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */; };
@@ -59,6 +60,7 @@
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		5858C556D6D4A6B141134BA7 /* FakeInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423C42337CB98153A4329E2E /* FakeInboxSource.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
+		59E60F507AABE6D15FC14623 /* CalendarInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C998CC6BAE474B13E9F16C /* CalendarInboxSource.swift */; };
 		5A567E21E1743428D4444C8C /* GitHubInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */; };
 		5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */; };
 		5BDD1058B06B43024D2ED44B /* IntegrationsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18377DDC107B9C57993CF7A0 /* IntegrationsTab.swift */; };
@@ -328,6 +330,7 @@
 		C3FBDC26E512E1C6BE656FBF /* DurationGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationGuardrailTests.swift; sourceTree = "<group>"; };
 		C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyScorer.swift; sourceTree = "<group>"; };
 		C84E33A536DA47388C797099 /* MenubarListModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListModelTests.swift; sourceTree = "<group>"; };
+		C8551D206161FBA16129AA93 /* CalendarInboxSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarInboxSourceTests.swift; sourceTree = "<group>"; };
 		C8DC934F8F6E3BDE39C8F4B6 /* GeminiProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProviderTests.swift; sourceTree = "<group>"; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
@@ -341,6 +344,7 @@
 		D7719D4B2AE14EC6B4A7E5A9 /* ClaudeProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProviderTests.swift; sourceTree = "<group>"; };
 		D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewListView.swift; sourceTree = "<group>"; };
 		D7E50985DD1B606D64D5E868 /* InboxService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxService.swift; sourceTree = "<group>"; };
+		D8C998CC6BAE474B13E9F16C /* CalendarInboxSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarInboxSource.swift; sourceTree = "<group>"; };
 		D90AB6AF42D0F8421E392BEF /* CommandBarIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarIndex.swift; sourceTree = "<group>"; };
 		D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaDownloader.swift; sourceTree = "<group>"; };
 		DAC8413600825804C641455A /* RecurrenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceTests.swift; sourceTree = "<group>"; };
@@ -450,6 +454,7 @@
 		2A665F63B4F739A0354A15AD /* Inbox */ = {
 			isa = PBXGroup;
 			children = (
+				D8C998CC6BAE474B13E9F16C /* CalendarInboxSource.swift */,
 				69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */,
 				7F3B0CDA088A33915E2C30C3 /* InboxItem.swift */,
 				DDC59B2CBBAE698BFF81B1B9 /* InboxRefreshPolicy.swift */,
@@ -586,6 +591,7 @@
 		85398763BE5845E29E90B9CD /* Inbox */ = {
 			isa = PBXGroup;
 			children = (
+				C8551D206161FBA16129AA93 /* CalendarInboxSourceTests.swift */,
 				423C42337CB98153A4329E2E /* FakeInboxSource.swift */,
 				56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */,
 				D482654C24AD57A66053CBCE /* InboxRefreshPolicyTests.swift */,
@@ -897,6 +903,7 @@
 				2E27390ED97BC8597BE6B8C6 /* AppleFMProviderSubsetTests.swift in Sources */,
 				92D6F54BDCB50E9AB913BF3F /* CalendarCanvasModelTests.swift in Sources */,
 				1BC50D90AFF1CB973B15EADC /* CalendarEventMapperTests.swift in Sources */,
+				2CE220166288B094D14B486E /* CalendarInboxSourceTests.swift in Sources */,
 				D58243CB3057E984F2ED441E /* CalendarServiceTests.swift in Sources */,
 				EA63E003CAF67E57DF191ECD /* CanvasLayoutTests.swift in Sources */,
 				C852BE9177ADF9DE8D2BE9BC /* CaptureAnnouncementTests.swift in Sources */,
@@ -984,6 +991,7 @@
 				06AEFB3FD045D927A3777F80 /* CalendarCanvasView.swift in Sources */,
 				DC13F6F4A63642BD6B3DE162 /* CalendarDrift.swift in Sources */,
 				FA9753E9A723FFBE84D5BE54 /* CalendarEventMapper.swift in Sources */,
+				59E60F507AABE6D15FC14623 /* CalendarInboxSource.swift in Sources */,
 				C59259F4495F8E7486A667BB /* CalendarService.swift in Sources */,
 				36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */,
 				52C89360FC3DBEDFFA4741B5 /* CalendarURL.swift in Sources */,
