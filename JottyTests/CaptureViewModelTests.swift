@@ -416,10 +416,19 @@ final class CaptureViewModelTests: XCTestCase {
         await vm.commitAndWait()
 
         XCTAssertEqual(fake.createdEvents.count, 1)
+        // In-memory (no disk round-trip): the event uses the AI's exact block, not a backfill.
         XCTAssertEqual(fake.createdEvents.first?.start, tb.start, "AI's own block kept, not the natural 3pm")
+        XCTAssertEqual(fake.createdEvents.first?.end, tb.end)
         let doc = try store.readDoc(on: now)
         let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "meet at 3pm" }))
-        XCTAssertEqual(task.timeBlock, tb)
+        // The re-read block round-trips through the wall-clock `time:` token, so assert on its
+        // timezone-INVARIANT duration rather than an absolute Date (which shifts a day when the
+        // store TZ crosses a calendar boundary vs the authoring TZ — e.g. UTC CI). The AI's range
+        // is 1 hour; a natural-time backfill would be the 30-min default — so 3600s proves the
+        // AI's block survived and the backfill did NOT override it.
+        let reread = try XCTUnwrap(task.timeBlock)
+        XCTAssertEqual(reread.end.timeIntervalSince(reread.start), 3600,
+                       "AI's 1-hour range preserved on disk, not replaced by a 30-min backfill")
     }
 
     // MARK: - Typed-time manual fast path → calendar (#8)
