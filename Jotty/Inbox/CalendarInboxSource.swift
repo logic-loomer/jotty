@@ -37,7 +37,10 @@ struct CalendarInboxSource: InboxSource {
     /// Reads `AppConfig.calendarInboxEnabled` LIVE each call (toggle OFF by default).
     private let enabled: @Sendable () -> Bool
     /// Today's already-linked bare EventKit ids (SC4), re-read fresh each call.
-    private let linkedEventIDs: @Sendable () -> Set<String>
+    /// `@MainActor` (not `@Sendable`) so the read runs ON the main actor — awaiting
+    /// it hops off-actor `fetchItems` to main, so it can never race main-actor
+    /// `Store` writes; the isolation also makes the closure Sendable (WR-01).
+    private let linkedEventIDs: @MainActor () async -> Set<String>
     private let now: @Sendable () -> Date
     private let timezone: TimeZone
 
@@ -49,7 +52,7 @@ struct CalendarInboxSource: InboxSource {
     ///   - timezone: the store/menubar timezone used to compute the today window (never `.current`).
     init(calendar: any CalendarService,
          enabled: @escaping @Sendable () -> Bool,
-         linkedEventIDs: @escaping @Sendable () -> Set<String>,
+         linkedEventIDs: @escaping @MainActor () async -> Set<String>,
          now: @escaping @Sendable () -> Date,
          timezone: TimeZone) {
         self.calendar = calendar
@@ -85,7 +88,7 @@ struct CalendarInboxSource: InboxSource {
         // only ever returns timed events — the source never filters isAllDay itself.
         let events = try await calendar.eventsInRange(start: start, end: end)
 
-        let linked = linkedEventIDs()
+        let linked = await linkedEventIDs()
         return events
             .filter { !linked.contains($0.id) }  // SC4: bare EventKit id, not the composite
             .map { event in

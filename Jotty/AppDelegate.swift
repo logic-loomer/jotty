@@ -137,6 +137,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         enabled: { [weak configStore] in
                             configStore?.config.calendarInboxEnabled ?? false
                         },
+                        // @MainActor closure: this live per-fetch Store read runs ON the
+                        // main actor, so it never races main-actor writes (accept/reload);
+                        // awaiting it hops off-actor fetchItems to main (WR-01).
                         linkedEventIDs: { [weak store] in
                             guard let store else { return [] }
                             return Set((try? store.readDoc(on: Date()))?
