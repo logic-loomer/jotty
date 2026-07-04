@@ -116,9 +116,6 @@ enum CalendarDrift {
             .replacingOccurrences(of: "\r", with: " ")
         s = String(s.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
 
-        // Strip leading heading markers (`#`, `##`, ... possibly followed by spaces).
-        s = s.replacingOccurrences(of: "^#{1,6}\\s*", with: "", options: .regularExpression)
-
         // Strip inline code backticks.
         s = s.replacingOccurrences(of: "`", with: "")
 
@@ -128,8 +125,18 @@ enum CalendarDrift {
             s = s.replacingOccurrences(of: marker, with: "")
         }
 
-        // Collapse runs of whitespace to a single space and trim.
+        // Collapse runs of whitespace to a single space and trim, so a `#` that only became
+        // leading after the backtick/emphasis/whitespace steps above is now truly at the start.
         s = s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        s = s.trimmingCharacters(in: .whitespaces)
+
+        // Strip leading heading markers (`#`, `##`, ... possibly followed by spaces) LAST
+        // (sweep WR): running this BEFORE the steps above made sanitize non-idempotent —
+        // a `#` exposed by backtick/emphasis/whitespace stripping (`**#1**`, `` `#tag` ``,
+        // `  # x`) survived the first pass but was stripped on the second, causing perpetual
+        // false drift and silent loss of the user's `#`. Placing it after every exposing step
+        // makes sanitize a fixed point. Re-trim in case the marker left trailing space.
+        s = s.replacingOccurrences(of: "^#{1,6}\\s*", with: "", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespaces)
     }
 }
