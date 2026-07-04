@@ -59,6 +59,17 @@ Open `Jotty.xcodeproj` in Xcode and run, or copy the built `.app` from `~/Librar
 
 Jotty runs as a menubar agent (no Dock icon). Look for its icon in the menubar after launch.
 
+### One-command build + install (recommended)
+
+`macOS ties permissions (Calendar, etc.) to an app's code-signing identity. A plain build is ad-hoc-signed, so macOS forgets the grant on every rebuild and re-prompts. This script builds, signs with a stable self-signed identity (created once, no Apple Developer account needed), and installs to /Applications so your permission grants persist:`
+
+```bash
+scripts/build-and-install.sh          # first run also creates the signing identity
+open /Applications/Jotty.app
+```
+
+If Calendar keeps re-prompting from an earlier unsigned run, clear it once with `tccutil reset Calendar com.jotty.Jotty`, then grant it a final time.
+
 ## Capturing notes and tasks
 
 Press **⌘N** anywhere to open the capture popup, type freely, and press **⌘↩** to commit (**⎋** cancels and autosaves a draft). Notes are written as markdown, one file per day, to `~/Documents/Jotty/` by default — change the folder in **Settings → Storage**, or point it at your Obsidian vault.
