@@ -77,10 +77,25 @@ enum CaptureTokenParser {
             titleWords.append(word)
         }
 
-        let cleanTitle = titleWords.joined(separator: " ")
+        var cleanTitle = titleWords.joined(separator: " ")
+
+        // Natural-language single clock time fallback (#time-reliability): fires ONLY when no
+        // typed `@time` token was found, so every existing @-token path stays byte-identical
+        // (`@9pm` sets timeHM above and skips this). A bare "Call Asim at 9pm" then still gets a
+        // block + a cleaned title. Conservative by construction (see NaturalTime): a plain number
+        // or duration never matches, so a non-time line is returned unchanged.
+        var naturalSaw = false
+        if timeHM == nil, let nat = NaturalTime.firstMatch(in: cleanTitle) {
+            let stripped = stripTimePhrase(from: cleanTitle, range: nat.range)
+            if !stripped.isEmpty {
+                cleanTitle = stripped
+                timeHM = (nat.hour, nat.minute)
+                naturalSaw = true
+            }
+        }
 
         // No token, or stripping tokens emptied the title → preserve today's bare-task behavior.
-        guard sawToken, !cleanTitle.isEmpty else {
+        guard sawToken || naturalSaw, !cleanTitle.isEmpty else {
             return Result(cleanTitle: trimmed, dueDate: nil, timeBlock: nil)
         }
 
@@ -97,6 +112,25 @@ enum CaptureTokenParser {
         // dueDate is set only when a day/due token named a day; a bare `@time` schedules the
         // block for today without also stamping a due date (mirrors the AI path's independence).
         return Result(cleanTitle: cleanTitle, dueDate: dayDate, timeBlock: timeBlock)
+    }
+
+    /// Removes the matched clock-time substring (and an immediately-preceding standalone `at`
+    /// preposition, e.g. "Call Asim at 9pm" → "Call Asim") from `title`, collapsing whitespace
+    /// runs to single spaces. Pure.
+    private static func stripTimePhrase(from title: String, range: Range<String.Index>) -> String {
+        var prefix = String(title[..<range.lowerBound])
+        let suffix = String(title[range.upperBound...])
+        let trimmedPrefix = prefix.trimmingCharacters(in: .whitespaces)
+        if let lastSpace = trimmedPrefix.range(of: " ", options: .backwards) {
+            if trimmedPrefix[lastSpace.upperBound...].lowercased() == "at" {
+                prefix = String(trimmedPrefix[..<lastSpace.lowerBound])
+            }
+        } else if trimmedPrefix.lowercased() == "at" {
+            prefix = ""
+        }
+        let words = (prefix + " " + suffix)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        return words.joined(separator: " ")
     }
 
     // MARK: - Matchers (pure)

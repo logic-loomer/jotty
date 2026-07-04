@@ -200,4 +200,48 @@ final class CaptureTokenParserTests: XCTestCase {
         XCTAssertEqual(r.cleanTitle, "thing")
         XCTAssertEqual(r.dueDate, day(2026, 7, 9))
     }
+
+    // MARK: - Natural clock-time fallback (#time-reliability)
+
+    func testNaturalTimeBlocksOnTodayAndStripsPhrase() {
+        let r = parse("Call Asim at 9pm")
+        XCTAssertEqual(r.cleanTitle, "Call Asim", "the 'at 9pm' phrase is stripped")
+        XCTAssertEqual(r.timeBlock?.start, at(2026, 7, 8, 21, 0))
+        XCTAssertEqual(r.timeBlock?.end, at(2026, 7, 8, 21, 0).addingTimeInterval(thirtyMin))
+        XCTAssertNil(r.dueDate, "a natural time schedules today without a due date")
+    }
+
+    func testNaturalColonTime() {
+        let r = parse("deploy 17:00")
+        XCTAssertEqual(r.cleanTitle, "deploy")
+        XCTAssertEqual(r.timeBlock?.start, at(2026, 7, 8, 17, 0))
+    }
+
+    func testAtTokenTimeStillWinsOverNatural() {
+        // An explicit @time token must take precedence; the natural fallback never runs.
+        let r = parse("standup @3pm at 9pm")
+        XCTAssertEqual(r.timeBlock?.start, at(2026, 7, 8, 15, 0), "@3pm wins, not the natural 9pm")
+        XCTAssertTrue(r.cleanTitle.contains("9pm"), "natural phrase left intact when @token wins")
+    }
+
+    func testNaturalTimeCombinesWithDueDay() {
+        // A day token sets the due date; the natural time lands the block on that day.
+        let r = parse("call dentist @tomorrow at 9pm")
+        XCTAssertEqual(r.cleanTitle, "call dentist")
+        XCTAssertEqual(r.dueDate, day(2026, 7, 9))
+        XCTAssertEqual(r.timeBlock?.start, at(2026, 7, 9, 21, 0))
+    }
+
+    func testNonTimeLineUnchangedByNaturalFallback() {
+        let r = parse("read section 9")
+        XCTAssertEqual(r.cleanTitle, "read section 9")
+        XCTAssertNil(r.timeBlock)
+        XCTAssertNil(r.dueDate)
+    }
+
+    func testDurationNeverBlocksInManualPath() {
+        let r = parse("focus 2 hours")
+        XCTAssertEqual(r.cleanTitle, "focus 2 hours")
+        XCTAssertNil(r.timeBlock)
+    }
 }
