@@ -14,7 +14,11 @@ set -euo pipefail
 IDENTITY="${1:-Jotty Dev}"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+# NOTE: no `-v` here. A self-signed cert is untrusted, so `find-identity -v`
+# (valid AND trusted only) would NOT list it and we'd re-import on every run.
+# codesign can still SIGN with an untrusted identity (trust only matters for
+# others VERIFYING), so the plain policy listing is the right idempotency check.
+if security find-identity -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
   echo "✓ Code-signing identity '$IDENTITY' already exists — nothing to do."
   exit 0
 fi
@@ -40,13 +44,22 @@ EOF
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -config "$TMP/cert.cnf" >/dev/null 2>&1
 
-# Bundle into a PKCS#12 (empty passphrase) and import into the login keychain,
-# pre-authorizing /usr/bin/codesign to use the private key.
-openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-  -out "$TMP/id.p12" -name "$IDENTITY" -passout pass: >/dev/null 2>&1
+# Bundle into a PKCS#12 and import into the login keychain, pre-authorizing
+# /usr/bin/codesign to use the private key.
+#
+# OpenSSL 3.x defaults the PKCS#12 to a SHA-256 MAC + AES-256 that macOS's
+# `security import` cannot read — it fails as "MAC verification failed (wrong
+# password?)". Use `-legacy` when the openssl on PATH supports it (OpenSSL 3.x)
+# so the p12 uses the SHA1-MAC/3DES form macOS accepts, and use a real passphrase
+# (empty-password p12 import is also flaky on macOS).
+P12_PASS="jotty-local"
+LEGACY=""
+if openssl pkcs12 -help 2>&1 | grep -q -- '-legacy'; then LEGACY="-legacy"; fi
+openssl pkcs12 -export $LEGACY -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
+  -out "$TMP/id.p12" -name "$IDENTITY" -passout "pass:$P12_PASS" >/dev/null 2>&1
 
-security import "$TMP/id.p12" -k "$KEYCHAIN" -P "" \
-  -T /usr/bin/codesign -T /usr/bin/productsign >/dev/null
+security import "$TMP/id.p12" -k "$KEYCHAIN" -P "$P12_PASS" \
+  -T /usr/bin/codesign -T /usr/bin/productsign
 
 # Best-effort: let codesign use the key without a GUI prompt each time. Needs the
 # login-keychain password; if it can't, you'll just click "Always Allow" once the
