@@ -1941,6 +1941,50 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertTrue(model.doneCollapsed)
     }
 
+    // MARK: - Row identity (stale checkbox after toggle)
+
+    /// A row's LazyVStack identity must CHANGE when a task moves between sections:
+    /// the lazy container caches built rows by identity across the WHOLE container,
+    /// so a toggled task that kept a bare `task.id` identity was re-shown in the
+    /// Done group with its PRE-toggle content (empty checkbox, no strikethrough)
+    /// until the popover was reopened. Section-qualified ids force a fresh build.
+    func testRowIDChangesWhenTaskMovesBetweenSections() {
+        var task = Todo(id: "t1", text: "zorii", createdAt: makeDate(2026, 6, 12, h: 8))
+        let openID = MenubarListModel.rowID(task, isLeftover: false)
+        task.done = true
+        let doneID = MenubarListModel.rowID(task, isLeftover: false)
+        XCTAssertNotEqual(openID, doneID)
+        // A leftover row (always not-done) is distinct from BOTH today identities,
+        // so a midnight repartition can never hand a cached row to another section.
+        task.done = false
+        let leftoverID = MenubarListModel.rowID(task, isLeftover: true)
+        XCTAssertNotEqual(leftoverID, openID)
+        XCTAssertNotEqual(leftoverID, doneID)
+    }
+
+    /// The highlight scroll target must agree with the identity the task's row
+    /// currently renders under, for every section it can live in.
+    func testRowScrollIDMatchesRowIDForEachPartition() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        let (store, day) = try seed(tasks: [
+            Todo(id: "t_leftover", text: "old open", createdAt: yesterday),
+            Todo(id: "t_open", text: "open", createdAt: today),
+            Todo(id: "t_done", text: "done", createdAt: today, done: true)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { day })
+        XCTAssertEqual(model.rowScrollID(for: "t_leftover"),
+                       MenubarListModel.rowID(model.leftovers[0], isLeftover: true))
+        XCTAssertEqual(model.rowScrollID(for: "t_open"),
+                       MenubarListModel.rowID(model.todayOpen[0], isLeftover: false))
+        XCTAssertEqual(model.rowScrollID(for: "t_done"),
+                       MenubarListModel.rowID(model.todayDone[0], isLeftover: false))
+        // Unknown id: raw fallback — scrollTo simply matches nothing.
+        XCTAssertEqual(model.rowScrollID(for: "t_ghost"), "t_ghost")
+    }
+
     /// A ConfigStore backed by a fresh temp file, primed with the delete preference.
     private func config(deletePref: Bool?) throws -> ConfigStore {
         let path = folder.appendingPathComponent("config-\(UUID().uuidString).json")

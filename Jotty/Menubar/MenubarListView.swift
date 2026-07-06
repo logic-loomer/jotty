@@ -1158,6 +1158,32 @@ final class MenubarListModel: ObservableObject {
     var todayOpen: [Todo] { todayTasks.filter { !$0.done } }
     var todayDone: [Todo] { todayTasks.filter(\.done) }
 
+    /// Row identity for the task-list LazyVStack. Embeds the SECTION (leftover /
+    /// open / done), not just the task id: the lazy container caches built rows by
+    /// identity across the WHOLE container, so a row whose identity survived a
+    /// toggle was re-shown in the "Done · N" group with its PRE-toggle content
+    /// (empty checkbox, no strikethrough) until the popover was rebuilt. A
+    /// section-qualified identity makes the moved row a NEW identity that must be
+    /// built fresh from the current Todo value.
+    static func rowID(_ task: Todo, isLeftover: Bool) -> String {
+        if isLeftover { return "leftover-\(task.id)" }
+        return task.done ? "done-\(task.id)" : "open-\(task.id)"
+    }
+
+    /// The scroll target for the command-bar highlight: resolves which section the
+    /// task currently renders in and returns that row's section-qualified identity,
+    /// so `scrollTo` keeps finding rows now that they no longer use the bare task id.
+    /// Unknown ids fall back to the raw id, which matches nothing — same as before.
+    func rowScrollID(for taskID: String) -> String {
+        if let t = leftovers.first(where: { $0.id == taskID }) {
+            return Self.rowID(t, isLeftover: true)
+        }
+        if let t = todayTasks.first(where: { $0.id == taskID }) {
+            return Self.rowID(t, isLeftover: false)
+        }
+        return taskID
+    }
+
     /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
     /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
     /// the private `now()` so the canvas never needs its own clock and its
@@ -1380,7 +1406,7 @@ struct MenubarListView: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 3)
                                     .background(highlightWash(for: task.id))
-                                    .id(task.id)
+                                    .id(MenubarListModel.rowID(task, isLeftover: true))
                                     .contextMenu { taskRowMenu(task) }
                                 }
                             }
@@ -1711,7 +1737,9 @@ struct MenubarListView: View {
     /// can never snap away or clear the newer highlight mid-fade.
     private func beginHighlight(_ id: String, proxy: ScrollViewProxy) {
         let generation = model.highlightGeneration
-        proxy.scrollTo(id, anchor: .center)
+        // Rows carry section-qualified identities (`MenubarListModel.rowID`), so
+        // the bare task id must be resolved to the section the task renders in.
+        proxy.scrollTo(model.rowScrollID(for: id), anchor: .center)
         highlightOpacity = 1
         if !reduceMotion {
             withAnimation(.easeOut(duration: 1.5)) { highlightOpacity = 0 }
@@ -1757,7 +1785,7 @@ struct MenubarListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
         .background(highlightWash(for: task.id))
-        .id(task.id)
+        .id(MenubarListModel.rowID(task, isLeftover: false))
         .contextMenu { taskRowMenu(task) }
     }
 
