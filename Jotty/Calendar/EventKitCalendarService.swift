@@ -21,8 +21,36 @@ final class EventKitCalendarService: CalendarService {
     /// capturing it at init, so a Settings change takes effect without re-wiring.
     private let calendarID: () -> String?
 
+    /// Invoked on the main actor whenever EventKit reports an EXTERNAL change —
+    /// principally an access grant toggled in System Settings while Jotty is already
+    /// running (`authorizationStatus` is cached per-process and does NOT update live
+    /// otherwise, so the "not granted" banner would otherwise persist until relaunch),
+    /// but also underlying calendar-data edits. The app wiring sets this to re-run the
+    /// menubar calendar reload. Set on the main actor before/after construction.
+    var onStoreChanged: (@MainActor () -> Void)?
+
+    /// Token for the `EKEventStoreChanged` observer, removed on deinit (the observer
+    /// otherwise outlives the service). `nonisolated(unsafe)` so the nonisolated deinit
+    /// can read it: assigned once in `init` on the main actor, read only in `deinit`
+    /// once every other reference is gone (same idiom as AppDelegate's observer token).
+    nonisolated(unsafe) private var storeChangeObserver: NSObjectProtocol?
+
     init(calendarID: @escaping () -> String?) {
         self.calendarID = calendarID
+        // Observe live store/access changes so a System-Settings grant (or an external
+        // event edit) refreshes the UI without an app restart. EventKit posts this for
+        // THIS store instance; delivery on `.main` keeps the callback main-actor safe.
+        storeChangeObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged, object: store, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onStoreChanged?() }
+        }
+    }
+
+    deinit {
+        if let storeChangeObserver {
+            NotificationCenter.default.removeObserver(storeChangeObserver)
+        }
     }
 
     // MARK: Permission

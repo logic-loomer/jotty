@@ -174,6 +174,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // only entry point (menubar-item-only, IN-01) — routes here.
         menubar.onOpenCanvas = { [weak self] in self?.openCalendarCanvas() }
 
+        // When the user grants Calendar access in System Settings while Jotty is
+        // running, EventKit posts a store-changed notification — re-run the calendar
+        // reload so the "not granted" banner clears without a restart (no prompt:
+        // a System-Settings grant lands as authorized, and a passive notification
+        // must never pop the TCC dialog — WR-06).
+        calendar.onStoreChanged = { [weak self] in
+            Task { await self?.menubar.listModel.reloadCalendar(promptIfUndetermined: false) }
+        }
+
         scheduleMidnightRollover()
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
         // unless the user enabled "Check periodically" in Settings → Integrations.
