@@ -8,6 +8,9 @@ final class MenubarListModel: ObservableObject {
     @Published private(set) var leftovers: [Todo] = []
     @Published private(set) var todayTasks: [Todo] = []
     @Published private(set) var leftoversCollapsed: Bool = false
+    /// Collapse state for the "Done · N" group of completed tasks (#4), mirroring
+    /// `leftoversCollapsed`: day-keyed, persisted, reloaded each `reload`.
+    @Published private(set) var doneCollapsed: Bool = false
 
     /// The task row to spotlight on the current popover render (Phase 9 SC3 —
     /// the command bar's "open the dropdown with task X highlighted" seam).
@@ -240,10 +243,13 @@ final class MenubarListModel: ObservableObject {
 
         let todayKey = collapseKey(for: snapshot)
         leftoversCollapsed = defaults.bool(forKey: todayKey)
+        let todayDoneKey = doneCollapseKey(for: snapshot)
+        doneCollapsed = defaults.bool(forKey: todayDoneKey)
         // Housekeeping: drop every stale collapse key from earlier days
         // (the app may not run every day, so "yesterday only" leaks keys).
         for key in defaults.dictionaryRepresentation().keys
-            where key.hasPrefix("leftoversCollapsed-") && key != todayKey {
+            where (key.hasPrefix("leftoversCollapsed-") && key != todayKey)
+               || (key.hasPrefix("doneCollapsed-") && key != todayDoneKey) {
             defaults.removeObject(forKey: key)
         }
 
@@ -486,6 +492,13 @@ final class MenubarListModel: ObservableObject {
     func setCollapsed(_ collapsed: Bool, at date: Date? = nil) {
         leftoversCollapsed = collapsed
         defaults.set(collapsed, forKey: collapseKey(for: date ?? now()))
+    }
+
+    /// Persists + applies the "Done · N" collapse choice for a day (#4), mirroring
+    /// `setCollapsed`.
+    func setDoneCollapsed(_ collapsed: Bool, at date: Date? = nil) {
+        doneCollapsed = collapsed
+        defaults.set(collapsed, forKey: doneCollapseKey(for: date ?? now()))
     }
 
     // MARK: - Command bar highlight (Phase 9, SC3)
@@ -1139,6 +1152,12 @@ final class MenubarListModel: ObservableObject {
     /// the "N of M done" header badge, so it never counts future-snoozed rows.
     var visibleDoneCount: Int { visibleTasks.filter(\.done).count }
 
+    /// Today's partition split for rendering (#4): OPEN tasks render inline; DONE
+    /// tasks move into the collapsible "Done · N" group. `todayTasks` stays the full
+    /// set (the canvas blocks and counts read it), so this is presentation-only.
+    var todayOpen: [Todo] { todayTasks.filter { !$0.done } }
+    var todayDone: [Todo] { todayTasks.filter(\.done) }
+
     /// startOfDay(now()) in the model timezone — the read-only dayStart anchor
     /// the calendar canvas (plan 08-05) derives its axis from. Kept alongside
     /// the private `now()` so the canvas never needs its own clock and its
@@ -1173,13 +1192,24 @@ final class MenubarListModel: ObservableObject {
     }
 
     private func collapseKey(for date: Date) -> String {
+        "leftoversCollapsed-\(dayKey(for: date))"
+    }
+
+    /// Day-keyed persistence key for the "Done · N" collapse state (#4), parallel to
+    /// `collapseKey`.
+    private func doneCollapseKey(for date: Date) -> String {
+        "doneCollapsed-\(dayKey(for: date))"
+    }
+
+    /// The shared `yyyy-MM-dd` day component for the collapse keys. Fixed-format,
+    /// POSIX-pinned so region calendar settings (Buddhist/Japanese era years) cannot
+    /// skew it; timezone-pinned to match the day partitioning.
+    private func dayKey(for date: Date) -> String {
         let f = DateFormatter()
-        // Fixed-format machine-readable key: pin POSIX locale so region
-        // calendar settings (Buddhist/Japanese era years) cannot skew it.
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = timezone
-        return "leftoversCollapsed-\(f.string(from: date))"
+        return f.string(from: date)
     }
 }
 
@@ -1293,7 +1323,10 @@ struct MenubarListView: View {
                 // can scroll its row into view (CalendarCanvasView scrollTo idiom).
                 ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
+                    // LazyVStack so a day with hundreds of tasks only builds the rows
+                    // actually on screen (#3) — the ScrollViewReader highlight still
+                    // scrolls to a row by `.id`. Was an eager VStack.
+                    LazyVStack(alignment: .leading, spacing: 4) {
                         // Earlier leftovers (everything older than today, not just
                         // yesterday — UX-05 honest labelling) above today's tasks.
                         if !model.leftovers.isEmpty {
@@ -1356,26 +1389,39 @@ struct MenubarListView: View {
                                 .padding(.vertical, 2)
                         }
 
-                        ForEach(model.todayTasks, id: \.id) { task in
-                            HStack(spacing: 8) {
-                                Button(action: { model.toggle(task) }) {
-                                    Image(systemName: task.done ? "checkmark.square" : "square")
-                                        .contentShape(Rectangle())
+                        // Today's OPEN tasks render inline; completed ones drop into
+                        // the collapsible "Done · N" group below (#4).
+                        ForEach(model.todayOpen, id: \.id) { task in
+                            todayRow(task)
+                        }
+
+                        if !model.todayDone.isEmpty {
+                            Button(action: {
+                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
+                                    model.setDoneCollapsed(!model.doneCollapsed)
                                 }
-                                .buttonStyle(.plain)
-                                // A11Y-01: state-dynamic label — announces the action
-                                // the toggle will take, not the current state.
-                                .accessibilityLabel(task.done ? "Mark not done" : "Mark done")
-                                rowTitle(task, isLeftover: false)
-                                metadataBadges(task)
-                                Spacer()
-                                rowOverflowMenu(task)
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: model.doneCollapsed ? "chevron.right" : "chevron.down")
+                                        .font(.caption.weight(.semibold))
+                                    Text("Done · \(model.todayDone.count)")
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                }
+                                .foregroundStyle(.secondary)
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 3)
-                            .background(highlightWash(for: task.id))
-                            .id(task.id)
-                            .contextMenu { taskRowMenu(task) }
+                            // #10: rotor-navigable section header for the done group.
+                            .accessibilityAddTraits(.isHeader)
+
+                            if !model.doneCollapsed {
+                                ForEach(model.todayDone, id: \.id) { task in
+                                    todayRow(task)
+                                }
+                            }
                         }
                     }
                     .padding(.vertical, 6)
@@ -1689,6 +1735,32 @@ struct MenubarListView: View {
 
     // MARK: - Inline rename (SC4)
 
+    /// One of today's task rows — shared by the OPEN list and the "Done · N" group
+    /// (#4) so both render identically (checkbox, title, badges, overflow, context
+    /// menu, highlight wash). Leftovers keep their own row (they carry an origin
+    /// date), so this is today-only.
+    @ViewBuilder
+    private func todayRow(_ task: Todo) -> some View {
+        HStack(spacing: 8) {
+            Button(action: { model.toggle(task) }) {
+                Image(systemName: task.done ? "checkmark.square" : "square")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // A11Y-01: state-dynamic label — announces the action the toggle takes.
+            .accessibilityLabel(task.done ? "Mark not done" : "Mark done")
+            rowTitle(task, isLeftover: false)
+            metadataBadges(task)
+            Spacer()
+            rowOverflowMenu(task)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .background(highlightWash(for: task.id))
+        .id(task.id)
+        .contextMenu { taskRowMenu(task) }
+    }
+
     /// The task title: a tappable `Text` normally, an editable `TextField` while this
     /// row is in rename mode. Click the title to enter edit mode; commit on Return
     /// (`onSubmit`) AND on focus loss (`renameFieldFocused` flips false), Esc cancels
@@ -1969,27 +2041,36 @@ struct MenubarListView: View {
                     // #10: rotor-navigable section header.
                     .accessibilityAddTraits(.isHeader)
 
-                ForEach(model.calendarEvents) { event in
-                    Button(action: { openInCalendar(event) }) {
-                        HStack(spacing: 8) {
-                            // `·` bullet — read-only, visually distinct from task checkboxes.
-                            Text("·")
-                                .font(.callout.weight(.bold))
-                                .foregroundStyle(.secondary)
-                            Text(timeFormatter.string(from: event.start))
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Text(event.title)
-                                .font(.callout)
-                                .lineLimit(1)
-                            Spacer()
+                // A busy day's events get their OWN capped scroll so the list can never
+                // grow unbounded and push the footer off-screen (#1). The header above
+                // stays fixed; every event stays reachable by scrolling. LazyVStack so a
+                // long agenda only builds the rows actually on screen.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.calendarEvents) { event in
+                            Button(action: { openInCalendar(event) }) {
+                                HStack(spacing: 8) {
+                                    // `·` bullet — read-only, distinct from task checkboxes.
+                                    Text("·")
+                                        .font(.callout.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                    Text(timeFormatter.string(from: event.start))
+                                        .font(.callout.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Text(event.title)
+                                        .font(.callout)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 3)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
                 }
+                .frame(maxHeight: 150)
             }
             .padding(.bottom, 6)
         }

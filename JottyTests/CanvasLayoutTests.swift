@@ -107,4 +107,70 @@ final class CanvasLayoutTests: XCTestCase {
                            t, "slot depends only on the interval (offset \(off))")
         }
     }
+
+    // MARK: - columns(for:) — side-by-side layout for overlapping blocks (#2)
+
+    /// Build a `[start,end]` interval `h` hours in, lasting `dur` hours, from `dayStart`.
+    private func iv(_ h: Double, _ dur: Double) -> (start: Date, end: Date) {
+        let s = dayStart.addingTimeInterval(h * 3600)
+        return (start: s, end: s.addingTimeInterval(dur * 3600))
+    }
+
+    func testColumnsEmptyIsEmpty() {
+        XCTAssertTrue(CanvasLayout.columns(for: []).isEmpty)
+    }
+
+    func testColumnsSingleIsFullWidth() {
+        let cols = CanvasLayout.columns(for: [iv(9, 1)])
+        XCTAssertEqual(cols.map(\.column), [0])
+        XCTAssertEqual(cols.map(\.columnCount), [1])
+    }
+
+    func testColumnsDisjointBothFullWidth() {
+        // 9–10 then 11–12: no overlap → each stands alone, full width.
+        let cols = CanvasLayout.columns(for: [iv(9, 1), iv(11, 1)])
+        XCTAssertEqual(cols.map(\.column), [0, 0])
+        XCTAssertEqual(cols.map(\.columnCount), [1, 1])
+    }
+
+    func testColumnsTouchingIsNotOverlap() {
+        // 9–10 and 10–11 touch at 10:00 exactly → NOT an overlap (matches the
+        // app's strict-overlap semantics), so both stay full width.
+        let cols = CanvasLayout.columns(for: [iv(9, 1), iv(10, 1)])
+        XCTAssertEqual(cols.map(\.column), [0, 0])
+        XCTAssertEqual(cols.map(\.columnCount), [1, 1])
+    }
+
+    func testColumnsTwoOverlappingSplitIntoTwoColumns() {
+        // 9–11 and 10–12 overlap → two columns, each half width.
+        let cols = CanvasLayout.columns(for: [iv(9, 2), iv(10, 2)])
+        XCTAssertEqual(cols.map(\.column), [0, 1])
+        XCTAssertEqual(cols.map(\.columnCount), [2, 2])
+    }
+
+    func testColumnsThreeConcurrentSplitIntoThree() {
+        // Three all overlapping at 9:30 → three columns.
+        let cols = CanvasLayout.columns(for: [iv(9, 2), iv(9, 2), iv(9, 2)])
+        XCTAssertEqual(cols.map(\.column), [0, 1, 2])
+        XCTAssertEqual(cols.map(\.columnCount), [3, 3, 3])
+    }
+
+    func testColumnsResultsAreReturnedInInputOrder() {
+        // Pass out-of-start-order; results map back to the ORIGINAL positions.
+        // input[0] = 10–12 (later start), input[1] = 9–11 (earlier start).
+        let cols = CanvasLayout.columns(for: [iv(10, 2), iv(9, 2)])
+        // Earlier-starting interval takes column 0; both share a 2-column cluster.
+        XCTAssertEqual(cols[1].column, 0, "the 9–11 block (input[1]) is left column")
+        XCTAssertEqual(cols[0].column, 1, "the 10–12 block (input[0]) is right column")
+        XCTAssertEqual(cols.map(\.columnCount), [2, 2])
+    }
+
+    func testColumnsChainedClusterReusesFreedColumn() {
+        // A 9–11, B 10–12, C 11:30–13. A⊥C (touch/gap) but B bridges them into one
+        // cluster. Greedy: A→col0, B→col1, C reuses col0 (A already ended). Peak
+        // concurrency in the cluster is 2 → every member is 2-wide.
+        let cols = CanvasLayout.columns(for: [iv(9, 2), iv(10, 2), iv(11.5, 1.5)])
+        XCTAssertEqual(cols.map(\.column), [0, 1, 0])
+        XCTAssertEqual(cols.map(\.columnCount), [2, 2, 2])
+    }
 }

@@ -34,6 +34,13 @@ final class CalendarCanvasModel: ObservableObject {
         let y: CGFloat
         let height: CGFloat
 
+        /// Horizontal packing for overlapping blocks (#2): `column` is this block's
+        /// 0-based slot and `columnCount` its cluster's total, so the view renders it
+        /// at `width/columnCount` offset by `column`. Default `0`/`1` = full width
+        /// (a block that overlaps nothing). Computed in `blocks` via `CanvasLayout.columns`.
+        var column: Int = 0
+        var columnCount: Int = 1
+
         /// The BARE task id for a `.task` block (nil for `.event`), recovered by
         /// stripping the `"task-"` namespace prefix `blocks` applies. This is the
         /// id `MenubarListModel.dropTask(id:atSlot:)` resolves against — the same
@@ -97,7 +104,17 @@ final class CalendarCanvasModel: ObservableObject {
                              height: CanvasLayout.height(start: tb.start, end: tb.end,
                                                          pixelsPerHour: pixelsPerHour))
             }
-        return (events + tasks).sorted { $0.y < $1.y }
+        // Sort by y (start), then pack overlapping blocks into side-by-side columns
+        // (#2) — events and tasks share ONE packing so a task never hides behind an
+        // event. Non-overlapping blocks stay full width (column 0 of 1).
+        let sorted = (events + tasks).sorted { $0.y < $1.y }
+        let cols = CanvasLayout.columns(for: sorted.map { (start: $0.start, end: $0.end) })
+        return zip(sorted, cols).map { block, layout in
+            var placed = block
+            placed.column = layout.column
+            placed.columnCount = layout.columnCount
+            return placed
+        }
     }
 
     /// The draggable unscheduled rail: the menubar model's visible, not-done,

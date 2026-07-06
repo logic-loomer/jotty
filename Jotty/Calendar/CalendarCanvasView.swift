@@ -24,6 +24,13 @@ struct CalendarCanvasView: View {
     /// Fixed width of the unscheduled rail column.
     private static let railWidth: CGFloat = 200
 
+    /// Block layout gutters (#2): left inset clears the hour-label column, trailing
+    /// leaves a small right margin, and `columnGap` is the seam between two
+    /// side-by-side blocks in an overlap cluster.
+    private static let blockGutter: CGFloat = hourLabelWidth + 12
+    private static let blockTrailing: CGFloat = 8
+    private static let columnGap: CGFloat = 3
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header: same date label the menubar shows (shared model).
@@ -120,14 +127,24 @@ struct CalendarCanvasView: View {
                 .allowsHitTesting(false)
             }
 
-            // Positioned blocks ABOVE the drop layer. A TASK block is now
-            // DRAGGABLE (its bare task id) so re-dropping it onto the axis MOVES
-            // it via the existing model path (dropTask → editTime: same id, no
-            // duplicate event). An EVENT block (real Calendar.app event) stays
-            // read-only / non-interactive.
-            ForEach(model.blocks) { block in
-                positionedBlock(block)
+            // Positioned blocks ABOVE the drop layer, packed into side-by-side
+            // columns so overlapping events/tasks never stack on top of each other
+            // (#2). GeometryReader reads the axis width; each block is
+            // `usable/columnCount` wide, offset by its column. A TASK block is
+            // DRAGGABLE (its bare task id) so re-dropping it onto the axis MOVES it
+            // via the existing model path (dropTask → editTime: same id, no duplicate
+            // event). An EVENT block (real Calendar.app event) stays read-only.
+            GeometryReader { geo in
+                let usable = max(0, geo.size.width - Self.blockGutter - Self.blockTrailing)
+                ForEach(model.blocks) { block in
+                    let colWidth = usable / CGFloat(max(1, block.columnCount))
+                    positionedBlock(block)
+                        .frame(width: max(0, colWidth - Self.columnGap), alignment: .topLeading)
+                        .offset(x: Self.blockGutter + CGFloat(block.column) * colWidth,
+                                y: block.y)
+                }
             }
+            .frame(height: axisHeight)
         }
         .frame(height: axisHeight, alignment: .top)
     }
@@ -202,9 +219,8 @@ struct CalendarCanvasView: View {
                alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.13)))
         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(0.35), lineWidth: 1))
-        .padding(.leading, Self.hourLabelWidth + 12)
-        .padding(.trailing, 8)
-        .offset(y: block.y)
+        // Width + x/y placement are applied by the caller (column packing, #2), so
+        // the block fills whatever column width it is given.
     }
 
     // MARK: - Unscheduled rail

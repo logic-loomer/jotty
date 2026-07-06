@@ -55,4 +55,66 @@ enum CanvasLayout {
         let snapped = (minutes / Double(snapMinutes)).rounded() * Double(snapMinutes)
         return dayStart.addingTimeInterval(snapped * 60)
     }
+
+    /// Assigns each `[start,end]` interval a `(column, columnCount)` so overlapping
+    /// blocks render SIDE-BY-SIDE instead of stacking on top of each other (#2).
+    ///
+    /// Intervals are grouped into clusters — maximal runs that chain-overlap — and
+    /// within a cluster each interval greedily takes the first column whose previous
+    /// occupant has already ended. `columnCount` is the cluster's peak concurrency
+    /// (its column total), shared by every member so a cluster renders as equal-width
+    /// columns. A non-overlapping interval is its own cluster → `(0, 1)` (full width).
+    ///
+    /// Overlap is STRICT: intervals that merely touch (`a.end == b.start`) do NOT
+    /// overlap and can share a column — matching the app's `CalendarEventMapper`
+    /// overlap semantics (touching intervals are not conflicts).
+    ///
+    /// Pure and order-preserving: results are returned in the SAME order as `intervals`
+    /// (internally sorted by start, then end, for the greedy pass), so a caller can
+    /// `zip` them straight back onto its blocks.
+    static func columns(for intervals: [(start: Date, end: Date)])
+        -> [(column: Int, columnCount: Int)] {
+        let n = intervals.count
+        guard n > 0 else { return [] }
+
+        // Visit in start-then-end order; map results back to original indices.
+        let order = (0..<n).sorted {
+            intervals[$0].start != intervals[$1].start
+                ? intervals[$0].start < intervals[$1].start
+                : intervals[$0].end < intervals[$1].end
+        }
+
+        var result = Array(repeating: (column: 0, columnCount: 1), count: n)
+        var clusterMembers: [Int] = []   // original indices in the open cluster
+        var columnEnds: [Date] = []       // last end assigned to each column
+        var clusterEnd: Date?             // max end seen in the open cluster
+
+        func closeCluster() {
+            let count = max(1, columnEnds.count)
+            for idx in clusterMembers { result[idx].columnCount = count }
+            clusterMembers.removeAll(keepingCapacity: true)
+            columnEnds.removeAll(keepingCapacity: true)
+            clusterEnd = nil
+        }
+
+        for idx in order {
+            let interval = intervals[idx]
+            // A gap from the whole cluster (start >= max end) closes it (strict:
+            // start == clusterEnd is a touch, not an overlap → new cluster).
+            if let end = clusterEnd, interval.start >= end { closeCluster() }
+
+            // First column free at this start (previous occupant ended at/before it).
+            if let free = columnEnds.firstIndex(where: { $0 <= interval.start }) {
+                columnEnds[free] = interval.end
+                result[idx].column = free
+            } else {
+                result[idx].column = columnEnds.count
+                columnEnds.append(interval.end)
+            }
+            clusterMembers.append(idx)
+            clusterEnd = max(clusterEnd ?? interval.end, interval.end)
+        }
+        closeCluster()
+        return result
+    }
 }

@@ -1880,6 +1880,67 @@ final class MenubarListModelTests: XCTestCase {
                     timeBlock: TimeBlock(start: s, end: e), calEventID: eventID)
     }
 
+    // MARK: - Done-group partition + collapse (#4)
+
+    func testTodayPartitionSplitsOpenFromDoneAndGroupsCompletedLeftovers() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let yesterday = makeDate(2026, 6, 11, h: 9)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_oldopen", text: "old open", createdAt: yesterday),
+            Todo(id: "t_olddone", text: "old done", createdAt: yesterday, done: true),
+            Todo(id: "t_open", text: "open", createdAt: today),
+            Todo(id: "t_done", text: "done", createdAt: makeDate(2026, 6, 12, h: 7), done: true)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        // Only the OPEN old task is a leftover; a COMPLETED old task groups under Done.
+        XCTAssertEqual(model.leftovers.map(\.id), ["t_oldopen"])
+        XCTAssertEqual(model.todayOpen.map(\.id), ["t_open"])
+        XCTAssertEqual(Set(model.todayDone.map(\.id)), ["t_done", "t_olddone"])
+        // todayTasks stays the FULL non-leftover set (canvas blocks + counts read it).
+        XCTAssertEqual(Set(model.todayTasks.map(\.id)), ["t_open", "t_done", "t_olddone"])
+    }
+
+    func testDoneCollapsePersistsAndReloads() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_done", text: "done", createdAt: today, done: true),
+            Todo(id: "t_open", text: "open", createdAt: today)
+        ], at: today)
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertFalse(model.doneCollapsed)
+        model.setDoneCollapsed(true)
+        XCTAssertTrue(model.doneCollapsed)
+        XCTAssertTrue(defaults.bool(forKey: "doneCollapsed-2026-06-12"))
+
+        // A fresh model for the SAME day loads the persisted collapse state.
+        let reloaded = MenubarListModel(store: store, timezone: tz,
+                                        defaults: defaults, now: { today })
+        XCTAssertTrue(reloaded.doneCollapsed)
+    }
+
+    func testStaleDoneCollapseKeysPurgedOnReload() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_done", text: "done", createdAt: today, done: true)
+        ], at: today)
+        // A leftover key from an earlier day must not survive; today's stays.
+        defaults.set(true, forKey: "doneCollapsed-2026-06-10")
+        defaults.set(true, forKey: "doneCollapsed-2026-06-12")
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        XCTAssertNil(defaults.object(forKey: "doneCollapsed-2026-06-10"))
+        XCTAssertTrue(defaults.bool(forKey: "doneCollapsed-2026-06-12"))
+        XCTAssertTrue(model.doneCollapsed)
+    }
+
     /// A ConfigStore backed by a fresh temp file, primed with the delete preference.
     private func config(deletePref: Bool?) throws -> ConfigStore {
         let path = folder.appendingPathComponent("config-\(UUID().uuidString).json")
