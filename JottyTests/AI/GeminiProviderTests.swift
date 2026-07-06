@@ -342,7 +342,9 @@ final class GeminiProviderTests: XCTestCase {
         let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
         let prompt = try XCTUnwrap(parts.first?["text"] as? String)
 
-        let expectedISO = ISO8601DateFormatter().string(from: now)
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.timeZone = sydney   // anchor renders in the supplied tz, not UTC
+        let expectedISO = isoFormatter.string(from: now)
         XCTAssertTrue(prompt.contains(expectedISO),
                       "prompt must anchor the supplied now (\(expectedISO)) verbatim")
         XCTAssertTrue(prompt.contains("Australia/Sydney"),

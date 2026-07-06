@@ -305,7 +305,9 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertEqual(messages.first?["role"] as? String, "user")
         let content = try XCTUnwrap(messages.first?["content"] as? String)
 
-        let expectedISO = ISO8601DateFormatter().string(from: now)
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.timeZone = sydney   // anchor renders in the supplied tz, not UTC
+        let expectedISO = isoFormatter.string(from: now)
         XCTAssertTrue(content.contains(expectedISO),
                       "prompt must anchor the supplied now (\(expectedISO)) verbatim")
         XCTAssertTrue(content.contains("Australia/Sydney"),

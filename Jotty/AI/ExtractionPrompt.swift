@@ -24,7 +24,14 @@ enum ExtractionPrompt {
     /// renders differently to the on-device model and regresses the
     /// past-tense fixtures).
     static func lines(now: Date, timezone: TimeZone) -> [String] {
-        let nowISO = ISO8601DateFormatter().string(from: now)
+        // Render the anchor in the SUPPLIED timezone (offset form, e.g. `+10:00`), NOT the
+        // ISO8601DateFormatter default of UTC. The line is labelled "Current local date-time
+        // anchor", and the model resolves `today`/`tomorrow`/`due Friday` from its DATE part —
+        // a bare UTC `…Z` string names the PREVIOUS calendar day for any timezone ahead of UTC
+        // during the local-morning window, so a task captured then was stamped a day early.
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.timeZone = timezone
+        let nowISO = isoFormatter.string(from: now)
         let cal = DailyFile.calendar(timezone: timezone)
         let weekdayName = cal.weekdaySymbols[cal.component(.weekday, from: now) - 1]
 

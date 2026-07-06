@@ -275,7 +275,9 @@ final class OpenAIProviderTests: XCTestCase {
 
         XCTAssertEqual(messages.first?["role"] as? String, "system")
         let system = try XCTUnwrap(messages.first?["content"] as? String)
-        let expectedISO = ISO8601DateFormatter().string(from: now)
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.timeZone = sydney   // anchor renders in the supplied tz, not UTC
+        let expectedISO = isoFormatter.string(from: now)
         XCTAssertTrue(system.contains(expectedISO),
                       "system prompt must anchor the supplied now (\(expectedISO)) verbatim")
         XCTAssertTrue(system.contains("Australia/Sydney"),
