@@ -134,6 +134,28 @@ final class CalendarInboxSourceTests: XCTestCase {
         XCTAssertTrue(items.isEmpty, "a 30s-jittered link still claims the occurrence")
     }
 
+    /// A SOLE occurrence is claimed by its bare id regardless of start: an event the
+    /// user rescheduled in Calendar.app (start moved well beyond the 60s tolerance)
+    /// must not resurface as a suggestion while its task still links it — the drift
+    /// prompt owns that reconciliation, and accepting the "suggestion" would write a
+    /// duplicate task.
+    func test_externallyRescheduledLinkedEventStaysClaimed() async throws {
+        let now = makeDate(2026, 7, 4, h: 8)
+        let movedStart = makeDate(2026, 7, 4, h: 10)   // was linked at 09:00
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("evt-1", "1:1 with Sam",
+                                   start: movedStart,
+                                   end: makeDate(2026, 7, 4, h: 10, min: 30))]
+
+        let items = try await makeSource(
+            calendar: fake,
+            linked: [LinkedEventRef(eventKitID: "evt-1", start: makeDate(2026, 7, 4, h: 9))],
+            now: now).fetchItems()
+
+        XCTAssertTrue(items.isEmpty,
+                      "a rescheduled sole occurrence is still the linked event, not a new suggestion")
+    }
+
     /// A linked ref with NO start (a linked task missing its time block, e.g. after a
     /// failed disk write) conservatively hides every occurrence of that series.
     func test_linkedRefWithNilStartHidesAllOccurrences() async throws {

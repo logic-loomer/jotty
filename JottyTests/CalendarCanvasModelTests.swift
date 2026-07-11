@@ -178,10 +178,16 @@ final class CalendarCanvasModelTests: XCTestCase {
     }
 
     /// Sydney DST STARTS 2026-10-04 (2am → 3am): a 23-hour day. Wall-clock 02:00
-    /// does not exist — no gridline for it — and the axis spans 23h.
+    /// does not exist — no gridline for it (bySettingHour: 2 returns the 3am
+    /// instant, which would otherwise render a phantom "02:00" on top of "03:00")
+    /// — and the axis spans 23h.
     func testAxisGeometryOnDSTSpringForwardDay() async throws {
         let canvas = try await makeCanvas(now: makeDate(2026, 10, 4, h: 12))
         XCTAssertEqual(canvas.axisHeight, 23 * canvas.pixelsPerHour, "a 23h day renders 23h tall")
+        XCTAssertNil(canvas.hourMarks.first { $0.idx == 2 },
+                     "the skipped wall-clock hour draws no gridline")
+        XCTAssertEqual(canvas.hourMarks.filter { $0.y == 2 * canvas.pixelsPerHour }.count, 1,
+                       "exactly ONE mark at the 3am physical position — no overlapping labels")
         let nine = try XCTUnwrap(canvas.hourMarks.first { $0.idx == 9 })
         XCTAssertEqual(nine.y, 8 * canvas.pixelsPerHour,
                        "wall-clock 09:00 is 8 PHYSICAL hours after dayStart on the 23h day")

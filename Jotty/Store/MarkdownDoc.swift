@@ -83,6 +83,11 @@ struct MarkdownDoc: Equatable {
     /// into frontmatter/tokens that a Gregorian parse cannot map back — and the
     /// mixed pinned/unpinned state made a file written under one region setting
     /// unreadable under another. ISO8601DateFormatter is inherently pinned.
+    ///
+    /// Known limitation (same class as `Store.allDayDates`' documented filename
+    /// case, accepted): a token value written era-shifted by a PRE-pin build under
+    /// a non-Gregorian region (`due:2569-07-11`) still parses — as Gregorian year
+    /// 2569, a far-future date — and is not migrated.
     private static func pinnedFormatter(_ format: String, timezone: TimeZone) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")

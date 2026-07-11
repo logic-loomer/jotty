@@ -50,17 +50,25 @@ final class RolloverService {
                 if !task.done && task.rolledTo == nil && !isTemplate && !isInstance {
                     var copy = task
                     copy.rolledTo = nil
-                    // A leftover is by definition unscheduled: its slot is in the past.
-                    // The `time:` token serializes wall-clock only, so a kept block
-                    // silently re-anchored onto the NEW day while the linked event
-                    // stayed on the origin day — the next drift pass then falsely
-                    // classified the task's event as deleted, and confirming the
-                    // prompt cleared a link to a still-live event. Clear both (the
-                    // event itself stays in Calendar as the record of the old slot;
-                    // mirrors what recurrence instancing already does below).
-                    copy.timeBlock = nil
-                    copy.calEventID = nil
-                    collected.append(copy)
+                    // Clear STALE scheduling only — a block whose slot started before
+                    // the new day was missed (that's what makes it a leftover), and
+                    // keeping it caused false "event deleted" prompts: the wall-clock
+                    // `time:` token re-anchored the past block onto the NEW day while
+                    // the linked event stayed put. A FUTURE block stays scheduled and
+                    // linked ("@tomorrow @3pm" captured yesterday IS today's 3pm —
+                    // clearing it would silently unschedule a valid appointment); the
+                    // day-qualified time: token round-trips it faithfully.
+                    if let tb = copy.timeBlock, tb.start < today {
+                        copy.timeBlock = nil
+                        copy.calEventID = nil
+                    }
+                    // Dedupe within the collect (newest day wins — the loop walks
+                    // backwards from yesterday): a mid-move crash can leave one id on
+                    // TWO past days, and the today-write guard only checks ids already
+                    // in today's doc, not ids appearing twice in this batch.
+                    if !collected.contains(where: { $0.id == copy.id }) {
+                        collected.append(copy)
+                    }
                     task.rolledTo = today
                     changed = true
                 }

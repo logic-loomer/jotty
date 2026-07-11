@@ -128,10 +128,24 @@ struct CalendarInboxSource: InboxSource {
             .visible(in: visibleCalendarIDs())
 
         let linked = await linkedEventIDs(instant)
+        // Same-day occurrence counts per series: a ref claims a SOLE occurrence by
+        // bare id alone — an event rescheduled in Calendar.app (start moved beyond
+        // the tolerance) must not resurface as a suggestion while its task still
+        // links it (the drift prompt owns that reconciliation). The start-scoped
+        // claim only matters when a recurring series puts SEVERAL occurrences in
+        // one day and linking one must not hide its siblings.
+        var occurrenceCounts: [String: Int] = [:]
+        for event in events { occurrenceCounts[event.eventKitID, default: 0] += 1 }
         return events
-            // SC4: per-OCCURRENCE dedup — a ref claims one occurrence (bare id + nearby
-            // start), so linking the 09:00 standup still suggests the 13:00 one.
-            .filter { event in !linked.contains { $0.matches(event) } }
+            // SC4: per-OCCURRENCE dedup — a ref claims one occurrence, so linking
+            // the 09:00 standup still suggests the 13:00 one.
+            .filter { event in
+                !linked.contains { ref in
+                    occurrenceCounts[event.eventKitID] == 1
+                        ? ref.eventKitID == event.eventKitID
+                        : ref.matches(event)
+                }
+            }
             .map { event in
                 InboxItem(
                     // `event.id` is the occurrence-unique composite, so accepting or

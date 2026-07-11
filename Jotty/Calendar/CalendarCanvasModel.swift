@@ -119,6 +119,10 @@ final class CalendarCanvasModel: ObservableObject {
                 ? dayEnd
                 : cal.date(bySettingHour: h, minute: 0, second: 0, of: dayStart)
             guard let instant, instant >= dayStart, instant <= dayEnd else { continue }
+            // Spring-forward: `date(bySettingHour: 2)` on a day with no 2am returns
+            // the 3am instant rather than nil — without this check a phantom "02:00"
+            // label rendered on top of "03:00".
+            if h < 24, cal.component(.hour, from: instant) != h { continue }
             marks.append(HourMark(
                 idx: h,
                 label: String(format: "%02d:00", h % 24),
@@ -136,10 +140,13 @@ final class CalendarCanvasModel: ObservableObject {
 
     /// The hour anchor the canvas scrolls to on open: one hour above "now" so the
     /// current slot sits in view with context (was a fixed `hour-7` regardless of
-    /// the actual time of day).
+    /// the actual time of day). Snapped to the nearest EXISTING mark at/below —
+    /// spring-forward removes an hour, and a missing anchor id would silently
+    /// no-op the scroll.
     func scrollAnchorHour(at instant: Date) -> Int {
         let cal = DailyFile.calendar(timezone: list.timezone)
-        return max(0, cal.component(.hour, from: instant) - 1)
+        let desired = max(0, cal.component(.hour, from: instant) - 1)
+        return hourMarks.last(where: { $0.idx <= desired })?.idx ?? 0
     }
 
     /// Today's positioned blocks: calendar events + time-blocked tasks, each

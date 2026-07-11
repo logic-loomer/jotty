@@ -528,6 +528,52 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertNotNil(origin.rolledTo)
     }
 
+    /// A rolled leftover whose block is in the FUTURE keeps it: "@tomorrow @3pm"
+    /// captured yesterday IS today's 3pm appointment — clearing it (as the stale-slot
+    /// rule does for past blocks) would silently unschedule a valid, linked event.
+    func testRolledLeftoverWithFutureBlockKeepsScheduleAndLink() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 18)
+        let today = makeDate(2026, 5, 8)
+        // Captured yesterday with "@tomorrow @3pm": block on TODAY 15:00.
+        let futureBlock = TimeBlock(start: makeDate(2026, 5, 8, h: 15),
+                                    end: makeDate(2026, 5, 8, h: 15, m: 30))
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_future", text: "call dentist",
+                                             createdAt: yesterday,
+                                             timeBlock: futureBlock, calEventID: "evt-1")],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-07")
+
+        try RolloverService(store: store, statePath: statePath, timezone: tz).run(now: today)
+
+        let copy = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_future" })
+        XCTAssertEqual(copy.timeBlock, futureBlock, "a future slot is still an appointment")
+        XCTAssertEqual(copy.calEventID, "evt-1", "the live link survives the roll")
+    }
+
+    /// One id on TWO past days (a mid-move crash overlap) lands exactly once —
+    /// the newest day's copy wins (the collect walks backwards from yesterday).
+    func testLeftoverPresentOnTwoPastDaysLandsOnce() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let twoDaysAgo = makeDate(2026, 5, 6, h: 9)
+        let yesterday = makeDate(2026, 5, 7, h: 9)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_dup", text: "old copy", createdAt: twoDaysAgo)],
+                                at: twoDaysAgo)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_dup", text: "newer copy", createdAt: yesterday)],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-06")
+
+        try RolloverService(store: store, statePath: statePath, timezone: tz).run(now: today)
+
+        let copies = try store.readDoc(on: today).tasks.filter { $0.id == "t_dup" }
+        XCTAssertEqual(copies.count, 1, "one id lands once, whichever day it came from")
+        XCTAssertEqual(copies.first?.text, "newer copy", "the newest day's copy wins")
+    }
+
     // MARK: - Crash-retry idempotency (WR: today-write-first ordering)
 
     /// The today-write now lands BEFORE the origin days are stamped `rolled_to`, so a

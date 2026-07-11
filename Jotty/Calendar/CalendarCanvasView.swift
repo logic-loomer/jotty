@@ -123,6 +123,25 @@ struct CalendarCanvasView: View {
                     return true
                 } isTargeted: { dropTargeted = $0 }
 
+            // Scroll anchors with REAL layout geometry: `.offset` moves only the
+            // RENDERING of the labels below, not the frame `scrollTo` targets — every
+            // offset label's layout frame sat at the axis top, so scroll-to-hour
+            // silently no-oped (a latent bug since the fixed `hour-7` days). Each
+            // invisible segment's frame spans [its mark's y, the next mark's y), so
+            // `scrollTo("hour-N", anchor: .top)` lands exactly on the gridline.
+            VStack(spacing: 0) {
+                let marks = model.hourMarks
+                ForEach(Array(marks.enumerated()), id: \.element.idx) { i, mark in
+                    Color.clear
+                        .frame(height: max(0, (i + 1 < marks.count
+                                               ? marks[i + 1].y
+                                               : model.axisHeight) - mark.y))
+                        .id("hour-\(mark.idx)")
+                }
+            }
+            .frame(height: model.axisHeight, alignment: .top)
+            .allowsHitTesting(false)
+
             // Hour gridlines + labels at their REAL wall-clock instants (0…24 so the
             // day is visibly closed): on a DST 25h/23h day the label sits exactly
             // where the physical drop-slot math resolves that wall-clock hour —
@@ -139,7 +158,6 @@ struct CalendarCanvasView: View {
                     VStack(spacing: 0) { Divider() }
                 }
                 .offset(y: mark.y - 7)
-                .id("hour-\(mark.idx)")
                 .allowsHitTesting(false)
             }
 
