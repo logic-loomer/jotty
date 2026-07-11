@@ -1687,4 +1687,105 @@ final class MarkdownDocTests: XCTestCase {
                       "task injected under the existing near-canonical header")
     }
 
+    // MARK: - Day-qualified time: token (WR: cross-day blocks lost their day)
+
+    /// A block on a DIFFERENT day than the doc (an "@tomorrow @3pm" capture written
+    /// into today's file) must round-trip on its own day. The bare wall-clock token
+    /// re-anchored it onto the doc's day at parse time — the task silently shifted
+    /// days while its calendar event stayed put, and the drift pass then falsely
+    /// reported the event deleted.
+    func testCrossDayTimeBlockRoundTripsOnItsOwnDay() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: timeFor("2026-05-08T00:00:00+10:00"))
+        let block = TimeBlock(start: timeFor("2026-05-09T15:00:00+10:00"),
+                              end: timeFor("2026-05-09T15:30:00+10:00"))
+        doc.appendTodo(Todo(id: "t_tmrw", text: "call dentist",
+                            createdAt: timeFor("2026-05-08T09:00:00+10:00"),
+                            timeBlock: block))
+
+        let out = doc.serialize(timezone: tz)
+        XCTAssertTrue(out.contains("time:2026-05-09T15:00-15:30"),
+                      "cross-day block serializes the day-qualified form; got: \(out)")
+
+        let parsed = try MarkdownDoc.parse(out, timezone: tz)
+        XCTAssertEqual(parsed.tasks.first?.timeBlock, block,
+                       "the block must stay on 05-09, not re-anchor onto the doc's 05-08")
+
+        // And the round-trip is stable: a second serialize/parse changes nothing.
+        let again = try MarkdownDoc.parse(parsed.serialize(timezone: tz), timezone: tz)
+        XCTAssertEqual(again.tasks.first?.timeBlock, block)
+    }
+
+    /// Same-day blocks keep the bare wall-clock form byte-for-byte (back-compat:
+    /// every existing file parses and re-serializes unchanged).
+    func testSameDayTimeBlockKeepsBareForm() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        var doc = MarkdownDoc(date: timeFor("2026-05-08T00:00:00+10:00"))
+        doc.appendTodo(Todo(id: "t_today", text: "review",
+                            createdAt: timeFor("2026-05-08T09:00:00+10:00"),
+                            timeBlock: TimeBlock(start: timeFor("2026-05-08T14:00:00+10:00"),
+                                                 end: timeFor("2026-05-08T15:00:00+10:00"))))
+        let out = doc.serialize(timezone: tz)
+        XCTAssertTrue(out.contains("time:14:00-15:00"), "same-day block stays bare; got: \(out)")
+        XCTAssertFalse(out.contains("time:2026-"), "no day qualifier for a same-day block")
+    }
+
+    /// A day-qualified block whose end wall-clock precedes its start crosses
+    /// midnight — the end rolls onto the NEXT day after the qualified day (I3).
+    func testCrossDayMidnightCrossingBlockRollsEndForward() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let raw = """
+        ---
+        date: 2026-05-08
+        ---
+
+        ## Tasks
+
+        - [ ] overnight job <!-- id:t_night time:2026-05-09T23:00-00:30 -->
+
+        ## Notes
+
+        """
+        let parsed = try MarkdownDoc.parse(raw, timezone: tz)
+        let tb = try XCTUnwrap(parsed.tasks.first?.timeBlock)
+        XCTAssertEqual(tb.start, timeFor("2026-05-09T23:00:00+10:00"))
+        XCTAssertEqual(tb.end, timeFor("2026-05-10T00:30:00+10:00"))
+    }
+
+    // MARK: - Duplicate note ids survive a rewrite (WR-01 parity for notes)
+
+    /// Two note blocks sharing one id (sync-conflict merge, or a copy-pasted block
+    /// keeping its `<!-- id:… -->` header) must BOTH survive a task-only rewrite —
+    /// the old first-wins map re-rendered the second block as a copy of the first.
+    func testDuplicateNoteIdsBothSurviveRewrite() throws {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let raw = """
+        ---
+        date: 2026-05-08
+        ---
+
+        ## Tasks
+
+        - [ ] task <!-- id:t_1 -->
+
+        ## Notes
+
+        ### 09:15 <!-- id:n_dup -->
+        first body
+
+        ### 10:30 <!-- id:n_dup -->
+        second body, different content
+        """
+        var parsed = try MarkdownDoc.parse(raw, timezone: tz)
+        XCTAssertEqual(parsed.notes.count, 2, "both duplicate-id notes parse")
+
+        // Mutate a TASK so the doc re-serializes through the reconcile walk.
+        parsed.tasks[0].done = true
+        let out = parsed.serialize(timezone: tz)
+
+        XCTAssertTrue(out.contains("first body"), "first duplicate's body survives")
+        XCTAssertTrue(out.contains("second body, different content"),
+                      "second duplicate's body must not be overwritten by the first")
+    }
+
 }

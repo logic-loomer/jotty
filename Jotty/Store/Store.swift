@@ -134,6 +134,13 @@ final class Store {
         // copy-mutate pattern can never regress as fields are added.
         var moved = sourceDoc.tasks[idx]
         moved.createdAt = tomorrowStart
+        // Re-anchor a time block to TOMORROW's same wall-clock slot (DST-correct via
+        // the pinned calendar). This used to happen IMPLICITLY through the day-dropping
+        // `time:` token re-parsing on tomorrow's file; the token is day-qualified now,
+        // so the move states its intent explicitly.
+        if let tb = moved.timeBlock {
+            moved.timeBlock = Self.reanchor(tb, ontoDay: tomorrowStart, calendar: cal)
+        }
 
         let tomorrowURL = DailyFile.url(in: folder, on: tomorrowStart, timezone: timezone)
 
@@ -146,18 +153,22 @@ final class Store {
             return
         }
 
-        // Remove from the source file and persist first so a partial failure never deletes
-        // without landing.
-        sourceDoc.tasks.remove(at: idx)
-        try sourceDoc.serialize(timezone: timezone).write(to: sourceURL, atomically: true, encoding: .utf8)
-
-        // Append to tomorrow and persist (quarantine tomorrow's file first if it
-        // was present-but-unparseable — this is the one unconditional overwrite in
-        // the move; the source read above early-returns when its file is corrupt).
+        // Land on tomorrow FIRST, then remove from the source (quarantine tomorrow's
+        // file first if it was present-but-unparseable — this is the one unconditional
+        // overwrite in the move; the source read above early-returns when its file is
+        // corrupt). The old remove-first order DELETED the task outright when the
+        // tomorrow-write failed mid-move (disk full, kill between the two writes) —
+        // the exact loss the T-6-08 invariant forbids. With land-first, a mid-move
+        // failure leaves the task visible in both files instead: benign, and
+        // self-healing — the rollover pass skips re-collecting an id already present
+        // on the target day.
         let tomorrowRead = readDay(at: tomorrowURL, on: tomorrowStart)
         var tomorrowDoc = tomorrowRead.doc
         tomorrowDoc.appendTodo(moved)
         try persist(tomorrowDoc, to: tomorrowURL, quarantining: tomorrowRead.corruptRaw)
+
+        sourceDoc.tasks.remove(at: idx)
+        try sourceDoc.serialize(timezone: timezone).write(to: sourceURL, atomically: true, encoding: .utf8)
     }
 
     func replaceTasks(_ tasks: [Todo], on date: Date) throws {
@@ -222,26 +233,37 @@ final class Store {
     /// bytes to quarantine IFF the file existed but could not be parsed (#4).
     private struct DayRead {
         var doc: MarkdownDoc
-        /// The file's raw bytes when it was present but failed to parse; nil for
-        /// the happy paths (absent file, or a file that parsed cleanly).
-        let corruptRaw: String?
+        /// The file's raw bytes when it was present but failed to decode or parse;
+        /// nil for the happy paths (absent file, or a file that parsed cleanly).
+        /// Raw `Data` (not `String`) so a non-UTF8 file is preserved byte-for-byte.
+        let corruptRaw: Data?
     }
 
-    /// Reads the day file at `url`, distinguishing the three states #4 requires:
+    /// Reads the day file at `url`, distinguishing the states #4 requires:
     /// absent (fresh empty doc, nothing to quarantine), parsed-ok (the parsed doc,
-    /// nothing to quarantine), and present-but-unparseable (a fresh empty doc PLUS
+    /// nothing to quarantine), and present-but-unusable (a fresh empty doc PLUS
     /// the raw bytes so a writer can quarantine them before clobbering — a day file
     /// broken by an external editor or sync conflict is no longer silently
-    /// destroyed on the next capture). The old behavior collapsed the last two
-    /// cases into "empty doc", losing the raw bytes.
+    /// destroyed on the next capture).
+    ///
+    /// "Unusable" covers BOTH failure layers: bytes that don't decode as UTF-8
+    /// (an editor/sync client re-encoded the file as UTF-16/Latin-1 — the old
+    /// single-step `String(contentsOf:encoding:)` collapsed that into "absent",
+    /// so the day's full contents were clobbered with no sidecar) and bytes that
+    /// decode but don't parse as a day doc.
     private func readDay(at url: URL, on date: Date) -> DayRead {
-        guard let existing = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let data = try? Data(contentsOf: url) else {
+            // Genuinely absent (or unreadable at the I/O layer): fresh doc.
             return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil)
+        }
+        guard let existing = String(data: data, encoding: .utf8) else {
+            // Present but not UTF-8: corrupt, NOT absent — quarantine before any write.
+            return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: data)
         }
         if let parsed = try? MarkdownDoc.parse(existing, timezone: timezone) {
             return DayRead(doc: parsed, corruptRaw: nil)
         }
-        return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: existing)
+        return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: data)
     }
 
     /// Thin doc-only reader for the guarded ops (toggle/delete/edit/rename/…): they
@@ -257,7 +279,7 @@ final class Store {
     /// `.corrupt-*` sidecar, THEN writes the new content — the broken file is
     /// preserved AND the new capture still lands. The happy path (corruptRaw nil)
     /// is byte-identical to a plain `write(atomically:)`.
-    private func persist(_ doc: MarkdownDoc, to url: URL, quarantining corruptRaw: String?) throws {
+    private func persist(_ doc: MarkdownDoc, to url: URL, quarantining corruptRaw: Data?) throws {
         if let corruptRaw {
             quarantine(corruptRaw, of: url)
         }
@@ -270,7 +292,7 @@ final class Store {
     /// the same day. Best-effort — a sidecar-write failure is logged, never thrown,
     /// so losing the corrupt copy can't also block the user's new capture. On
     /// success the sidecar URL is surfaced via `onCorruptQuarantine`.
-    private func quarantine(_ raw: String, of url: URL) {
+    private func quarantine(_ raw: Data, of url: URL) {
         let base = url.deletingPathExtension().lastPathComponent   // e.g. "2026-05-08"
         let stamp = Self.corruptStamp(Date(), timezone: timezone)
         var candidate = folder.appendingPathComponent("\(base).corrupt-\(stamp).md")
@@ -280,7 +302,8 @@ final class Store {
             counter += 1
         }
         do {
-            try raw.write(to: candidate, atomically: true, encoding: .utf8)
+            // Raw bytes, verbatim: a non-UTF8 original must survive un-transcoded.
+            try raw.write(to: candidate, options: .atomic)
             onCorruptQuarantine?(candidate)
         } catch {
             NSLog("[Jotty] failed to quarantine corrupt day file \(url.lastPathComponent): \(error.localizedDescription)")
@@ -302,5 +325,26 @@ final class Store {
 
     private func startOfDay(_ d: Date) -> Date {
         DailyFile.calendar(timezone: timezone).startOfDay(for: d)
+    }
+
+    /// Rebuilds `block` on `day` keeping the same wall-clock start/end (the
+    /// move-to-tomorrow semantics: a 14:00–14:30 slot stays 14:00–14:30 on the new
+    /// day, DST-correct because the components are resolved through the pinned
+    /// calendar). An end at/before the start crossed midnight — roll it one day
+    /// forward, mirroring the `time:` token parse (I3).
+    private static func reanchor(_ block: TimeBlock, ontoDay day: Date,
+                                 calendar cal: Calendar) -> TimeBlock {
+        func place(_ instant: Date) -> Date? {
+            let hm = cal.dateComponents([.hour, .minute], from: instant)
+            var comps = cal.dateComponents([.year, .month, .day], from: day)
+            comps.hour = hm.hour
+            comps.minute = hm.minute
+            return cal.date(from: comps)
+        }
+        guard let start = place(block.start), var end = place(block.end) else { return block }
+        if end < start {
+            end = cal.date(byAdding: .day, value: 1, to: end) ?? end
+        }
+        return TimeBlock(start: start, end: end)
     }
 }

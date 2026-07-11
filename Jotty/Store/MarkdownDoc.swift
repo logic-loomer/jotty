@@ -77,10 +77,23 @@ struct MarkdownDoc: Equatable {
     /// `renderTaskLine`/`renderNoteBlock` renderers so the fresh path and the
     /// changed-span reconcile path share ONE renderer (I4/I5 live in one place).
     /// Byte-identical to the old output for every fresh-doc/appendTodo test.
+    /// POSIX/Gregorian-pinned formatter for every machine-readable key this file
+    /// writes or parses (DailyFile discipline, WR): an unpinned `yyyy` under a
+    /// Buddhist/Japanese region calendar writes era-shifted years (`2569-07-11`)
+    /// into frontmatter/tokens that a Gregorian parse cannot map back — and the
+    /// mixed pinned/unpinned state made a file written under one region setting
+    /// unreadable under another. ISO8601DateFormatter is inherently pinned.
+    private static func pinnedFormatter(_ format: String, timezone: TimeZone) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = DailyFile.calendar(timezone: timezone)
+        f.dateFormat = format
+        f.timeZone = timezone
+        return f
+    }
+
     private func canonicalSynthesize(timezone: TimeZone) -> String {
-        let dateFmt = DateFormatter()
-        dateFmt.dateFormat = "yyyy-MM-dd"
-        dateFmt.timeZone = timezone
+        let dateFmt = Self.pinnedFormatter("yyyy-MM-dd", timezone: timezone)
 
         let isoFmt = ISO8601DateFormatter()
         isoFmt.timeZone = timezone
@@ -117,15 +130,11 @@ struct MarkdownDoc: Equatable {
     /// re-render of a mutated line (SC3).
     private func renderTaskLine(_ task: Todo, unknownTokens: [String],
                                 timezone: TimeZone) -> String {
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "HH:mm"
-        timeFmt.timeZone = timezone
+        let timeFmt = Self.pinnedFormatter("HH:mm", timezone: timezone)
         let isoFmt = ISO8601DateFormatter()
         isoFmt.timeZone = timezone
         isoFmt.formatOptions = [.withInternetDateTime]
-        let dateOnlyFmt = DateFormatter()
-        dateOnlyFmt.dateFormat = "yyyy-MM-dd"
-        dateOnlyFmt.timeZone = timezone
+        let dateOnlyFmt = Self.pinnedFormatter("yyyy-MM-dd", timezone: timezone)
 
         let state = task.done ? "x" : " "
         var meta = "id:\(task.id) created:\(isoFmt.string(from: task.createdAt))"
@@ -142,7 +151,19 @@ struct MarkdownDoc: Equatable {
             meta += " source_note:\(sn)"
         }
         if let tb = task.timeBlock {
-            meta += " time:\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
+            // The bare wall-clock form re-anchors onto the DOC's day at parse time, so
+            // a block on any other day (e.g. an "@tomorrow @3pm" capture written into
+            // today's file) silently shifted to the doc's day on the next reload while
+            // its calendar event stayed put — the drift pass then falsely reported the
+            // event deleted. Day-qualify the token whenever the block's start day is
+            // not the doc's day; same-day blocks keep the bare form byte-identical.
+            let cal = DailyFile.calendar(timezone: timezone)
+            if cal.startOfDay(for: tb.start) == cal.startOfDay(for: date) {
+                meta += " time:\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
+            } else {
+                meta += " time:\(dateOnlyFmt.string(from: tb.start))T"
+                    + "\(timeFmt.string(from: tb.start))-\(timeFmt.string(from: tb.end))"
+            }
         }
         if let cal = task.calEventID,
            // T-5-01: a whitespace-bearing id would split into a bogus token and
@@ -205,9 +226,7 @@ struct MarkdownDoc: Equatable {
     /// lines. Mirrors a `NoteSpan.originalText`'s header+body shape so a changed
     /// note re-renders into the same slot.
     private func renderNoteBlock(_ note: Note, timezone: TimeZone) -> String {
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "HH:mm"
-        timeFmt.timeZone = timezone
+        let timeFmt = Self.pinnedFormatter("HH:mm", timezone: timezone)
         return "### \(timeFmt.string(from: note.time)) <!-- id:\(note.id) -->\n\(note.text)"
     }
 
@@ -217,9 +236,7 @@ struct MarkdownDoc: Equatable {
     /// (preserving `created:` + any unknown keys). Fresh docs route through
     /// `canonicalSynthesize`, so this is a defensive fallback only.
     private func reRenderFrontmatter(timezone: TimeZone) -> String {
-        let dateFmt = DateFormatter()
-        dateFmt.dateFormat = "yyyy-MM-dd"
-        dateFmt.timeZone = timezone
+        let dateFmt = Self.pinnedFormatter("yyyy-MM-dd", timezone: timezone)
         let isoFmt = ISO8601DateFormatter()
         isoFmt.timeZone = timezone
         isoFmt.formatOptions = [.withInternetDateTime]
@@ -246,8 +263,13 @@ struct MarkdownDoc: Equatable {
         var liveTasksByID: [String: [Todo]] = [:]
         for t in tasks { liveTasksByID[t.id, default: []].append(t) }
         var taskOccurrence: [String: Int] = [:]
-        let liveNote = Dictionary(notes.map { ($0.id, $0) },
-                                  uniquingKeysWith: { first, _ in first })
+        // Same WR-01 positional grouping for NOTES: a sync-conflict merge (or a
+        // copy-pasted note block keeping its `<!-- id:… -->` header) leaves two note
+        // spans with one id, and the old first-wins dictionary re-rendered the second
+        // as a copy of the first on the next write — silent body loss.
+        var liveNotesByID: [String: [Note]] = [:]
+        for n in notes { liveNotesByID[n.id, default: []].append(n) }
+        var noteOccurrence: [String: Int] = [:]
 
         // Ids the skeleton already carries a span for — everything else in the
         // live arrays is brand-new and gets injected below (SC4).
@@ -303,7 +325,12 @@ struct MarkdownDoc: Equatable {
                     : renderTaskLine(live, unknownTokens: ts.unknownTokens, timezone: timezone))
                 lastTaskIdx = parts.count - 1
             case .note(let ns):
-                guard let live = liveNote[ns.pristine.id] else { continue }  // note removed → omit
+                let nid = ns.pristine.id
+                let k = noteOccurrence[nid, default: 0]
+                // id gone (or fewer live copies than spans → this duplicate deleted): omit.
+                guard let group = liveNotesByID[nid], k < group.count else { continue }
+                let live = group[k]
+                noteOccurrence[nid] = k + 1
                 parts.append(live == ns.pristine
                     ? ns.originalText
                     : renderNoteBlock(live, timezone: timezone))
@@ -355,9 +382,7 @@ struct MarkdownDoc: Equatable {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
 
-        let dateFmt = DateFormatter()
-        dateFmt.dateFormat = "yyyy-MM-dd"
-        dateFmt.timeZone = timezone
+        let dateFmt = pinnedFormatter("yyyy-MM-dd", timezone: timezone)
 
         // Frontmatter date
         guard let dateMatch = text.firstMatch(of: /date:\s*(\d{4}-\d{2}-\d{2})/),
@@ -500,9 +525,7 @@ struct MarkdownDoc: Equatable {
                                       on parsedDate: Date,
                                       calendar: Calendar) -> (Todo, [String])? {
         let isoFmt = ISO8601DateFormatter()
-        let dateOnlyFmt = DateFormatter()
-        dateOnlyFmt.dateFormat = "yyyy-MM-dd"
-        dateOnlyFmt.timeZone = calendar.timeZone
+        let dateOnlyFmt = pinnedFormatter("yyyy-MM-dd", timezone: calendar.timeZone)
 
         var id = ""
         var createdAt: Date = parsedDate
@@ -543,13 +566,24 @@ struct MarkdownDoc: Equatable {
             case "source_note":
                 sourceNote = value
             case "time":
-                // value is "HH:mm-HH:mm"; build absolute Dates on parsedDate.
-                let halves = value.split(separator: "-", maxSplits: 1)
+                // Two forms: bare "HH:mm-HH:mm" (block on the doc's own day) and
+                // day-qualified "yyyy-MM-ddTHH:mm-HH:mm" (block on another day —
+                // e.g. an "@tomorrow @3pm" capture; the bare form re-anchored such
+                // a block onto the doc's day, silently shifting it).
+                var blockDay = parsedDate
+                var clock = value
+                if value.count > 11,
+                   value[value.index(value.startIndex, offsetBy: 10)] == "T",
+                   let qualified = dateOnlyFmt.date(from: String(value.prefix(10))) {
+                    blockDay = qualified
+                    clock = String(value.dropFirst(11))
+                }
+                let halves = clock.split(separator: "-", maxSplits: 1)
                 if halves.count == 2,
                    let startDate = absoluteTime(String(halves[0]),
-                                                on: parsedDate, calendar: calendar),
+                                                on: blockDay, calendar: calendar),
                    var endDate = absoluteTime(String(halves[1]),
-                                              on: parsedDate, calendar: calendar) {
+                                              on: blockDay, calendar: calendar) {
                     // I3: a wall-clock end at/before its start crossed midnight in
                     // the pinned timezone (e.g. 23:00-00:00) — roll the end forward
                     // one day so the interval survives round-trip in any zone.

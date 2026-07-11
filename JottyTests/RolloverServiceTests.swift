@@ -497,6 +497,64 @@ final class RolloverServiceTests: XCTestCase {
         XCTAssertEqual(todayDoc.tasks.filter { $0.recurSrc == "t_tpl:2026-05-08" }.count, 1)
     }
 
+    // MARK: - Rolled copies are unscheduled + unlinked (WR: stale schedule)
+
+    /// A rolled leftover's copy must NOT carry its (now past) time block or its
+    /// calendar link: the `time:` token re-anchored the block onto the NEW day while
+    /// the event stayed on the origin day, so the next drift pass falsely reported
+    /// the linked event deleted — and confirming that prompt orphaned a live event.
+    func testRolledLeftoverCopyDropsTimeBlockAndCalendarLink() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 7)
+        let today = makeDate(2026, 5, 8)
+        let block = TimeBlock(start: makeDate(2026, 5, 7, h: 14),
+                              end: makeDate(2026, 5, 7, h: 14, m: 30))
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_linked", text: "prep deck",
+                                             createdAt: yesterday,
+                                             timeBlock: block, calEventID: "evt-1")],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-07")
+
+        try RolloverService(store: store, statePath: statePath, timezone: tz).run(now: today)
+
+        let copy = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_linked" })
+        XCTAssertNil(copy.timeBlock, "a leftover is by definition unscheduled")
+        XCTAssertNil(copy.calEventID, "the link belongs to the origin-day slot, not the copy")
+        // The origin line keeps its fields and is marked rolled (hidden, archival).
+        let origin = try XCTUnwrap(try store.readDoc(on: yesterday).tasks.first { $0.id == "t_linked" })
+        XCTAssertNotNil(origin.timeBlock)
+        XCTAssertEqual(origin.calEventID, "evt-1")
+        XCTAssertNotNil(origin.rolledTo)
+    }
+
+    // MARK: - Crash-retry idempotency (WR: today-write-first ordering)
+
+    /// The today-write now lands BEFORE the origin days are stamped `rolled_to`, so a
+    /// crash between the two re-collects on retry — the id guard must land the copy
+    /// exactly once. Simulated by pre-seeding today's doc with the copy (the state the
+    /// crash leaves behind: today written, origin unstamped, state file unwritten).
+    func testRolloverRetryAfterTodayWriteDoesNotDuplicateLeftover() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 7)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "leftover", createdAt: yesterday)],
+                                at: yesterday)
+        // Crash aftermath: the copy already landed on today (same id, un-stamped origin).
+        var crashCopy = Todo(id: "t_a", text: "leftover", createdAt: yesterday)
+        crashCopy.rolledTo = nil
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [crashCopy], at: today)
+        try statePath.write(string: "2026-05-07")
+
+        try RolloverService(store: store, statePath: statePath, timezone: tz).run(now: today)
+
+        let copies = try store.readDoc(on: today).tasks.filter { $0.id == "t_a" }
+        XCTAssertEqual(copies.count, 1, "the retry must not land the leftover twice")
+        // And the origin got stamped on the retry.
+        XCTAssertNotNil(try store.readDoc(on: yesterday).tasks.first { $0.id == "t_a" }?.rolledTo)
+    }
+
     private func startOfDay(_ d: Date) -> Date {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = tz

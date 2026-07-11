@@ -304,6 +304,36 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("new capture"))
     }
 
+    /// (a2) A present-but-NON-UTF8 day file (an editor or sync client re-encoded it
+    /// as UTF-16) is CORRUPT, not absent: the next capture must quarantine the
+    /// original bytes verbatim and still land — the old single-step
+    /// `String(contentsOf:encoding:)` read collapsed the decode failure into
+    /// "absent", so the day's entire contents were clobbered with no sidecar.
+    func testAppendCaptureOverNonUTF8FileQuarantinesRawBytesAndKeepsNewContent() throws {
+        let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let now = makeDate(2026, 5, 8, h: 7, m: 30)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        // A real day's content, saved as UTF-16 (BOM + 2-byte units): valid text,
+        // full of tasks, but not decodable as UTF-8.
+        let original = "---\ndate: 2026-05-08\n---\n\n## Tasks\n\n- [ ] precious task <!-- id:t_keep -->\n"
+        let utf16Bytes = original.data(using: .utf16)!
+        try utf16Bytes.write(to: url)
+
+        var surfaced: [URL] = []
+        store.onCorruptQuarantine = { surfaced.append($0) }
+
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_new", text: "new capture", createdAt: now)],
+                                at: now)
+
+        let sidecars = try sidecarFiles()
+        XCTAssertEqual(sidecars.count, 1, "the non-UTF8 original must be quarantined, not clobbered")
+        XCTAssertEqual(try Data(contentsOf: sidecars[0]), utf16Bytes,
+                       "sidecar holds the original bytes verbatim, un-transcoded")
+        XCTAssertEqual(surfaced.count, 1, "the recovery notice fires")
+        XCTAssertEqual(try store.readDoc(on: now).tasks.map(\.id), ["t_new"])
+    }
+
     /// (b) The happy paths (absent file, valid file) never quarantine.
     func testAbsentAndValidFilePathsCreateNoSidecar() throws {
         let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)

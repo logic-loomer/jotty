@@ -24,9 +24,11 @@ final class RolloverService {
         )
 
         var collected: [Todo] = []
+        /// Origin-day rewrites, DEFERRED until after the today-write lands (see below).
+        var originRewrites: [(day: Date, tasks: [Todo])] = []
         var cursor = cal.date(byAdding: .day, value: -1, to: today)!
         while cursor >= lookbackStart {
-            var doc = (try? store.readDoc(on: cursor)) ?? MarkdownDoc(date: cursor)
+            let doc = (try? store.readDoc(on: cursor)) ?? MarkdownDoc(date: cursor)
             var changed = false
             var rewritten: [Todo] = []
             for taskItem in doc.tasks {
@@ -48,6 +50,16 @@ final class RolloverService {
                 if !task.done && task.rolledTo == nil && !isTemplate && !isInstance {
                     var copy = task
                     copy.rolledTo = nil
+                    // A leftover is by definition unscheduled: its slot is in the past.
+                    // The `time:` token serializes wall-clock only, so a kept block
+                    // silently re-anchored onto the NEW day while the linked event
+                    // stayed on the origin day — the next drift pass then falsely
+                    // classified the task's event as deleted, and confirming the
+                    // prompt cleared a link to a still-live event. Clear both (the
+                    // event itself stays in Calendar as the record of the old slot;
+                    // mirrors what recurrence instancing already does below).
+                    copy.timeBlock = nil
+                    copy.calEventID = nil
                     collected.append(copy)
                     task.rolledTo = today
                     changed = true
@@ -55,8 +67,7 @@ final class RolloverService {
                 rewritten.append(task)
             }
             if changed {
-                doc.tasks = rewritten
-                try store.replaceTasks(doc.tasks, on: cursor)
+                originRewrites.append((day: cursor, tasks: rewritten))
             }
             cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
         }
@@ -81,11 +92,27 @@ final class RolloverService {
 
         // CRITICAL: collected leftovers + recurrence instances merge into ONE
         // today write — a second replaceTasks call would race the first.
+        //
+        // Write ORDER is crash-safety (WR): today's merged doc lands BEFORE the origin
+        // days are stamped `rolled_to`. The old order (stamp origins in the collect
+        // loop, then write today) silently LOST every collected leftover if the
+        // today-write failed or the app died between the two — the origins already
+        // said "rolled", and the next run skipped them. With today-first, a crash
+        // before the origin stamps just re-collects on the retry, and the id guard
+        // below makes that retry a no-op instead of a duplicate.
         if !collected.isEmpty || !instances.isEmpty {
             var todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
-            todayDoc.tasks.append(contentsOf: collected)
+            // Idempotency guard: a copy keeps its origin task id, so a crash-retry
+            // (today written, origins not yet stamped) must not land it twice.
+            let existingIDs = Set(todayDoc.tasks.map(\.id))
+            todayDoc.tasks.append(contentsOf: collected.filter { !existingIDs.contains($0.id) })
             todayDoc.tasks.append(contentsOf: instances)
             try store.replaceTasks(todayDoc.tasks, on: today)
+        }
+
+        // Only now stamp the origin days: the copies are safely on today's disk.
+        for rewrite in originRewrites {
+            try store.replaceTasks(rewrite.tasks, on: rewrite.day)
         }
 
         try writeState(today)
