@@ -16,6 +16,30 @@
 
 import Foundation
 
+/// A linked-task reference for the SC4 dedup filter: the task's bare `cal_event:` id plus
+/// its `time:` block start. Recurring occurrences share ONE bare EventKit id, so the start
+/// is what scopes a link to a single occurrence — filtering on the bare id alone hid every
+/// occurrence of a series the moment one was linked. A nil start (a linked task missing its
+/// time block, e.g. after a failed disk write) conservatively matches every occurrence.
+struct LinkedEventRef: Hashable, Sendable {
+    let eventKitID: String
+    let start: Date?
+
+    init(eventKitID: String, start: Date?) {
+        self.eventKitID = eventKitID
+        self.start = start
+    }
+
+    /// True when this link claims `event`: same bare id, and the task's block start is
+    /// within the shared drift tolerance of the occurrence start (the same 60s window
+    /// `CalendarDrift` treats as "the same time"), or the link carries no start at all.
+    func matches(_ event: CalendarEvent) -> Bool {
+        guard eventKitID == event.eventKitID else { return false }
+        guard let start else { return true }
+        return abs(start.timeIntervalSince(event.start)) < CalendarDrift.toleranceSeconds
+    }
+}
+
 /// Calendar inbox source: today's un-linked timed events → `InboxItem`s.
 ///
 /// Conforms to `InboxSource`; `id` matches the `calendar` catalog entry. The five
@@ -36,25 +60,26 @@ struct CalendarInboxSource: InboxSource {
     private let calendar: any CalendarService
     /// Reads `AppConfig.calendarInboxEnabled` LIVE each call (toggle OFF by default).
     private let enabled: @Sendable () -> Bool
-    /// Today's already-linked bare EventKit ids (SC4), re-read fresh each call.
+    /// Today's already-linked (bare id, block start) refs (SC4), re-read fresh each call.
     /// `@MainActor` (not `@Sendable`) so the read runs ON the main actor — awaiting
     /// it hops off-actor `fetchItems` to main, so it can never race main-actor
     /// `Store` writes; the isolation also makes the closure Sendable (WR-01).
     /// Takes the fetch instant so the linked-id read and the today-window share
     /// ONE clock read — no sub-ms midnight straddle, deterministic in tests (IN-01).
-    private let linkedEventIDs: @MainActor (Date) async -> Set<String>
+    private let linkedEventIDs: @MainActor (Date) async -> [LinkedEventRef]
     private let now: @Sendable () -> Date
     private let timezone: TimeZone
 
     /// - Parameters:
     ///   - calendar: the non-prompting calendar seam; tests inject `FakeCalendarService`.
     ///   - enabled: live read of the calendar-inbox toggle.
-    ///   - linkedEventIDs: today's linked event ids, so a linked event is never re-suggested.
+    ///   - linkedEventIDs: today's linked (id, start) refs, so a linked occurrence is never
+    ///     re-suggested — while OTHER occurrences of the same recurring series still are.
     ///   - now: injected clock, pinned in tests.
     ///   - timezone: the store/menubar timezone used to compute the today window (never `.current`).
     init(calendar: any CalendarService,
          enabled: @escaping @Sendable () -> Bool,
-         linkedEventIDs: @escaping @MainActor (Date) async -> Set<String>,
+         linkedEventIDs: @escaping @MainActor (Date) async -> [LinkedEventRef],
          now: @escaping @Sendable () -> Date,
          timezone: TimeZone) {
         self.calendar = calendar
@@ -95,9 +120,14 @@ struct CalendarInboxSource: InboxSource {
 
         let linked = await linkedEventIDs(instant)
         return events
-            .filter { !linked.contains($0.id) }  // SC4: bare EventKit id, not the composite
+            // SC4: per-OCCURRENCE dedup — a ref claims one occurrence (bare id + nearby
+            // start), so linking the 09:00 standup still suggests the 13:00 one.
+            .filter { event in !linked.contains { $0.matches(event) } }
             .map { event in
                 InboxItem(
+                    // `event.id` is the occurrence-unique composite, so accepting or
+                    // dismissing one occurrence of a recurring series never records a
+                    // state that hides its siblings.
                     id: "\(id):\(event.id)",
                     sourceID: id,
                     title: event.title,
@@ -105,7 +135,7 @@ struct CalendarInboxSource: InboxSource {
                     timestamp: event.start,
                     rawText: event.title,
                     timeBlock: TimeBlock(start: event.start, end: event.end),
-                    calEventID: event.id
+                    calEventID: event.eventKitID  // markdown link stays the BARE id
                 )
             }
     }

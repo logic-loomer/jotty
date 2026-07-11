@@ -79,11 +79,15 @@ struct CalendarCanvasView: View {
                isPresented: Binding(
                    get: { model.list.pendingDropConflict != nil },
                    set: { _ in })) {
-            Button("Create anyway") { model.list.resolveDropConflict(commitAnyway: true) }
+            Button(model.list.pendingDropConflict?.kind == .move ? "Move anyway" : "Create anyway") {
+                model.list.resolveDropConflict(commitAnyway: true)
+            }
             Button("Cancel", role: .cancel) { model.list.resolveDropConflict(commitAnyway: false) }
         } message: {
-            Text("This slot overlaps “\(model.list.pendingDropConflict?.conflictTitle ?? "")”. "
-                 + "The task keeps its time either way; Cancel skips creating the calendar event.")
+            // Kind-aware copy shared with the popover alert: a drop-move of a scheduled
+            // task gates BEFORE writing (cancel changes nothing), a first drop's time:
+            // block is already on disk (cancel skips only the event create).
+            Text(MenubarListView.conflictMessage(for: model.list.pendingDropConflict))
         }
     }
 

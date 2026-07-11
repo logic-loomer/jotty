@@ -169,7 +169,12 @@ final class MenubarListModel: ObservableObject {
         self.inboxService = inboxService
         self.keybindings = keybindings
         hookCorruptQuarantine()
-        reload()
+        // Launch-time load must NOT prompt (WR-06 class): the model is built inside
+        // applicationDidFinishLaunching, so a default reload() fired the one-time TCC
+        // calendar dialog at app launch with zero user action. The prompt stays
+        // reserved for explicit calendar paths — the first popover open re-reloads
+        // with the default promptIfUndetermined: true.
+        reload(promptIfUndetermined: false)
     }
 
     // MARK: - Corrupt-file quarantine notice (#7, wire-up)
@@ -261,7 +266,11 @@ final class MenubarListModel: ObservableObject {
         // Calendar refresh rides on every reload trigger (popover open, window
         // close, midnight Timer) so the read section + future drift hooks stay
         // fresh. The task path above stays synchronous; calendar is async/best-effort.
+        // The PRIOR refresh is cancelled first: two concurrent refreshes can finish
+        // out of order (the fetch awaits), letting an older result overwrite a newer
+        // one — `reloadCalendar` checks `Task.isCancelled` before publishing.
         if calendar != nil {
+            refreshTask?.cancel()
             refreshTask = Task { [weak self] in
                 await self?.reloadCalendar(promptIfUndetermined: promptIfUndetermined,
                                            clearMissingLinks: clearMissingLinks)
@@ -381,6 +390,9 @@ final class MenubarListModel: ObservableObject {
             }
             granted = await calendar.requestAccess() == .authorized
         }
+        // Superseded by a newer reload while awaiting the access prompt: the newer
+        // run owns the published state (out-of-order overwrite guard).
+        guard !Task.isCancelled else { return }
 
         guard granted else {
             calendarEvents = []
@@ -400,8 +412,12 @@ final class MenubarListModel: ObservableObject {
 
         do {
             // Service filters all-day + sorts by start (plan 03).
-            calendarEvents = try await calendar.eventsInRange(start: todayStart, end: todayEnd)
+            let fetched = try await calendar.eventsInRange(start: todayStart, end: todayEnd)
+            // A refresh superseded mid-fetch must not overwrite the newer run's result.
+            guard !Task.isCancelled else { return }
+            calendarEvents = fetched
         } catch {
+            guard !Task.isCancelled else { return }
             // Best-effort: a read failure degrades to no rows, never crashes capture/UI.
             NSLog("[Jotty] calendar read failed: \(error.localizedDescription)")
             calendarEvents = []
@@ -516,6 +532,13 @@ final class MenubarListModel: ObservableObject {
     func highlight(taskID: String) {
         if leftoversCollapsed, leftovers.contains(where: { $0.id == taskID }) {
             leftoversCollapsed = false
+        }
+        // Same transient expand for the "Done · N" group: a ⌘K Enter on a completed
+        // task otherwise scrolls to nothing and the highlight silently no-ops behind
+        // the collapsed section. In-memory only (not setDoneCollapsed) — the user's
+        // persisted collapse choice survives the next reload, like leftovers above.
+        if doneCollapsed, todayDone.contains(where: { $0.id == taskID }) {
+            doneCollapsed = false
         }
         highlightGeneration += 1
         highlightedTaskID = taskID
@@ -636,23 +659,61 @@ final class MenubarListModel: ObservableObject {
 
     // MARK: - Edit time (SC3)
 
-    /// Changes a task's time block. The markdown `time:` token is updated immediately
-    /// (disk first, T-5-09); if the task is linked to a calendar event, the event is
-    /// updated in place by id. When the event is gone (.eventNotFound), it is
-    /// recreated and the new id rewritten onto the task line (recreate-and-relink per
+    /// Changes a task's time block, conflict-gated like every other calendar write.
+    ///
+    /// With a calendar wired, the move runs the SAME overlap gate capture and first-drop
+    /// run (SC5 parity — previously "Move +30 min" and a canvas drop-move slid into a busy
+    /// slot silently): overlapping events are fetched for the TARGET slot, the task's OWN
+    /// linked event is excluded (a small nudge overlaps the event being moved — not a
+    /// conflict), and an overlap surfaces the shared `pendingDropConflict` prompt. The gate
+    /// runs BEFORE the disk write so a cancel leaves the task AND event untouched — writing
+    /// first would leave a task/event disagreement that drift-prompts on the next open.
+    ///
+    /// Confirmed (or clear): the markdown `time:` token is written (disk first, T-5-09; a
+    /// FAILED write stops the calendar pass — same orphan guard as `dropTask`), then a
+    /// linked event is updated in place by id. When the event is gone (.eventNotFound), it
+    /// is recreated and the new id rewritten onto the task line (recreate-and-relink per
     /// CONTEXT/RESEARCH). Other calendar errors are logged, never blocking.
     func editTime(_ task: Todo, to newBlock: TimeBlock) {
         let snapshot = now()
-        do {
-            try store.updateTodoTime(id: task.id, timeBlock: newBlock, on: snapshot)
-        } catch {
-            NSLog("[Jotty] editTime failed: \(error.localizedDescription)")
+        guard let calendar else {
+            // Pure task tool: nothing to conflict with, no event to move.
+            do {
+                try store.updateTodoTime(id: task.id, timeBlock: newBlock, on: snapshot)
+            } catch {
+                NSLog("[Jotty] editTime failed: \(error.localizedDescription)")
+            }
+            reload()
+            return
         }
 
-        if let calendar, let eventID = task.calEventID {
-            let title = CalendarDrift.sanitize(title: task.text)
-            editTask = Task { [weak self] in
-                guard let self else { return }
+        let title = CalendarDrift.sanitize(title: task.text)
+        editTask = Task { [weak self] in
+            guard let self else { return }
+            // Conflict gate (SC5): a read failure is non-fatal — fall through to the
+            // move, exactly like the capture and drop passes.
+            var proceed = true
+            if let overlap = try? await calendar.overlappingEvents(start: newBlock.start,
+                                                                   end: newBlock.end),
+               let first = overlap.first(where: { $0.eventKitID != task.calEventID }) {
+                proceed = await self.awaitDropConflictDecision(title: first.title, kind: .move)
+            }
+            guard proceed else {
+                await self.reloadOnMain(clearMissingLinks: false)
+                return
+            }
+
+            do {
+                try self.store.updateTodoTime(id: task.id, timeBlock: newBlock, on: snapshot)
+            } catch {
+                // The time: write failed — updating the event anyway would desync the
+                // task from its event (and drift-prompt forever). Stop here.
+                NSLog("[Jotty] editTime failed: \(error.localizedDescription)")
+                await self.reloadOnMain(clearMissingLinks: false)
+                return
+            }
+
+            if let eventID = task.calEventID {
                 do {
                     try await calendar.updateEvent(id: eventID, title: title,
                                                    start: newBlock.start, end: newBlock.end)
@@ -661,16 +722,12 @@ final class MenubarListModel: ObservableObject {
                     await self.recreateAndRelink(task: task, title: title, block: newBlock,
                                                  on: snapshot, calendar: calendar)
                 } catch {
-                    await MainActor.run {
-                        NSLog("[Jotty] calendar updateEvent failed: \(error.localizedDescription)")
-                    }
+                    NSLog("[Jotty] calendar updateEvent failed: \(error.localizedDescription)")
                 }
-                // Skip the dead-link self-heal on the edit's trailing reload: the id was just
-                // (re)written and a stale/empty fetch must not clear it (CR-02 vs SC3).
-                await self.reloadOnMain(clearMissingLinks: false)
             }
-        } else {
-            reload()
+            // Skip the dead-link self-heal on the edit's trailing reload: the id was just
+            // (re)written and a stale/empty fetch must not clear it (CR-02 vs SC3).
+            await self.reloadOnMain(clearMissingLinks: false)
         }
     }
 
@@ -1044,7 +1101,12 @@ final class MenubarListModel: ObservableObject {
             // Disk first (T-5-09): the block lands even if every calendar step fails.
             try store.updateTodoTime(id: id, timeBlock: block, on: snapshot)
         } catch {
+            // The time: write failed — continuing would conflict-gate, create the event,
+            // and write `cal_event:` onto a task with NO `time:`, which the drift pass
+            // permanently ignores (it requires both fields) → an orphaned event. Stop.
             NSLog("[Jotty] dropTask time write failed: \(error.localizedDescription)")
+            reload()
+            return
         }
 
         guard let calendar else {
@@ -1098,19 +1160,21 @@ final class MenubarListModel: ObservableObject {
         }
     }
 
-    /// Publishes a pending drop conflict and suspends until the canvas UI calls
-    /// `resolveDropConflict(...)` (mirrors `CaptureViewModel.awaitConflictDecision`).
+    /// Publishes a pending drop/move conflict and suspends until the canvas or popover UI
+    /// calls `resolveDropConflict(...)` (mirrors `CaptureViewModel.awaitConflictDecision`).
     ///
     /// WR-02: conflicts are SERIALIZED — a second drop reaching this gate while
     /// an earlier decision is still pending would otherwise overwrite the
     /// stored continuation without resuming it, suspending the first drop's
     /// task forever (Swift logs CONTINUATION MISUSE) and orphaning its handle.
     /// The stale pending drop is pre-empted as a cancel (the same safe default
-    /// as the capture window's teardown, CQ-02): its time: block is already on
-    /// disk, only its event create is skipped.
-    private func awaitDropConflictDecision(title: String) async -> Bool {
+    /// as the capture window's teardown, CQ-02): for a `.create` its time: block
+    /// is already on disk and only the event create is skipped; for a `.move`
+    /// nothing has been written yet, so the pre-empt changes nothing.
+    private func awaitDropConflictDecision(title: String,
+                                           kind: CalendarConflict.Kind = .create) async -> Bool {
         resolveDropConflict(commitAnyway: false)   // pre-empt a stale pending drop
-        pendingDropConflict = CalendarConflict(conflictTitle: title)
+        pendingDropConflict = CalendarConflict(conflictTitle: title, kind: kind)
         return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             dropConflictContinuation = c
         }
@@ -1524,6 +1588,21 @@ struct MenubarListView: View {
         } message: {
             Text(driftMessage)
         }
+        // SC5 parity for menubar-initiated moves ("Move +30 min" runs the same overlap
+        // gate as capture/drop). Mirrors the canvas alert: the isPresented setter is
+        // INERT (WR-04) — the buttons own the decision, and the model clears
+        // `pendingDropConflict` inside `resolveDropConflict`, which flips this false.
+        .alert("Time conflict",
+               isPresented: Binding(
+                   get: { model.pendingDropConflict != nil },
+                   set: { _ in })) {
+            Button(model.pendingDropConflict?.kind == .move ? "Move anyway" : "Create anyway") {
+                model.resolveDropConflict(commitAnyway: true)
+            }
+            Button("Cancel", role: .cancel) { model.resolveDropConflict(commitAnyway: false) }
+        } message: {
+            Text(Self.conflictMessage(for: model.pendingDropConflict))
+        }
         // SC1 graceful degrade: Code-mode Send-to-Claude with no `claude` binary
         // surfaces a one-line notice pointing to Web mode (D-SC1).
         .alert("Send to Claude",
@@ -1894,6 +1973,13 @@ struct MenubarListView: View {
     }
 
     private func beginRename(_ task: Todo) {
+        // Clicking a second row's title while another rename is in progress must not
+        // silently discard the first row's typed text — flush it as a commit first
+        // (mirrors the blur-commit path; commitRename re-resolves by id and no-ops
+        // if the row is gone, and the Store rejects an empty-after-trim draft).
+        if let current = editingTaskID, current != task.id {
+            commitRename(id: current)
+        }
         renameDraft = task.text
         editingTaskID = task.id
     }
@@ -1919,6 +2005,18 @@ struct MenubarListView: View {
         editingTaskID = nil
         renameFieldFocused = false
         renameDraft = ""
+    }
+
+    /// Kind-aware conflict copy, shared with the canvas alert so the two surfaces can
+    /// never drift: a `.move` cancel changes nothing (the gate runs before any write);
+    /// a `.create` cancel skips only the event (the time: block is already on disk).
+    static func conflictMessage(for conflict: CalendarConflict?) -> String {
+        let title = conflict?.conflictTitle ?? ""
+        if conflict?.kind == .move {
+            return "This slot overlaps “\(title)”. Cancel keeps the task where it was."
+        }
+        return "This slot overlaps “\(title)”. "
+            + "The task keeps its time either way; Cancel skips creating the calendar event."
     }
 
     /// Human-readable summary of the drifted tasks for the SC4 prompt.

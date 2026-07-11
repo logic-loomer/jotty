@@ -7,13 +7,24 @@ import Foundation
 /// flow freely across Swift 6 isolation boundaries; being `Identifiable` (by `id`) makes it
 /// drop straight into SwiftUI lists for the menubar calendar section.
 struct CalendarEvent: Equatable, Sendable, Identifiable {
-    /// Stable calendar identifier (the EventKit event identifier), the link written to markdown.
-    let id: String
+    /// The BARE EventKit event identifier — the link value written to markdown as
+    /// `cal_event:`. NOT occurrence-unique: EventKit gives every occurrence of a
+    /// recurring series the SAME identifier, so this must never be used as a SwiftUI
+    /// identity or a per-occurrence key (that is `id`'s job).
+    let eventKitID: String
     var title: String
     var start: Date
     var end: Date
     /// Owning calendar's title, for the menubar row + conflict copy. `nil` if unknown.
     var calendarTitle: String?
+    /// Owning calendar's identifier, for per-calendar visibility filtering. `nil` if unknown.
+    var calendarID: String?
+
+    /// Occurrence-unique app-facing identity: two occurrences of one recurring series
+    /// share an `eventKitID` but can never share a start, so qualifying with the start
+    /// keeps `ForEach`/canvas/inbox identities collision-free (a duplicate `Identifiable`
+    /// id misrenders SwiftUI lists and broke accept/dismiss + drift matching).
+    var id: String { "\(eventKitID)@\(start.timeIntervalSince1970)" }
 }
 
 /// Current calendar permission state, mirrored from the OS TCC grant.

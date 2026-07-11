@@ -54,9 +54,17 @@ enum CalendarDrift {
 
     /// Compares each linked task against the events fetched from the store.
     ///
-    /// Only tasks with BOTH a `calEventID` and a `timeBlock` are candidates; others are ignored.
-    /// For each candidate the event is matched by id:
-    ///   - no match -> the task is `missing` (deleted in Calendar).
+    /// Only NOT-DONE tasks with BOTH a `calEventID` and a `timeBlock` are candidates; others
+    /// are ignored. A completed task is settled — editing its (still-linked) event must not
+    /// prompt a sync that rewrites the done task's text/time, and a deleted event on a done
+    /// task needs no cleanup (rollover clears calendar links).
+    ///
+    /// For each candidate the event is matched by the BARE EventKit id (`eventKitID`, the
+    /// value `cal_event:` stores). Recurring series share one `eventKitID` across every
+    /// occurrence, so on a multi-match the occurrence whose start is NEAREST the task's block
+    /// is compared — matching an arbitrary occurrence false-drifted against the wrong time and
+    /// a confirmed "Sync" rewrote the task to that wrong occurrence's slot:
+    ///   - no match at all -> the task is `missing` (deleted in Calendar).
     ///   - match -> drifted when the sanitized task text differs from the event title, OR the
     ///     start/end differ by at least `toleranceSeconds`. Comparison is on absolute `Date`
     ///     instants only (RESEARCH Pitfall 4 - never wall-clock strings), so timezone/DST shifts
@@ -74,8 +82,12 @@ enum CalendarDrift {
         var missing: [Todo] = []
 
         for task in tasks {
+            guard !task.done else { continue }
             guard let calEventID = task.calEventID, let tb = task.timeBlock else { continue }
-            guard let event = events.first(where: { $0.id == calEventID }) else {
+            let occurrences = events.filter { $0.eventKitID == calEventID }
+            guard let event = occurrences.min(by: {
+                abs($0.start.timeIntervalSince(tb.start)) < abs($1.start.timeIntervalSince(tb.start))
+            }) else {
                 missing.append(task)
                 continue
             }

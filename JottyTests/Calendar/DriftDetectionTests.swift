@@ -22,14 +22,15 @@ final class DriftDetectionTests: XCTestCase {
         text: String,
         eventID: String?,
         start: String?,
-        end: String?
+        end: String?,
+        done: Bool = false
     ) -> Todo {
         let tb: TimeBlock? = {
             guard let start, let end else { return nil }
             return TimeBlock(start: at(start), end: at(end))
         }()
         return Todo(id: id, text: text, createdAt: at("2026-06-13T06:00:00+10:00"),
-                    timeBlock: tb, calEventID: eventID)
+                    done: done, timeBlock: tb, calEventID: eventID)
     }
 
     private func event(
@@ -38,7 +39,7 @@ final class DriftDetectionTests: XCTestCase {
         _ start: String,
         _ end: String
     ) -> CalendarEvent {
-        CalendarEvent(id: id, title: title, start: at(start), end: at(end), calendarTitle: "Work")
+        CalendarEvent(eventKitID: id, title: title, start: at(start), end: at(end), calendarTitle: "Work")
     }
 
     // MARK: - No drift
@@ -82,7 +83,7 @@ final class DriftDetectionTests: XCTestCase {
                             "2026-06-13T09:00:00+10:00", "2026-06-13T09:30:00+10:00")]
         let result = CalendarDrift.driftedTasks([t], against: events)
         XCTAssertEqual(result.drifted.map(\.task.id), ["t1"])
-        XCTAssertEqual(result.drifted.map(\.event.id), ["e1"])
+        XCTAssertEqual(result.drifted.map(\.event.eventKitID), ["e1"])
         XCTAssertTrue(result.missing.isEmpty)
     }
 
@@ -184,7 +185,63 @@ final class DriftDetectionTests: XCTestCase {
         ]
         let result = CalendarDrift.driftedTasks([clean, drifted, missing, noLink], against: events)
         XCTAssertEqual(result.drifted.map(\.task.id), ["drift"])
-        XCTAssertEqual(result.drifted.map(\.event.id), ["ed"])
+        XCTAssertEqual(result.drifted.map(\.event.eventKitID), ["ed"])
         XCTAssertEqual(result.missing.map(\.id), ["miss"])
+    }
+
+    // MARK: - Done tasks are settled: never drift candidates, never missing
+
+    func testDoneTaskIsNeitherDriftedNorMissing() {
+        // Same drifted-event shape as testTitleChangeIsDrift, but the task is done —
+        // editing a completed task's event must not prompt a sync that rewrites it.
+        let t = task(text: "Standup", eventID: "e1",
+                     start: "2026-06-13T09:00:00+10:00", end: "2026-06-13T09:30:00+10:00",
+                     done: true)
+        let drifted = [event("e1", title: "Standup (moved)",
+                             "2026-06-13T10:00:00+10:00", "2026-06-13T10:30:00+10:00")]
+        var result = CalendarDrift.driftedTasks([t], against: drifted)
+        XCTAssertTrue(result.drifted.isEmpty, "a done task must not sync-prompt")
+        XCTAssertTrue(result.missing.isEmpty)
+
+        // Deleted event on a done task: no missing-link cleanup needed either.
+        result = CalendarDrift.driftedTasks([t], against: [])
+        XCTAssertTrue(result.drifted.isEmpty)
+        XCTAssertTrue(result.missing.isEmpty, "a done task's dead link needs no prompt")
+    }
+
+    // MARK: - Recurring series: match the NEAREST occurrence, not an arbitrary one
+
+    func testRecurringSeriesMatchesNearestOccurrenceNotFirst() {
+        // Task linked to the 13:00 occurrence; the store returns BOTH occurrences of
+        // the series (same bare id). Matching the first (09:00) would false-drift and
+        // a confirmed Sync would rewrite the task onto the wrong occurrence's slot.
+        let t = task(text: "Standup", eventID: "series-1",
+                     start: "2026-06-13T13:00:00+10:00", end: "2026-06-13T13:30:00+10:00")
+        let events = [
+            event("series-1", title: "Standup",
+                  "2026-06-13T09:00:00+10:00", "2026-06-13T09:30:00+10:00"),
+            event("series-1", title: "Standup",
+                  "2026-06-13T13:00:00+10:00", "2026-06-13T13:30:00+10:00"),
+        ]
+        let result = CalendarDrift.driftedTasks([t], against: events)
+        XCTAssertTrue(result.drifted.isEmpty, "the matching occurrence agrees — no drift")
+        XCTAssertTrue(result.missing.isEmpty)
+    }
+
+    func testRecurringSeriesDriftComparesAgainstNearestOccurrence() {
+        // The 13:00 occurrence the task tracks was renamed; drift must pair the task
+        // with THAT occurrence (nearest start), not the untouched 09:00 one.
+        let t = task(text: "Standup", eventID: "series-1",
+                     start: "2026-06-13T13:00:00+10:00", end: "2026-06-13T13:30:00+10:00")
+        let events = [
+            event("series-1", title: "Standup",
+                  "2026-06-13T09:00:00+10:00", "2026-06-13T09:30:00+10:00"),
+            event("series-1", title: "Standup (moved room)",
+                  "2026-06-13T13:00:00+10:00", "2026-06-13T13:30:00+10:00"),
+        ]
+        let result = CalendarDrift.driftedTasks([t], against: events)
+        XCTAssertEqual(result.drifted.map(\.task.id), ["t1"])
+        XCTAssertEqual(result.drifted.map(\.event.title), ["Standup (moved room)"],
+                       "must compare against the nearest-start occurrence")
     }
 }

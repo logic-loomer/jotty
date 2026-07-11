@@ -14,6 +14,7 @@
 // Reads writableCalendars() through the CalendarService seam only — NO EventKit
 // here (T-5-03: EventKit stays confined to EventKitCalendarService + the mapper).
 
+import AppKit
 import SwiftUI
 
 struct CalendarTab: View {
@@ -29,6 +30,10 @@ struct CalendarTab: View {
     @State private var didLoadCalendars = false
     /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
     @State private var persistFailed = false
+    /// Mirror of the OS calendar grant, so the tab can recover IN PLACE: previously it
+    /// never prompted and `didLoadCalendars` latched, so granting access while Settings
+    /// was open left the picker empty until the window was reopened.
+    @State private var access: CalendarAccess = .notDetermined
 
     /// The three-state delete preference, mapped to/from the optional Bool config field.
     private enum DeletePreference: Hashable {
@@ -108,7 +113,8 @@ struct CalendarTab: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .disabled(calendar == nil || (didLoadCalendars && writableCalendars.isEmpty))
+                .disabled(calendar == nil || access != .authorized
+                          || (didLoadCalendars && writableCalendars.isEmpty))
                 .onChange(of: selectedCalendarID) { _, newValue in
                     persistSelectedCalendar(newValue)
                 }
@@ -116,8 +122,18 @@ struct CalendarTab: View {
                 if calendar == nil {
                     Text("Calendar service unavailable.")
                         .font(.subheadline).foregroundStyle(.secondary)
+                } else if access == .notDetermined {
+                    // Recover in place: ask right here instead of pointing at a future
+                    // "first calendar action" and a Settings reopen.
+                    Button("Grant Calendar Access") { requestAccessAndReload() }
+                    Text("Jotty needs calendar access to list your calendars and create events.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else if access == .denied {
+                    Button("Open System Settings") { openPrivacySettings() }
+                    Text("Calendar access is off. Enable it for Jotty under Privacy & Security → Calendars.")
+                        .font(.subheadline).foregroundStyle(.secondary)
                 } else if didLoadCalendars && writableCalendars.isEmpty {
-                    Text("No writable calendars yet — grant calendar access (Jotty asks on the first calendar action), then reopen Settings.")
+                    Text("No writable calendars found in your account.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     Text("New time-blocked tasks create events on this calendar.")
@@ -149,9 +165,33 @@ struct CalendarTab: View {
             // (and @MainActor on the real impl); the [(id, title)] tuple is Sendable so
             // the await hop crosses the actor boundary cleanly. Best-effort: if no service
             // is wired the picker stays on "System default" and is disabled.
-            guard let calendar, !didLoadCalendars else { return }
+            guard let calendar else { return }
+            access = calendar.access()
+            guard access == .authorized, !didLoadCalendars else { return }
             writableCalendars = await calendar.writableCalendars()
             didLoadCalendars = true
+        }
+    }
+
+    /// The in-place grant path: run the SAME lazy `requestAccess()` gate the menubar
+    /// uses (one shared TCC prompt), then — on a grant — load the calendars the latch
+    /// previously left empty until the window was reopened.
+    private func requestAccessAndReload() {
+        guard let calendar else { return }
+        Task {
+            access = await calendar.requestAccess()
+            guard access == .authorized else { return }
+            writableCalendars = await calendar.writableCalendars()
+            didLoadCalendars = true
+        }
+    }
+
+    /// Deep-link to Privacy & Security → Calendars for the denied → re-enable path
+    /// (an app cannot re-prompt once the user has answered; System Settings is the
+    /// only recovery).
+    private func openPrivacySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+            NSWorkspace.shared.open(url)
         }
     }
 }

@@ -31,8 +31,18 @@ enum CalendarNotice: Equatable {
 /// drives `resolveConflict(commitAnyway:)`. Per CONTEXT: confirm commits both task+event; cancel
 /// leaves that task uncommitted (it is never appended to markdown).
 struct CalendarConflict: Equatable {
+    /// What the confirmed action does, so the alert copy matches the flow: `.create`
+    /// commits a NEW event (capture, first drop — cancel skips only the event; any
+    /// disk write already happened), `.move` re-times an existing schedule (edit-time
+    /// runs its gate BEFORE writing, so cancel changes nothing at all).
+    enum Kind: Equatable {
+        case create
+        case move
+    }
+
     /// Title of the first overlapping existing event, for the confirm copy.
     let conflictTitle: String
+    var kind: Kind = .create
 }
 
 // MARK: - ViewModel
@@ -717,24 +727,34 @@ final class CaptureViewModel: ObservableObject {
     }
 
     /// Publishes a pending conflict and suspends until the view calls `resolveConflict(...)`.
+    ///
+    /// WR-02 (parity with the menubar drop path): conflicts are SERIALIZED — a second
+    /// calendar pass reaching this gate while an earlier decision is still pending (commit
+    /// a conflicted Review, then submit another conflicted line without answering) would
+    /// otherwise overwrite the stored continuation without resuming it, suspending the
+    /// first pass forever (CONTINUATION MISUSE) and silently dropping its task. The stale
+    /// pending pass is pre-empted as a cancel — the same safe default as `teardown()`:
+    /// its task stays uncommitted.
     private func awaitConflictDecision(title: String) async -> Bool {
         // CQ-02: the window is already gone — no UI can resolve a prompt, so cancel
         // (the task stays uncommitted) instead of suspending the calendar pass forever.
         guard !isTornDown else { return false }
+        resolveConflict(commitAnyway: false)   // pre-empt a stale pending conflict
         pendingConflict = CalendarConflict(conflictTitle: title)
-        let decision = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             conflictContinuation = c
         }
-        pendingConflict = nil
-        conflictContinuation = nil
-        return decision
     }
 
     /// Called by the capture view to resolve a pending conflict (SC5). `true` = commit anyway,
     /// `false` = cancel (the time-blocked task is left uncommitted). No-op if nothing is pending.
+    /// `pendingConflict` is cleared HERE — not after the await in `awaitConflictDecision` —
+    /// so a pre-empted pass's later resumption can never wipe a newer pending conflict's
+    /// published state (WR-02, same idiom as `resolveDropConflict`).
     func resolveConflict(commitAnyway: Bool) {
         guard let c = conflictContinuation else { return }
         conflictContinuation = nil
+        pendingConflict = nil
         c.resume(returning: commitAnyway)
     }
 

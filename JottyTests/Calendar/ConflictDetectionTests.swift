@@ -18,7 +18,7 @@ final class ConflictDetectionTests: XCTestCase {
     }
 
     private func event(_ id: String, _ start: String, _ end: String, title: String = "ev") -> CalendarEvent {
-        CalendarEvent(id: id, title: title, start: at(start), end: at(end), calendarTitle: "Work")
+        CalendarEvent(eventKitID: id, title: title, start: at(start), end: at(end), calendarTitle: "Work")
     }
 
     // MARK: - Empty / disjoint
@@ -80,7 +80,7 @@ final class ConflictDetectionTests: XCTestCase {
             end: at("2026-06-13T10:00:00+10:00"),
             against: events
         )
-        XCTAssertEqual(result.map(\.id), ["front"])
+        XCTAssertEqual(result.map(\.eventKitID), ["front"])
     }
 
     func testPartialOverlapAtBackConflicts() {
@@ -90,7 +90,7 @@ final class ConflictDetectionTests: XCTestCase {
             end: at("2026-06-13T10:00:00+10:00"),
             against: events
         )
-        XCTAssertEqual(result.map(\.id), ["back"])
+        XCTAssertEqual(result.map(\.eventKitID), ["back"])
     }
 
     func testEventFullyInsideCandidateConflicts() {
@@ -100,7 +100,7 @@ final class ConflictDetectionTests: XCTestCase {
             end: at("2026-06-13T10:00:00+10:00"),
             against: events
         )
-        XCTAssertEqual(result.map(\.id), ["inside"])
+        XCTAssertEqual(result.map(\.eventKitID), ["inside"])
     }
 
     func testCandidateFullyInsideEventConflicts() {
@@ -110,7 +110,7 @@ final class ConflictDetectionTests: XCTestCase {
             end: at("2026-06-13T10:00:00+10:00"),
             against: events
         )
-        XCTAssertEqual(result.map(\.id), ["enclosing"])
+        XCTAssertEqual(result.map(\.eventKitID), ["enclosing"])
     }
 
     // MARK: - Multiple overlaps (stable order by start)
@@ -129,7 +129,7 @@ final class ConflictDetectionTests: XCTestCase {
             end: at("2026-06-13T10:00:00+10:00"),
             against: events
         )
-        XCTAssertEqual(result.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(result.map(\.eventKitID), ["a", "b", "c"])
     }
 
     // MARK: - Zero-length candidate window

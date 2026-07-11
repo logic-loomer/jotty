@@ -118,8 +118,8 @@ final class MenubarListModelTests: XCTestCase {
         let model = MenubarListModel(store: store, timezone: tz,
                                      defaults: defaults, now: { today }, calendar: fake)
         await model.awaitCalendarRefresh()
-        // Init's reload keeps the popover-open default (prompt allowed); whatever it
-        // recorded is the baseline — the swap below must add NOTHING to it.
+        // Init's reload is a no-prompt background load (launch must not fire TCC);
+        // whatever it recorded is the baseline — the swap below must add NOTHING to it.
         let baseline = fake.requestAccessCallCount
 
         model.replaceStore(store)
@@ -129,6 +129,30 @@ final class MenubarListModelTests: XCTestCase {
                        "store-swap reload must never re-issue the TCC calendar prompt")
         XCTAssertFalse(model.calendarAccessDenied,
                        "unprompted notDetermined must not flag denial (a later user action can still ask)")
+    }
+
+    // Model construction happens inside applicationDidFinishLaunching — its reload is a
+    // background load, NOT an explicit calendar action, so a fresh install must never see
+    // the TCC calendar dialog at launch with zero user action (WR-06 class). The one-time
+    // prompt stays reserved for the first popover open / explicit calendar paths.
+    func testInitDoesNotPromptForCalendarAccess() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let fake = FakeCalendarService()
+        fake.accessToReturn = .notDetermined
+
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(fake.requestAccessCallCount, 0,
+                       "launch-time model construction must not fire the TCC prompt")
+        XCTAssertFalse(model.calendarAccessDenied)
+
+        // The first popover open (an explicit user action) still asks exactly once.
+        model.reload()
+        await model.awaitCalendarRefresh()
+        XCTAssertEqual(fake.requestAccessCallCount, 1)
     }
 
     // MARK: - Collapse trigger
@@ -345,11 +369,11 @@ final class MenubarListModelTests: XCTestCase {
         let fake = FakeCalendarService()
         fake.accessToReturn = .authorized
         // Service already filters all-day + sorts by start (plan 03); feed two timed events.
-        let e1 = CalendarEvent(id: "ev1", title: "Standup",
+        let e1 = CalendarEvent(eventKitID: "ev1", title: "Standup",
                                start: makeDate(2026, 6, 12, h: 9),
                                end: makeDate(2026, 6, 12, h: 9, min: 15),
                                calendarTitle: "Work")
-        let e2 = CalendarEvent(id: "ev2", title: "Lunch",
+        let e2 = CalendarEvent(eventKitID: "ev2", title: "Lunch",
                                start: makeDate(2026, 6, 12, h: 12),
                                end: makeDate(2026, 6, 12, h: 13),
                                calendarTitle: "Personal")
@@ -372,7 +396,7 @@ final class MenubarListModelTests: XCTestCase {
         let fake = FakeCalendarService()
         fake.accessToReturn = .denied
         fake.cannedEvents = [
-            CalendarEvent(id: "ev1", title: "Should not show",
+            CalendarEvent(eventKitID: "ev1", title: "Should not show",
                           start: makeDate(2026, 6, 12, h: 9),
                           end: makeDate(2026, 6, 12, h: 10), calendarTitle: nil)
         ]
@@ -556,7 +580,7 @@ final class MenubarListModelTests: XCTestCase {
         // The linked event exists in the open-time fetch, so CR-02's self-heal does not
         // classify it missing and clear the link before the edit runs.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -616,7 +640,7 @@ final class MenubarListModelTests: XCTestCase {
         // The linked event exists in the fetch (matches the task's pre-edit block), so the
         // concurrent reload's open-time self-heal does not classify it missing.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -644,7 +668,7 @@ final class MenubarListModelTests: XCTestCase {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review (moved)",
+            CalendarEvent(eventKitID: "evt-1", title: "review (moved)",
                           start: makeDate(2026, 6, 12, h: 16),
                           end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
         ]
@@ -654,7 +678,7 @@ final class MenubarListModelTests: XCTestCase {
 
         let prompt = try XCTUnwrap(model.driftPrompt, "drift on open must surface a prompt")
         XCTAssertEqual(prompt.drifted.map(\.task.id), ["t_linked"])
-        XCTAssertEqual(prompt.drifted.map(\.event.id), ["evt-1"])
+        XCTAssertEqual(prompt.drifted.map(\.event.eventKitID), ["evt-1"])
     }
 
     func testConfirmDriftSyncRewritesMarkdownCalendarWins() async throws {
@@ -663,7 +687,7 @@ final class MenubarListModelTests: XCTestCase {
         let evStart = makeDate(2026, 6, 12, h: 16)
         let evEnd = makeDate(2026, 6, 12, h: 17)
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review (moved)",
+            CalendarEvent(eventKitID: "evt-1", title: "review (moved)",
                           start: evStart, end: evEnd, calendarTitle: "Work")
         ]
         let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
@@ -685,7 +709,7 @@ final class MenubarListModelTests: XCTestCase {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review (moved)",
+            CalendarEvent(eventKitID: "evt-1", title: "review (moved)",
                           start: makeDate(2026, 6, 12, h: 16),
                           end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
         ]
@@ -707,7 +731,7 @@ final class MenubarListModelTests: XCTestCase {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -725,7 +749,7 @@ final class MenubarListModelTests: XCTestCase {
         let fake = FakeCalendarService()
         // First open: the event has drifted (title + time) -> prompt set.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review (moved)",
+            CalendarEvent(eventKitID: "evt-1", title: "review (moved)",
                           start: makeDate(2026, 6, 12, h: 16),
                           end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
         ]
@@ -736,7 +760,7 @@ final class MenubarListModelTests: XCTestCase {
 
         // A later open: the event now matches the task again (drift resolved).
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -807,7 +831,7 @@ final class MenubarListModelTests: XCTestCase {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -830,7 +854,7 @@ final class MenubarListModelTests: XCTestCase {
         let evStart = makeDate(2026, 6, 12, h: 16)
         let evEnd = makeDate(2026, 6, 12, h: 17)
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "**Deep** `work`",
+            CalendarEvent(eventKitID: "evt-1", title: "**Deep** `work`",
                           start: evStart, end: evEnd, calendarTitle: "Work")
         ]
         let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
@@ -865,7 +889,7 @@ final class MenubarListModelTests: XCTestCase {
         let fake = FakeCalendarService()
         // Even if a drifted event id matched, the historical task is out of scope.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-old", title: "old meeting (moved)",
+            CalendarEvent(eventKitID: "evt-old", title: "old meeting (moved)",
                           start: makeDate(2026, 6, 11, h: 16),
                           end: makeDate(2026, 6, 11, h: 17), calendarTitle: "Work")
         ]
@@ -953,7 +977,7 @@ final class MenubarListModelTests: XCTestCase {
         let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -977,7 +1001,7 @@ final class MenubarListModelTests: XCTestCase {
         // Next-day open: the event now lives on tomorrow, so the fetch finds it -> no
         // false missing-link classification.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-1", title: "review",
+            CalendarEvent(eventKitID: "evt-1", title: "review",
                           start: makeDate(2026, 6, 13, h: 14),
                           end: makeDate(2026, 6, 13, h: 15), calendarTitle: "Work")
         ]
@@ -1592,7 +1616,7 @@ final class MenubarListModelTests: XCTestCase {
         ])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-x", title: "Existing Standup",
+            CalendarEvent(eventKitID: "evt-x", title: "Existing Standup",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -1623,7 +1647,7 @@ final class MenubarListModelTests: XCTestCase {
         ])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-x", title: "Existing Standup",
+            CalendarEvent(eventKitID: "evt-x", title: "Existing Standup",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -1687,7 +1711,7 @@ final class MenubarListModelTests: XCTestCase {
         ])
         let fake = FakeCalendarService()
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-x", title: "First Meeting",
+            CalendarEvent(eventKitID: "evt-x", title: "First Meeting",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -1703,7 +1727,7 @@ final class MenubarListModelTests: XCTestCase {
         // Retitle the canned overlap so drop B's pending conflict is
         // distinguishable from A's, then drop B while A is still pending.
         fake.cannedEvents = [
-            CalendarEvent(id: "evt-x", title: "Second Meeting",
+            CalendarEvent(eventKitID: "evt-x", title: "Second Meeting",
                           start: makeDate(2026, 6, 12, h: 14),
                           end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work")
         ]
@@ -1727,6 +1751,102 @@ final class MenubarListModelTests: XCTestCase {
         let taskB = try XCTUnwrap(doc.tasks.first { $0.id == "t_b" })
         XCTAssertEqual(taskB.calEventID, "fake-event-1")
         XCTAssertNil(model.pendingDropConflict, "no orphaned pending decision remains")
+    }
+
+    // MARK: - SC5 parity: editTime runs the overlap gate ("Move +30 min", drop-move)
+
+    /// Moving a task into a busy slot warns first, and the gate runs BEFORE any
+    /// write: cancel leaves the task's block AND its event exactly as they were —
+    /// no task/event disagreement to drift-prompt about on the next open.
+    func testEditTimeConflictGateCancelLeavesTaskAndEventUntouched() async throws {
+        let originalBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                                      end: makeDate(2026, 6, 12, h: 15))
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-1", title: "review",
+                          start: originalBlock.start, end: originalBlock.end,
+                          calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-busy", title: "Busy Slot",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work"),
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        let newBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 16),
+                                 end: makeDate(2026, 6, 12, h: 17))
+        model.editTime(task, to: newBlock)
+        try await waitUntil { model.pendingDropConflict != nil }
+        // The own event (evt-1) is excluded; the OTHER event raises a .move conflict.
+        XCTAssertEqual(model.pendingDropConflict?.conflictTitle, "Busy Slot")
+        XCTAssertEqual(model.pendingDropConflict?.kind, .move)
+
+        model.resolveDropConflict(commitAnyway: false)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertTrue(fake.updatedEventIDs.isEmpty, "cancel must not touch the event")
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.timeBlock, originalBlock,
+                       "gate-first: cancel leaves the time: token untouched")
+        XCTAssertNil(model.driftPrompt, "task and event still agree — nothing to sync")
+    }
+
+    /// Confirming the move writes disk first, then updates the linked event in place.
+    func testEditTimeConflictGateConfirmMovesDiskAndEvent() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-1", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15), calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-busy", title: "Busy Slot",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work"),
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        let newBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 16),
+                                 end: makeDate(2026, 6, 12, h: 17))
+        model.editTime(task, to: newBlock)
+        try await waitUntil { model.pendingDropConflict != nil }
+        model.resolveDropConflict(commitAnyway: true)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(fake.updatedEventIDs, ["evt-1"], "confirm updates the linked event")
+        let stored = try XCTUnwrap(try store.readDoc(on: today).tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.timeBlock, newBlock)
+        XCTAssertEqual(stored.calEventID, "evt-1")
+    }
+
+    // MARK: - ⌘K highlight expands a collapsed Done group
+
+    /// Enter on a completed task must transiently expand "Done · N" (like the
+    /// leftovers group) — otherwise the highlight scrolls to nothing behind the
+    /// collapsed section. In-memory only: the persisted day key survives.
+    func testHighlightExpandsCollapsedDoneGroupTransiently() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        try store.appendCapture(noteText: "", noteId: nil, tasks: [
+            Todo(id: "t_done", text: "pay rent", createdAt: today,
+                 done: true, completedAt: today)
+        ], at: today)
+        let model = MenubarListModel(store: store, timezone: tz,
+                                     defaults: defaults, now: { today })
+        model.setDoneCollapsed(true, at: today)
+        XCTAssertTrue(model.doneCollapsed)
+
+        model.highlight(taskID: "t_done")
+
+        XCTAssertFalse(model.doneCollapsed, "the done group expands so the highlight is visible")
+        XCTAssertEqual(model.highlightedTaskID, "t_done")
+        XCTAssertTrue(defaults.bool(forKey: "doneCollapsed-2026-06-12"),
+                      "transient expand: the persisted collapse choice survives")
     }
 
     func testDropNearMidnightClampsBlockInsideDay() async throws {

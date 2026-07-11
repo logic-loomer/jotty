@@ -57,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// open (degrades to no Suggested section rather than crashing the app).
     private var inboxService: InboxService?
 
+    /// Debounced store-changed calendar reload (CR-02): EventKit posts `EKEventStoreChanged`
+    /// in bursts (CalDAV sync, and for Jotty's OWN saves), so each notification cancels the
+    /// prior pending reload and re-arms a short delay.
+    private var storeChangedReload: Task<Void, Never>?
+
     private var midnightTimer: Timer?
     /// Dedupe-state path (last-rollover.txt) for the midnight rollover, promoted to a
     /// property so `applicationDidBecomeActive` can run the wake catch-up (CQ-07). nil
@@ -71,7 +76,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 
+    /// True when this process is the XCTest host: the test bundle is injected into the
+    /// real app, so without a guard `applicationDidFinishLaunching` would run the FULL
+    /// launch path against the user's LIVE state — reading the real config, running
+    /// rollover on the real day files, and registering global hotkeys. The Documents
+    /// read in particular is TCC-guarded: a rebuilt (re-signed) debug binary loses its
+    /// grant, `String(contentsOf:)` blocks on the consent dialog, and the test runner
+    /// times out ("hung before establishing connection"). Tests construct their own
+    /// stores/models; the host app must stay inert.
+    private static var isRunningUnitTests: Bool {
+        NSClassFromString("XCTestCase") != nil
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Self.isRunningUnitTests { return }
         do {
             configStore = try ConfigStore(path: ConfigStore.defaultPath)
             // User-writable store (seeds from the bundled default on first load).
@@ -140,10 +159,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // @MainActor closure: this live per-fetch Store read runs ON the
                         // main actor, so it never races main-actor writes (accept/reload);
                         // awaiting it hops off-actor fetchItems to main (WR-01).
-                        linkedEventIDs: { [weak store] instant in
-                            guard let store else { return [] }
-                            return Set((try? store.readDoc(on: instant))?
-                                .tasks.compactMap(\.calEventID) ?? [])
+                        // Captures SELF (not the store): `openCapture`/Settings-close swap
+                        // `self.store` for a fresh instance (WR-09), so a `[weak store]`
+                        // capture pointed at the deallocated launch-time Store and the
+                        // linked filter silently returned [] for the rest of the session.
+                        linkedEventIDs: { [weak self] instant in
+                            guard let store = self?.store else { return [] }
+                            return ((try? store.readDoc(on: instant))?.tasks ?? [])
+                                .compactMap { task in
+                                    task.calEventID.map {
+                                        LinkedEventRef(eventKitID: $0, start: task.timeBlock?.start)
+                                    }
+                                }
                         },
                         now: Date.init,
                         timezone: .current)
@@ -179,8 +206,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // reload so the "not granted" banner clears without a restart (no prompt:
         // a System-Settings grant lands as authorized, and a passive notification
         // must never pop the TCC dialog — WR-06).
+        //
+        // Two guards (CR-02 vs the SC3 edit flow):
+        //   - `clearMissingLinks: false` — EventKit posts store-changed for JOTTY'S OWN
+        //     saves too, and the default `true` re-ran the missing-link self-heal in the
+        //     window between an edit's EKEvent save and its markdown write-back. That
+        //     race surfaced spurious "Sync from Calendar?"/"event deleted" prompts, and
+        //     confirming one cleared a just-written id and orphaned the recreated event.
+        //     Grant detection and section freshness only need the events/access refresh.
+        //   - Debounced 400ms with cancel-prior (CalDAV syncs post store-changed in
+        //     bursts; every Jotty write posted a redundant full reload).
         calendar.onStoreChanged = { [weak self] in
-            Task { await self?.menubar.listModel.reloadCalendar(promptIfUndetermined: false) }
+            guard let self else { return }
+            self.storeChangedReload?.cancel()
+            self.storeChangedReload = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.menubar.listModel.reloadCalendar(promptIfUndetermined: false,
+                                                             clearMissingLinks: false)
+            }
         }
 
         scheduleMidnightRollover()

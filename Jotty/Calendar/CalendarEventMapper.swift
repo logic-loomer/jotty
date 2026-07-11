@@ -12,18 +12,20 @@ enum CalendarEventMapper {
     /// Builds the app-facing value from primitive fields. The `EKEvent` overload forwards
     /// here so the field-copy + "(untitled)" defaulting is exercised by EventKit-free tests.
     static func makeEvent(
-        id: String,
+        eventKitID: String,
         title: String?,
         start: Date,
         end: Date,
-        calendarTitle: String?
+        calendarTitle: String?,
+        calendarID: String? = nil
     ) -> CalendarEvent {
         CalendarEvent(
-            id: id,
+            eventKitID: eventKitID,
             title: title ?? "(untitled)",
             start: start,
             end: end,
-            calendarTitle: calendarTitle)
+            calendarTitle: calendarTitle,
+            calendarID: calendarID)
     }
 
     /// Maps a single `EKEvent` to the app-facing value, defaulting a nil title.
@@ -41,7 +43,8 @@ enum CalendarEventMapper {
             title: event.title,
             start: event.startDate,
             end: event.endDate,
-            calendarTitle: event.calendar?.title)
+            calendarTitle: event.calendar?.title,
+            calendarID: event.calendar?.calendarIdentifier)
     }
 
     /// The pure, EventKit-free core of `map(_:)`: takes the exact (possibly-nil) primitive
@@ -53,15 +56,17 @@ enum CalendarEventMapper {
         title: String?,
         start: Date,
         end: Date,
-        calendarTitle: String?
+        calendarTitle: String?,
+        calendarID: String? = nil
     ) -> CalendarEvent? {
         guard let id = identifier else { return nil }
         return makeEvent(
-            id: id,
+            eventKitID: id,
             title: title,
             start: start,
             end: end,
-            calendarTitle: calendarTitle)
+            calendarTitle: calendarTitle,
+            calendarID: calendarID)
     }
 
     /// Strict interval intersection: true only when the half-open ranges actually overlap;

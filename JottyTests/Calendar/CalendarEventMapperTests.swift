@@ -69,19 +69,35 @@ final class CalendarEventMapperTests: XCTestCase {
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
         let event = CalendarEventMapper.makeEvent(
-            id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
+            eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
         XCTAssertEqual(event, CalendarEvent(
-            id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work"))
+            eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work"))
     }
 
     func testMakeEventDefaultsNilTitleToUntitled() {
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
         let event = CalendarEventMapper.makeEvent(
-            id: "evt-2", title: nil, start: start, end: end, calendarTitle: nil)
+            eventKitID: "evt-2", title: nil, start: start, end: end, calendarTitle: nil)
         XCTAssertEqual(event.title, "(untitled)")
         XCTAssertNil(event.calendarTitle)
-        XCTAssertEqual(event.id, "evt-2")
+        XCTAssertEqual(event.eventKitID, "evt-2")
+    }
+
+    /// The composite `id` is occurrence-unique: two occurrences of one recurring series
+    /// share an `eventKitID` (EventKit reuses it) but never a start, so their app-facing
+    /// identities must differ — duplicate `Identifiable` ids misrender every SwiftUI list.
+    func testCompositeIDDistinguishesRecurringOccurrences() {
+        let nine = dateFor("2026-06-13T09:00:00+10:00")
+        let thirteen = dateFor("2026-06-13T13:00:00+10:00")
+        let first = CalendarEventMapper.makeEvent(
+            eventKitID: "series-1", title: "Standup", start: nine,
+            end: dateFor("2026-06-13T09:30:00+10:00"), calendarTitle: "Work")
+        let second = CalendarEventMapper.makeEvent(
+            eventKitID: "series-1", title: "Standup", start: thirteen,
+            end: dateFor("2026-06-13T13:30:00+10:00"), calendarTitle: "Work")
+        XCTAssertEqual(first.eventKitID, second.eventKitID, "series occurrences share the bare id")
+        XCTAssertNotEqual(first.id, second.id, "app-facing identities must not collide")
     }
 
     // MARK: - CR-01: tolerant mapping (nil identifier / nil calendar must not crash)
@@ -104,7 +120,7 @@ final class CalendarEventMapperTests: XCTestCase {
         let mapped = CalendarEventMapper.mapFields(
             identifier: "evt-3", title: "Standup",
             start: start, end: end, calendarTitle: nil)
-        XCTAssertEqual(mapped?.id, "evt-3")
+        XCTAssertEqual(mapped?.eventKitID, "evt-3")
         XCTAssertEqual(mapped?.title, "Standup")
         XCTAssertNil(mapped?.calendarTitle)
     }
@@ -138,7 +154,7 @@ final class CalendarEventMapperTests: XCTestCase {
             map: { CalendarEventMapper.mapFields(identifier: $0.id, title: $0.title,
                                                  start: $0.start, end: $0.end,
                                                  calendarTitle: $0.calendarTitle) })
-        XCTAssertEqual(mapped.map(\.id), ["ok"])
+        XCTAssertEqual(mapped.map(\.eventKitID), ["ok"])
     }
 
     // MARK: - WR-05: Jotty-marker guard (recycled-id protection)
@@ -194,7 +210,7 @@ final class CalendarEventMapperTests: XCTestCase {
                                                  calendarTitle: $0.calendarTitle) })
 
         // All-day excluded; remaining sorted by start (early before late).
-        XCTAssertEqual(mapped.map(\.id), ["early", "late"])
+        XCTAssertEqual(mapped.map(\.eventKitID), ["early", "late"])
         XCTAssertEqual(mapped[0].title, "(untitled)")
     }
 }

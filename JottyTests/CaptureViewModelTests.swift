@@ -713,7 +713,7 @@ final class CaptureViewModelTests: XCTestCase {
     // MARK: - Conflict gate (SC5, plan 05-05 task 2)
 
     private func cannedEvent(_ title: String, _ startISO: String, _ endISO: String) -> CalendarEvent {
-        CalendarEvent(id: "existing-\(title)", title: title,
+        CalendarEvent(eventKitID: "existing-\(title)", title: title,
                       start: dateFor(startISO), end: dateFor(endISO), calendarTitle: "Work")
     }
 
@@ -760,6 +760,47 @@ final class CaptureViewModelTests: XCTestCase {
         let task = try XCTUnwrap(doc.tasks.first(where: { $0.text == "Planning" }))
         XCTAssertEqual(task.calEventID, "fake-event-1")
         XCTAssertNil(vm.pendingConflict, "conflict state clears after decision")
+    }
+
+    // WR-02 parity with the drop path: a SECOND calendar pass reaching the conflict
+    // gate while the first is still pending must PRE-EMPT the first (auto-cancel)
+    // instead of clobbering its continuation — the old single-slot overwrite left
+    // pass 1 suspended forever (its task silently dropped) and made awaitCalendarWork
+    // hang. Only one decision pends at a time; only the second pass's confirm commits.
+    func testSecondConflictPreemptsFirstAsCancelNeverHangs() async throws {
+        let now = dateFor("2026-06-13T08:00:00+10:00")
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [cannedEvent("First Meeting",
+                                         "2026-06-13T14:30:00+10:00",
+                                         "2026-06-13T16:00:00+10:00")]
+        let vm = makeManualVM(calendar: fake, now: now)
+
+        // Pass 1: a conflicted manual capture suspends on the prompt.
+        vm.text = "- [ ] call Bob @3pm"
+        vm.submit()
+        try await waitUntil { vm.pendingConflict?.conflictTitle == "First Meeting" }
+
+        // Retitle the canned overlap so pass 2's prompt is distinguishable,
+        // then submit a second conflicted line WITHOUT answering pass 1.
+        fake.cannedEvents = [cannedEvent("Second Meeting",
+                                         "2026-06-13T14:30:00+10:00",
+                                         "2026-06-13T16:00:00+10:00")]
+        vm.text = "- [ ] gym @3pm"
+        vm.submit()
+        try await waitUntil { vm.pendingConflict?.conflictTitle == "Second Meeting" }
+
+        // Only pass 2 pends; confirming commits ONLY its task. Pass 1 was
+        // pre-empted as cancel — its task stays uncommitted, its pass completes.
+        vm.resolveConflict(commitAnyway: true)
+        await vm.awaitCalendarWork()   // must return — nothing may hang
+
+        try await waitUntil { fake.createdEvents.count == 1 }
+        XCTAssertEqual(fake.createdEvents.first?.title, "gym")
+        let doc = try store.readDoc(on: now)
+        XCTAssertNil(doc.tasks.first { $0.text == "call Bob" },
+                     "the pre-empted pass's task stays uncommitted (capture-cancel semantics)")
+        XCTAssertNotNil(doc.tasks.first { $0.text == "gym" })
+        XCTAssertNil(vm.pendingConflict, "no orphaned pending decision remains")
     }
 
     // Cancel → createEvent NOT called and the task is ABSENT from markdown (uncommitted).

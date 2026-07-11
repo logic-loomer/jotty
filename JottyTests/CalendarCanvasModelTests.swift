@@ -33,7 +33,7 @@ final class CalendarCanvasModelTests: XCTestCase {
     // y == 9*60 == 540 with height == 60 (composes CanvasLayout.y/height).
     func testEventBlockPositionedViaCanvasLayout() async throws {
         let now = makeDate(2026, 6, 12, h: 8)
-        let event = CalendarEvent(id: "ev1", title: "Standup",
+        let event = CalendarEvent(eventKitID: "ev1", title: "Standup",
                                   start: makeDate(2026, 6, 12, h: 9),
                                   end: makeDate(2026, 6, 12, h: 10),
                                   calendarTitle: "Work")
@@ -51,7 +51,7 @@ final class CalendarCanvasModelTests: XCTestCase {
     // height==30) whose kind is DISTINCT from event blocks.
     func testTimeBlockedTaskBlockPositionedAndKindDistinct() async throws {
         let now = makeDate(2026, 6, 12, h: 8)
-        let event = CalendarEvent(id: "ev1", title: "Standup",
+        let event = CalendarEvent(eventKitID: "ev1", title: "Standup",
                                   start: makeDate(2026, 6, 12, h: 9),
                                   end: makeDate(2026, 6, 12, h: 10),
                                   calendarTitle: nil)

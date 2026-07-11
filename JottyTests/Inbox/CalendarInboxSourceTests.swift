@@ -20,12 +20,12 @@ final class CalendarInboxSourceTests: XCTestCase {
     }
 
     private func event(_ id: String, _ title: String, start: Date, end: Date) -> CalendarEvent {
-        CalendarEvent(id: id, title: title, start: start, end: end, calendarTitle: nil)
+        CalendarEvent(eventKitID: id, title: title, start: start, end: end, calendarTitle: nil)
     }
 
     private func makeSource(calendar: FakeCalendarService,
                             enabled: Bool = true,
-                            linked: Set<String> = [],
+                            linked: [LinkedEventRef] = [],
                             now: Date) -> CalendarInboxSource {
         CalendarInboxSource(
             calendar: calendar,
@@ -49,14 +49,16 @@ final class CalendarInboxSourceTests: XCTestCase {
         let items = try await makeSource(calendar: fake, now: now).fetchItems()
 
         XCTAssertEqual(items.count, 2)
-        XCTAssertEqual(items[0].id, "calendar:evt-1")
+        // Item ids carry the occurrence-unique composite (bare id + start), so two
+        // occurrences of one recurring series never share an inbox identity.
+        XCTAssertEqual(items[0].id, "calendar:evt-1@\(s1.timeIntervalSince1970)")
         XCTAssertEqual(items[0].sourceID, "calendar")
         XCTAssertEqual(items[0].title, "Standup")
         XCTAssertEqual(items[0].timestamp, s1)
         XCTAssertEqual(items[0].timeBlock, TimeBlock(start: s1, end: e1))
         XCTAssertEqual(items[0].calEventID, "evt-1")
         XCTAssertEqual(items[0].url, CalendarURL.show(for: s1)?.absoluteString)
-        XCTAssertEqual(items[1].id, "calendar:evt-2")
+        XCTAssertEqual(items[1].id, "calendar:evt-2@\(s2.timeIntervalSince1970)")
         XCTAssertEqual(items[1].calEventID, "evt-2")
         XCTAssertEqual(items[1].timeBlock, TimeBlock(start: s2, end: e2))
     }
@@ -76,7 +78,7 @@ final class CalendarInboxSourceTests: XCTestCase {
         XCTAssertEqual(fake.lastEventsInRangeEnd, expectedEnd)
     }
 
-    // MARK: SC4/P2 — already-linked events filtered by bare id
+    // MARK: SC4/P2 — already-linked occurrences filtered (bare id + block start)
 
     func test_excludesAlreadyLinkedEvents() async throws {
         let now = makeDate(2026, 7, 4, h: 9)
@@ -86,9 +88,68 @@ final class CalendarInboxSourceTests: XCTestCase {
         fake.cannedEvents = [event("evt-1", "Already linked", start: s1, end: e1),
                              event("evt-2", "Fresh", start: s2, end: e2)]
 
-        let items = try await makeSource(calendar: fake, linked: ["evt-1"], now: now).fetchItems()
+        let items = try await makeSource(
+            calendar: fake,
+            linked: [LinkedEventRef(eventKitID: "evt-1", start: s1)],
+            now: now).fetchItems()
 
-        XCTAssertEqual(items.map(\.id), ["calendar:evt-2"])
+        XCTAssertEqual(items.map(\.calEventID), ["evt-2"])
+    }
+
+    /// Recurring series: linking ONE occurrence must not hide its siblings. The refs
+    /// carry the linked task's block start, so only the occurrence within the drift
+    /// tolerance of that start is filtered — the 13:00 standup stays suggested after
+    /// the 09:00 one is accepted. (Filtering on the bare id alone hid the whole series.)
+    func test_linkedOccurrenceDoesNotHideOtherOccurrencesOfSameSeries() async throws {
+        let now = makeDate(2026, 7, 4, h: 8)
+        let s1 = makeDate(2026, 7, 4, h: 9), e1 = makeDate(2026, 7, 4, h: 9, min: 30)
+        let s2 = makeDate(2026, 7, 4, h: 13), e2 = makeDate(2026, 7, 4, h: 13, min: 30)
+        let fake = FakeCalendarService()
+        // EventKit gives every occurrence of a series the SAME eventIdentifier.
+        fake.cannedEvents = [event("series-1", "Standup", start: s1, end: e1),
+                             event("series-1", "Standup", start: s2, end: e2)]
+
+        let items = try await makeSource(
+            calendar: fake,
+            linked: [LinkedEventRef(eventKitID: "series-1", start: s1)],
+            now: now).fetchItems()
+
+        XCTAssertEqual(items.map(\.timestamp), [s2], "only the un-linked occurrence remains")
+    }
+
+    /// A linked task whose block start drifted a few seconds (sub-tolerance jitter
+    /// between the markdown wall-clock and the EKEvent instant) still claims its
+    /// occurrence — exact-instant matching would re-suggest an already-linked event.
+    func test_linkedRefMatchesWithinDriftTolerance() async throws {
+        let now = makeDate(2026, 7, 4, h: 8)
+        let s1 = makeDate(2026, 7, 4, h: 9), e1 = makeDate(2026, 7, 4, h: 9, min: 30)
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("evt-1", "Standup", start: s1, end: e1)]
+
+        let items = try await makeSource(
+            calendar: fake,
+            linked: [LinkedEventRef(eventKitID: "evt-1", start: s1.addingTimeInterval(30))],
+            now: now).fetchItems()
+
+        XCTAssertTrue(items.isEmpty, "a 30s-jittered link still claims the occurrence")
+    }
+
+    /// A linked ref with NO start (a linked task missing its time block, e.g. after a
+    /// failed disk write) conservatively hides every occurrence of that series.
+    func test_linkedRefWithNilStartHidesAllOccurrences() async throws {
+        let now = makeDate(2026, 7, 4, h: 8)
+        let s1 = makeDate(2026, 7, 4, h: 9), e1 = makeDate(2026, 7, 4, h: 9, min: 30)
+        let s2 = makeDate(2026, 7, 4, h: 13), e2 = makeDate(2026, 7, 4, h: 13, min: 30)
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("series-1", "Standup", start: s1, end: e1),
+                             event("series-1", "Standup", start: s2, end: e2)]
+
+        let items = try await makeSource(
+            calendar: fake,
+            linked: [LinkedEventRef(eventKitID: "series-1", start: nil)],
+            now: now).fetchItems()
+
+        XCTAssertTrue(items.isEmpty)
     }
 
     // MARK: SC5/P4 — disabled ⇒ zero reads, zero prompt (short-circuits before access())

@@ -17,33 +17,37 @@ final class CalendarServiceTests: XCTestCase {
     func testCalendarEventEquatableByAllFields() {
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
-        let a = CalendarEvent(id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
-        let b = CalendarEvent(id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
+        let a = CalendarEvent(eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
+        let b = CalendarEvent(eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
         XCTAssertEqual(a, b)
     }
 
     func testCalendarEventInequalWhenAnyFieldDiffers() {
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
-        let base = CalendarEvent(id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
-        XCTAssertNotEqual(base, CalendarEvent(id: "evt-2", title: "Standup", start: start, end: end, calendarTitle: "Work"))
-        XCTAssertNotEqual(base, CalendarEvent(id: "evt-1", title: "Retro", start: start, end: end, calendarTitle: "Work"))
-        XCTAssertNotEqual(base, CalendarEvent(id: "evt-1", title: "Standup", start: end, end: end, calendarTitle: "Work"))
-        XCTAssertNotEqual(base, CalendarEvent(id: "evt-1", title: "Standup", start: start, end: start, calendarTitle: "Work"))
-        XCTAssertNotEqual(base, CalendarEvent(id: "evt-1", title: "Standup", start: start, end: end, calendarTitle: nil))
+        let base = CalendarEvent(eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: "Work")
+        XCTAssertNotEqual(base, CalendarEvent(eventKitID: "evt-2", title: "Standup", start: start, end: end, calendarTitle: "Work"))
+        XCTAssertNotEqual(base, CalendarEvent(eventKitID: "evt-1", title: "Retro", start: start, end: end, calendarTitle: "Work"))
+        XCTAssertNotEqual(base, CalendarEvent(eventKitID: "evt-1", title: "Standup", start: end, end: end, calendarTitle: "Work"))
+        XCTAssertNotEqual(base, CalendarEvent(eventKitID: "evt-1", title: "Standup", start: start, end: start, calendarTitle: "Work"))
+        XCTAssertNotEqual(base, CalendarEvent(eventKitID: "evt-1", title: "Standup", start: start, end: end, calendarTitle: nil))
     }
 
-    func testCalendarEventIdentifiableUsesId() {
+    func testCalendarEventIdentifiableUsesOccurrenceCompositeId() {
+        // The Identifiable id is the occurrence-unique composite (bare id + start), NOT
+        // the bare EventKit identifier — recurring occurrences share the bare id, and a
+        // duplicate Identifiable id misrenders every SwiftUI ForEach it feeds.
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
-        let event = CalendarEvent(id: "evt-42", title: "x", start: start, end: end, calendarTitle: nil)
-        XCTAssertEqual(event.id, "evt-42")
+        let event = CalendarEvent(eventKitID: "evt-42", title: "x", start: start, end: end, calendarTitle: nil)
+        XCTAssertEqual(event.eventKitID, "evt-42", "the bare id is what markdown links store")
+        XCTAssertEqual(event.id, "evt-42@\(start.timeIntervalSince1970)")
     }
 
     func testCalendarTitleIsOptional() {
         let start = dateFor("2026-06-13T09:00:00+10:00")
         let end = dateFor("2026-06-13T10:00:00+10:00")
-        let event = CalendarEvent(id: "evt-1", title: "x", start: start, end: end, calendarTitle: nil)
+        let event = CalendarEvent(eventKitID: "evt-1", title: "x", start: start, end: end, calendarTitle: nil)
         XCTAssertNil(event.calendarTitle)
     }
 
@@ -123,7 +127,7 @@ final class CalendarServiceTests: XCTestCase {
         let fake = FakeCalendarService()
         let start = dateFor("2026-06-13T00:00:00+10:00")
         let end = dateFor("2026-06-13T23:59:59+10:00")
-        let canned = CalendarEvent(id: "c-1", title: "Lunch",
+        let canned = CalendarEvent(eventKitID: "c-1", title: "Lunch",
                                    start: dateFor("2026-06-13T12:00:00+10:00"),
                                    end: dateFor("2026-06-13T13:00:00+10:00"),
                                    calendarTitle: "Personal")
@@ -137,7 +141,7 @@ final class CalendarServiceTests: XCTestCase {
     @MainActor
     func testFakeOverlappingEventsReturnsCannedAndRecordsCall() async throws {
         let fake = FakeCalendarService()
-        let canned = CalendarEvent(id: "c-2", title: "Meeting",
+        let canned = CalendarEvent(eventKitID: "c-2", title: "Meeting",
                                    start: dateFor("2026-06-13T14:00:00+10:00"),
                                    end: dateFor("2026-06-13T15:00:00+10:00"),
                                    calendarTitle: nil)
