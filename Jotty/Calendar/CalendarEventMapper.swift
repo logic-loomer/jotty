@@ -91,4 +91,18 @@ enum CalendarEventMapper {
             .compactMap(map)
             .sorted { $0.start < $1.start }
     }
+
+    /// The `allDayEventsInRange` transform — the exact complement of `transform`:
+    /// KEEP only the all-day rows, map, and sort by start then title (all-day rows
+    /// share a midnight start, so the title tiebreak keeps the chip order stable).
+    static func transformAllDay<Row>(
+        _ rows: [Row],
+        isAllDay: (Row) -> Bool,
+        map: (Row) -> CalendarEvent?
+    ) -> [CalendarEvent] {
+        rows
+            .filter(isAllDay)
+            .compactMap(map)
+            .sorted { ($0.start, $0.title) < ($1.start, $1.title) }
+    }
 }

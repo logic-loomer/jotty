@@ -213,4 +213,26 @@ final class CalendarEventMapperTests: XCTestCase {
         XCTAssertEqual(mapped.map(\.eventKitID), ["early", "late"])
         XCTAssertEqual(mapped[0].title, "(untitled)")
     }
+
+    /// `transformAllDay` is the exact complement: KEEP only all-day rows, sorted by
+    /// start then title (all-day rows share a midnight start; the title tiebreak
+    /// keeps the chip order stable across fetches).
+    func testTransformAllDayKeepsOnlyAllDayRowsSortedByTitle() {
+        let rows = [
+            Row(id: "timed", title: "Meeting", start: dateFor("2026-06-13T15:00:00+10:00"),
+                end: dateFor("2026-06-13T16:00:00+10:00"), calendarTitle: "Work", isAllDay: false),
+            Row(id: "pto", title: "PTO — Sam", start: dateFor("2026-06-13T00:00:00+10:00"),
+                end: dateFor("2026-06-14T00:00:00+10:00"), calendarTitle: "Team", isAllDay: true),
+            Row(id: "holiday", title: "King's Birthday", start: dateFor("2026-06-13T00:00:00+10:00"),
+                end: dateFor("2026-06-14T00:00:00+10:00"), calendarTitle: "Holidays", isAllDay: true),
+        ]
+        let mapped = CalendarEventMapper.transformAllDay(
+            rows,
+            isAllDay: \.isAllDay,
+            map: { CalendarEventMapper.mapFields(identifier: $0.id, title: $0.title,
+                                                 start: $0.start, end: $0.end,
+                                                 calendarTitle: $0.calendarTitle) })
+        XCTAssertEqual(mapped.map(\.eventKitID), ["holiday", "pto"],
+                       "timed rows dropped; same-start all-day rows title-sorted")
+    }
 }

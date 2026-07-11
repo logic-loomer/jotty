@@ -42,17 +42,28 @@ struct CalendarCanvasView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
+            // All-day chips (deadlines, PTO, holidays) — the signal the timed axis
+            // can't carry; mirrors the menubar section's chip row.
+            allDayChipRow
+
             Divider()
 
             HStack(alignment: .top, spacing: 0) {
-                // Time axis: 24h of gridlines + positioned blocks + drop layer,
-                // scrolled to the working morning on open.
+                // Time axis: the day's gridlines + positioned blocks + drop layer,
+                // scrolled to the hour above NOW on open (was a fixed hour-7).
+                // TimelineView re-evaluates every minute so the current-time line
+                // tracks and past blocks dim without any manual timer plumbing.
                 ScrollViewReader { proxy in
                     ScrollView {
-                        axis
-                            .padding(.vertical, 8)
+                        TimelineView(.everyMinute) { context in
+                            axis(asOf: context.date)
+                        }
+                        .padding(.vertical, 8)
                     }
-                    .onAppear { proxy.scrollTo("hour-7", anchor: .top) }
+                    .onAppear {
+                        proxy.scrollTo("hour-\(model.scrollAnchorHour(at: model.list.badgeAsOf))",
+                                       anchor: .top)
+                    }
                 }
 
                 Divider()
@@ -93,20 +104,17 @@ struct CalendarCanvasView: View {
 
     // MARK: - Time axis
 
-    /// Total axis height: 24 hours at the model's vertical scale.
-    private var axisHeight: CGFloat { 24 * model.pixelsPerHour }
-
-    private var axis: some View {
+    private func axis(asOf now: Date) -> some View {
         ZStack(alignment: .topLeading) {
             // Drop layer (CALX-01) at the BOTTOM of the ZStack so it catches
             // drops EVERYWHERE on the axis — over empty space and behind every
-            // block. Covers the full 24h axis; y == 0 is exactly dayStart, so
+            // block. Covers the whole day's axis; y == 0 is exactly dayStart, so
             // `location.y` feeds the tested CanvasLayout.slot math unchanged
             // (T-8-11 — no ad-hoc coordinate→time math here). It sits below the
             // blocks now (was on top) precisely so a TASK block above it can
             // receive its own drag-start instead of this layer swallowing it.
             Color.clear
-                .frame(height: axisHeight)
+                .frame(height: model.axisHeight)
                 .contentShape(Rectangle())
                 .background(dropTargeted ? Color.accentColor.opacity(0.06) : Color.clear)
                 .dropDestination(for: String.self) { ids, location in
@@ -115,19 +123,23 @@ struct CalendarCanvasView: View {
                     return true
                 } isTargeted: { dropTargeted = $0 }
 
-            // Hour gridlines + labels (0…24 so the day is visibly closed).
-            // Render-only: they sit ABOVE the drop layer now, so they must not
+            // Hour gridlines + labels at their REAL wall-clock instants (0…24 so the
+            // day is visibly closed): on a DST 25h/23h day the label sits exactly
+            // where the physical drop-slot math resolves that wall-clock hour —
+            // fixed `hour × scale` offsets disagreed with stored times by an hour
+            // after the transition, and clipped the last hour of a fall-back day.
+            // Render-only: they sit ABOVE the drop layer, so they must not
             // intercept drops meant for the layer beneath them.
-            ForEach(0..<25, id: \.self) { hour in
+            ForEach(model.hourMarks) { mark in
                 HStack(spacing: 6) {
-                    Text(String(format: "%02d:00", hour % 24))
+                    Text(mark.label)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(width: Self.hourLabelWidth, alignment: .trailing)
                     VStack(spacing: 0) { Divider() }
                 }
-                .offset(y: CGFloat(hour) * model.pixelsPerHour - 7)
-                .id("hour-\(hour)")
+                .offset(y: mark.y - 7)
+                .id("hour-\(mark.idx)")
                 .allowsHitTesting(false)
             }
 
@@ -137,20 +149,72 @@ struct CalendarCanvasView: View {
             // `usable/columnCount` wide, offset by its column. A TASK block is
             // DRAGGABLE (its bare task id) so re-dropping it onto the axis MOVES it
             // via the existing model path (dropTask → editTime: same id, no duplicate
-            // event). An EVENT block (real Calendar.app event) stays read-only.
+            // event). An EVENT block opens Calendar.app at its day on tap (parity
+            // with the menubar rows). Blocks that ENDED before `now` render dimmed.
             GeometryReader { geo in
                 let usable = max(0, geo.size.width - Self.blockGutter - Self.blockTrailing)
                 ForEach(model.blocks) { block in
                     let colWidth = usable / CGFloat(max(1, block.columnCount))
                     positionedBlock(block)
                         .frame(width: max(0, colWidth - Self.columnGap), alignment: .topLeading)
+                        .opacity(block.end < now ? 0.55 : 1)
                         .offset(x: Self.blockGutter + CGFloat(block.column) * colWidth,
                                 y: block.y)
                 }
             }
-            .frame(height: axisHeight)
+            .frame(height: model.axisHeight)
+
+            // Current-time indicator: the classic red line + dot, tracking via the
+            // wrapping TimelineView's minute cadence. Nothing outside today.
+            if let nowY = model.nowY(at: now) {
+                HStack(spacing: 0) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 7, height: 7)
+                    Rectangle()
+                        .fill(.red)
+                        .frame(height: 1)
+                }
+                .padding(.leading, Self.hourLabelWidth + 8)
+                .offset(y: nowY - 3.5)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
         }
-        .frame(height: axisHeight, alignment: .top)
+        .frame(height: model.axisHeight, alignment: .top)
+    }
+
+    // MARK: - All-day chips
+
+    /// One capsule per (visible) all-day event, horizontally scrollable; tapping
+    /// opens Calendar.app at the day. Mirrors the menubar section's chip row.
+    @ViewBuilder
+    private var allDayChipRow: some View {
+        if !model.list.visibleAllDayEvents.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(model.list.visibleAllDayEvents) { event in
+                        Button(action: {
+                            if let url = CalendarURL.show(for: event.start) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            Text(event.title)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("All-day: \(event.title)")
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .padding(.bottom, 6)
+        }
     }
 
     /// Wraps a positioned block with kind-specific interactivity.
@@ -184,8 +248,27 @@ struct CalendarCanvasView: View {
                 .accessibilityLabel("Scheduled task: \(block.title)")
                 .accessibilityHint("Draggable. Drag onto the time axis to reschedule.")
         } else {
+            // EVENT block: tap opens Calendar.app at the event's day — parity with
+            // the menubar rows, which have always been tappable. Now that it's
+            // hit-testable it must ALSO be a dropDestination: SwiftUI does not
+            // guarantee a drop falls through an interactive view to the axis layer
+            // beneath, so without this a drop released over an event was swallowed.
             blockView(block)
-                .allowsHitTesting(false)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if let url = CalendarURL.show(for: block.start) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .dropDestination(for: String.self) { ids, location in
+                    guard let id = ids.first else { return false }
+                    model.list.dropTask(id: id,
+                                        atSlot: model.slot(atY: block.y + location.y))
+                    return true
+                } isTargeted: { dropTargeted = $0 }
+                .accessibilityElement()
+                .accessibilityLabel("Event: \(block.title)")
+                .accessibilityHint("Opens Calendar.")
         }
     }
 
@@ -210,7 +293,7 @@ struct CalendarCanvasView: View {
                 }
                 // Time range only when the block is tall enough to carry it.
                 if block.height >= 34 {
-                    Text("\(timeFormatter.string(from: block.start))–\(timeFormatter.string(from: block.end))")
+                    Text("\(model.list.timeFormatter.string(from: block.start))–\(model.list.timeFormatter.string(from: block.end))")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -272,15 +355,6 @@ struct CalendarCanvasView: View {
         .frame(width: Self.railWidth, alignment: .topLeading)
     }
 
-    /// Timezone-pinned HH:mm formatter matching the model's date partitioning
-    /// (same idiom as the menubar calendar section).
-    private var timeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        f.timeZone = model.list.timezone
-        return f
-    }
 }
 
 // MARK: - Window controller

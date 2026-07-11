@@ -146,4 +146,60 @@ final class CalendarCanvasModelTests: XCTestCase {
         c.timeZone = tz
         return Calendar(identifier: .gregorian).date(from: c)!
     }
+
+    // MARK: - Axis geometry: real-day span, wall-clock hour marks, now indicator
+
+    func testAxisGeometryOnANormalDay() async throws {
+        let canvas = try await makeCanvas(now: makeDate(2026, 6, 12, h: 8))
+        XCTAssertEqual(canvas.axisHeight, 24 * canvas.pixelsPerHour)
+        let marks = canvas.hourMarks
+        XCTAssertEqual(marks.count, 25, "0…24 so the day is visibly closed")
+        XCTAssertEqual(marks.first?.label, "00:00")
+        XCTAssertEqual(marks.last?.label, "00:00")
+        // On a plain 24h day the marks reduce to the old fixed spacing.
+        XCTAssertEqual(marks.first { $0.idx == 9 }?.y, 9 * canvas.pixelsPerHour)
+    }
+
+    /// Sydney DST ENDS 2026-04-05 (3am → 2am): a 25-hour day. The axis must span
+    /// the real day, and "09:00" sits at its PHYSICAL offset (10h after dayStart) —
+    /// the old fixed `hour × scale` labels disagreed with the (physical, correct)
+    /// drop-slot math by an hour after the transition, and the fixed 24h axis
+    /// clipped the day's last hour entirely.
+    func testAxisGeometryOnDSTFallBackDay() async throws {
+        let canvas = try await makeCanvas(now: makeDate(2026, 4, 5, h: 12))
+        XCTAssertEqual(canvas.axisHeight, 25 * canvas.pixelsPerHour, "a 25h day renders 25h tall")
+        let nine = try XCTUnwrap(canvas.hourMarks.first { $0.idx == 9 })
+        XCTAssertEqual(nine.y, 10 * canvas.pixelsPerHour,
+                       "wall-clock 09:00 is 10 PHYSICAL hours after dayStart on the 25h day")
+        // Cross-check with the inverse: a drop released exactly on the 09:00 line
+        // resolves to wall-clock 09:00.
+        XCTAssertEqual(canvas.slot(atY: nine.y), makeDate(2026, 4, 5, h: 9),
+                       "hour label and drop-slot resolution agree on the DST day")
+    }
+
+    /// Sydney DST STARTS 2026-10-04 (2am → 3am): a 23-hour day. Wall-clock 02:00
+    /// does not exist — no gridline for it — and the axis spans 23h.
+    func testAxisGeometryOnDSTSpringForwardDay() async throws {
+        let canvas = try await makeCanvas(now: makeDate(2026, 10, 4, h: 12))
+        XCTAssertEqual(canvas.axisHeight, 23 * canvas.pixelsPerHour, "a 23h day renders 23h tall")
+        let nine = try XCTUnwrap(canvas.hourMarks.first { $0.idx == 9 })
+        XCTAssertEqual(nine.y, 8 * canvas.pixelsPerHour,
+                       "wall-clock 09:00 is 8 PHYSICAL hours after dayStart on the 23h day")
+        XCTAssertEqual(canvas.slot(atY: nine.y), makeDate(2026, 10, 4, h: 9))
+    }
+
+    func testNowYTracksTheCurrentInstantAndNilsOutsideToday() async throws {
+        let now = makeDate(2026, 6, 12, h: 9, min: 30)
+        let canvas = try await makeCanvas(now: now)
+        XCTAssertEqual(canvas.nowY(at: now), 9.5 * canvas.pixelsPerHour)
+        XCTAssertNil(canvas.nowY(at: makeDate(2026, 6, 13, h: 1)), "tomorrow is off-axis")
+        XCTAssertNil(canvas.nowY(at: makeDate(2026, 6, 11, h: 23)), "yesterday is off-axis")
+    }
+
+    func testScrollAnchorHourIsOneAboveNowClampedAtZero() async throws {
+        let canvas = try await makeCanvas(now: makeDate(2026, 6, 12, h: 9, min: 30))
+        XCTAssertEqual(canvas.scrollAnchorHour(at: makeDate(2026, 6, 12, h: 9, min: 30)), 8)
+        XCTAssertEqual(canvas.scrollAnchorHour(at: makeDate(2026, 6, 12, h: 0, min: 20)), 0,
+                       "clamped at the top of the axis")
+    }
 }

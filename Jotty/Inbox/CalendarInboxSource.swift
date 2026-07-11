@@ -69,6 +69,9 @@ struct CalendarInboxSource: InboxSource {
     private let linkedEventIDs: @MainActor (Date) async -> [LinkedEventRef]
     private let now: @Sendable () -> Date
     private let timezone: TimeZone
+    /// Live read of `AppConfig.visibleCalendarIDs` (nil = all): an event on a calendar
+    /// the user HID from display should not resurface as a task suggestion.
+    private let visibleCalendarIDs: @Sendable () -> [String]?
 
     /// - Parameters:
     ///   - calendar: the non-prompting calendar seam; tests inject `FakeCalendarService`.
@@ -77,16 +80,19 @@ struct CalendarInboxSource: InboxSource {
     ///     re-suggested — while OTHER occurrences of the same recurring series still are.
     ///   - now: injected clock, pinned in tests.
     ///   - timezone: the store/menubar timezone used to compute the today window (never `.current`).
+    ///   - visibleCalendarIDs: live read of the display visibility filter (default: all).
     init(calendar: any CalendarService,
          enabled: @escaping @Sendable () -> Bool,
          linkedEventIDs: @escaping @MainActor (Date) async -> [LinkedEventRef],
          now: @escaping @Sendable () -> Date,
-         timezone: TimeZone) {
+         timezone: TimeZone,
+         visibleCalendarIDs: @escaping @Sendable () -> [String]? = { nil }) {
         self.calendar = calendar
         self.enabled = enabled
         self.linkedEventIDs = linkedEventIDs
         self.now = now
         self.timezone = timezone
+        self.visibleCalendarIDs = visibleCalendarIDs
     }
 
     // MARK: Configuration
@@ -116,7 +122,10 @@ struct CalendarInboxSource: InboxSource {
 
         // All-day rows are dropped upstream by CalendarEventMapper, so eventsInRange
         // only ever returns timed events — the source never filters isAllDay itself.
+        // The display-visibility filter applies here too: a hidden calendar's events
+        // must not resurface as suggestions.
         let events = try await calendar.eventsInRange(start: start, end: end)
+            .visible(in: visibleCalendarIDs())
 
         let linked = await linkedEventIDs(instant)
         return events

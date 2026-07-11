@@ -23,15 +23,23 @@ final class FakeCalendarService: CalendarService {
         case updateEvent
         case deleteEvent
         case eventsInRange
+        case allDayEventsInRange
         case overlappingEvents
         case writableCalendars
+        case readableCalendars
     }
 
     /// All mutable recording + configuration state, guarded by one mutex.
     private struct State {
         var accessToReturn: CalendarAccess = .authorized
         var cannedEvents: [CalendarEvent] = []
+        /// Returned by `allDayEventsInRange` (the chip row); empty by default so
+        /// every pre-existing test sees no all-day rows.
+        var cannedAllDayEvents: [CalendarEvent] = []
         var writableCalendarsToReturn: [CalendarRef] = []
+        /// Returned by `readableCalendars()`; defaults to the writable list so
+        /// existing fixtures need no extra setup.
+        var readableCalendarsToReturn: [CalendarRef]? = nil
         var errorToThrow: CalendarError?
         /// When set, ONLY `updateEvent` throws this (everything else succeeds). Drives
         /// the SC3 edit-time recreate path: update -> .eventNotFound, then createEvent
@@ -80,6 +88,16 @@ final class FakeCalendarService: CalendarService {
     var cannedEvents: [CalendarEvent] {
         get { state.withLock { $0.cannedEvents } }
         set { state.withLock { $0.cannedEvents = newValue } }
+    }
+    /// Returned by `allDayEventsInRange` when not throwing.
+    var cannedAllDayEvents: [CalendarEvent] {
+        get { state.withLock { $0.cannedAllDayEvents } }
+        set { state.withLock { $0.cannedAllDayEvents = newValue } }
+    }
+    /// Returned by `readableCalendars()`; nil (default) falls back to the writable list.
+    var readableCalendarsToReturn: [(id: String, title: String)]? {
+        get { state.withLock { $0.readableCalendarsToReturn?.map { ($0.id, $0.title) } } }
+        set { state.withLock { $0.readableCalendarsToReturn = newValue?.map { CalendarRef(id: $0.id, title: $0.title) } } }
     }
     /// Returned by `writableCalendars()`.
     var writableCalendarsToReturn: [(id: String, title: String)] {
@@ -165,6 +183,14 @@ final class FakeCalendarService: CalendarService {
         }
     }
 
+    func allDayEventsInRange(start: Date, end: Date) async throws -> [CalendarEvent] {
+        try state.withLock {
+            $0.calls.append(.allDayEventsInRange)
+            if let error = $0.errorToThrow { throw error }
+            return $0.cannedAllDayEvents
+        }
+    }
+
     func overlappingEvents(start: Date, end: Date) async throws -> [CalendarEvent] {
         try state.withLock {
             $0.calls.append(.overlappingEvents)
@@ -177,6 +203,14 @@ final class FakeCalendarService: CalendarService {
         state.withLock {
             $0.calls.append(.writableCalendars)
             return $0.writableCalendarsToReturn.map { ($0.id, $0.title) }
+        }
+    }
+
+    func readableCalendars() async -> [(id: String, title: String)] {
+        state.withLock {
+            $0.calls.append(.readableCalendars)
+            let refs = $0.readableCalendarsToReturn ?? $0.writableCalendarsToReturn
+            return refs.map { ($0.id, $0.title) }
         }
     }
 }

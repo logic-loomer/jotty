@@ -152,6 +152,33 @@ final class CalendarInboxSourceTests: XCTestCase {
         XCTAssertTrue(items.isEmpty)
     }
 
+    // MARK: Calendar visibility — hidden calendars never suggest
+
+    func test_hiddenCalendarEventsAreNotSuggested() async throws {
+        let now = makeDate(2026, 7, 4, h: 9)
+        let s1 = makeDate(2026, 7, 4, h: 10), e1 = makeDate(2026, 7, 4, h: 11)
+        let s2 = makeDate(2026, 7, 4, h: 14), e2 = makeDate(2026, 7, 4, h: 15)
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-work", title: "Standup", start: s1, end: e1,
+                          calendarTitle: "Work", calendarID: "cal-work"),
+            CalendarEvent(eventKitID: "evt-personal", title: "Dentist", start: s2, end: e2,
+                          calendarTitle: "Personal", calendarID: "cal-personal"),
+        ]
+        let source = CalendarInboxSource(
+            calendar: fake,
+            enabled: { true },
+            linkedEventIDs: { _ in [] },
+            now: { now },
+            timezone: tz,
+            visibleCalendarIDs: { ["cal-personal"] })
+
+        let items = try await source.fetchItems()
+
+        XCTAssertEqual(items.map(\.calEventID), ["evt-personal"],
+                       "an event the user hid from display must not resurface as a suggestion")
+    }
+
     // MARK: SC5/P4 — disabled ⇒ zero reads, zero prompt (short-circuits before access())
 
     func test_disabledDoesZeroCalendarReads() async throws {

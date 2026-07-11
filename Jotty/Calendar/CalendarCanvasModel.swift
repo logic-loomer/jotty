@@ -81,12 +81,73 @@ final class CalendarCanvasModel: ObservableObject {
     /// tz-correct (behavior: dayStart derivation).
     var dayStart: Date { list.startOfToday }
 
+    /// End of the axis: the NEXT day's start. On a DST-transition day this is 23 or
+    /// 25 wall-clock hours after `dayStart` — the axis spans the day's REAL length.
+    var dayEnd: Date {
+        DailyFile.calendar(timezone: list.timezone)
+            .date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(24 * 3600)
+    }
+
+    /// Total axis height: the day's ACTUAL physical span (24h normally, 23h/25h on
+    /// DST days) at the vertical scale — a fixed 24h axis clipped the last hour of
+    /// a fall-back day.
+    var axisHeight: CGFloat {
+        CGFloat(dayEnd.timeIntervalSince(dayStart) / 3600) * pixelsPerHour
+    }
+
+    /// One hour gridline: `idx` is the unique loop position (0…24, the ForEach id
+    /// and scroll anchor), `label` the wall-clock text, `y` the PHYSICAL position.
+    struct HourMark: Identifiable, Equatable {
+        let idx: Int
+        let label: String
+        let y: CGFloat
+        var id: Int { idx }
+    }
+
+    /// Wall-clock hour gridlines derived from REAL instants (never `hour × scale`):
+    /// on a 25h fall-back day "09:00" sits 10 physical hours down the axis, exactly
+    /// where the (physical) drop-slot math puts a 09:00 drop — fixed offsets made
+    /// the labels and the stored times disagree by an hour after the transition.
+    /// A nonexistent hour (spring-forward 02:00) yields no line; the closing "00:00"
+    /// renders at `dayEnd`.
+    var hourMarks: [HourMark] {
+        let cal = DailyFile.calendar(timezone: list.timezone)
+        var marks: [HourMark] = []
+        for h in 0...24 {
+            let instant: Date? = h == 24
+                ? dayEnd
+                : cal.date(bySettingHour: h, minute: 0, second: 0, of: dayStart)
+            guard let instant, instant >= dayStart, instant <= dayEnd else { continue }
+            marks.append(HourMark(
+                idx: h,
+                label: String(format: "%02d:00", h % 24),
+                y: CanvasLayout.y(for: instant, dayStart: dayStart,
+                                  pixelsPerHour: pixelsPerHour)))
+        }
+        return marks
+    }
+
+    /// The current-time indicator's y, nil when `instant` is outside today's axis.
+    func nowY(at instant: Date) -> CGFloat? {
+        guard instant >= dayStart, instant <= dayEnd else { return nil }
+        return CanvasLayout.y(for: instant, dayStart: dayStart, pixelsPerHour: pixelsPerHour)
+    }
+
+    /// The hour anchor the canvas scrolls to on open: one hour above "now" so the
+    /// current slot sits in view with context (was a fixed `hour-7` regardless of
+    /// the actual time of day).
+    func scrollAnchorHour(at instant: Date) -> Int {
+        let cal = DailyFile.calendar(timezone: list.timezone)
+        return max(0, cal.component(.hour, from: instant) - 1)
+    }
+
     /// Today's positioned blocks: calendar events + time-blocked tasks, each
     /// carrying a precomputed `CanvasLayout` y/height, sorted by y for a stable
     /// render order. Ids are namespaced per kind so an event id can never
     /// collide with a task id inside one `ForEach`.
     var blocks: [Block] {
-        let events = list.calendarEvents.map { event in
+        let events = list.visibleCalendarEvents.map { event in
             Block(id: "event-\(event.id)", kind: .event, title: event.title,
                   start: event.start, end: event.end,
                   y: CanvasLayout.y(for: event.start, dayStart: dayStart,

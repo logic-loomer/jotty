@@ -27,6 +27,22 @@ struct CalendarEvent: Equatable, Sendable, Identifiable {
     var id: String { "\(eventKitID)@\(start.timeIntervalSince1970)" }
 }
 
+extension Array where Element == CalendarEvent {
+    /// The DISPLAY-side calendar-visibility filter (Settings → Calendar → "Show
+    /// events from"): nil = every calendar (default), and an event whose owning
+    /// calendar is unknown stays visible (fail-open — hiding it would be silent).
+    ///
+    /// Display-side ONLY by design: the drift/missing-link pass matches against the
+    /// UNFILTERED fetch (filtering there would classify links on hidden calendars as
+    /// deleted and clear them), and the conflict gates keep warning about events on
+    /// hidden calendars (a double-booking is real whether or not the row renders).
+    func visible(in visibleCalendarIDs: [String]?) -> [CalendarEvent] {
+        guard let visibleCalendarIDs else { return self }
+        let ids = Set(visibleCalendarIDs)
+        return filter { $0.calendarID.map(ids.contains) ?? true }
+    }
+}
+
 /// Current calendar permission state, mirrored from the OS TCC grant.
 ///
 /// `writeOnly` and `restricted`/`denied` all collapse to `.denied` at the seam because
@@ -66,8 +82,14 @@ protocol CalendarService: Sendable {
     func deleteEvent(id: String) async throws
     /// Returns timed events intersecting `[start, end]`, sorted by start.
     func eventsInRange(start: Date, end: Date) async throws -> [CalendarEvent]
+    /// Returns ALL-DAY events intersecting `[start, end]` (the rows `eventsInRange`
+    /// deliberately drops), for the read-only chip row — never conflict material.
+    func allDayEventsInRange(start: Date, end: Date) async throws -> [CalendarEvent]
     /// Returns events that overlap `[start, end]` (conflict detection, SC5).
     func overlappingEvents(start: Date, end: Date) async throws -> [CalendarEvent]
     /// Writable calendars, for the Settings picker.
     func writableCalendars() async -> [(id: String, title: String)]
+    /// EVERY event calendar (including read-only subscriptions — holidays,
+    /// birthdays, shared), for the Settings visibility multi-select.
+    func readableCalendars() async -> [(id: String, title: String)]
 }

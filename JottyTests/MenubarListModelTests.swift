@@ -1824,6 +1824,77 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(stored.calEventID, "evt-1")
     }
 
+    // MARK: - Calendar visibility (Settings → "Show events from") + all-day chips
+
+    /// `visibleCalendarEvents` live-reads the config filter for DISPLAY, while the
+    /// drift pass keeps matching against the UNFILTERED fetch — hiding a calendar
+    /// must never classify its linked events as deleted.
+    func testVisibilityFilterAppliesToDisplayButNotDriftMatching() async throws {
+        let (store, today) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-hidden")])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-hidden", title: "review",
+                          start: makeDate(2026, 6, 12, h: 14),
+                          end: makeDate(2026, 6, 12, h: 15),
+                          calendarTitle: "Work", calendarID: "cal-work"),
+            CalendarEvent(eventKitID: "evt-shown", title: "Personal thing",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17),
+                          calendarTitle: "Personal", calendarID: "cal-personal"),
+        ]
+        let cfg = try config(deletePref: nil)
+        try cfg.update { $0.visibleCalendarIDs = ["cal-personal"] }
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.visibleCalendarEvents.map(\.eventKitID), ["evt-shown"],
+                       "display: only the visible calendar's events render")
+        XCTAssertEqual(model.calendarEvents.count, 2, "the full fetch stays unfiltered")
+        XCTAssertNil(model.missingLinkPrompt,
+                     "the hidden calendar's linked event must NOT be classified missing")
+        XCTAssertNil(model.driftPrompt)
+    }
+
+    func testAllDayEventsFetchedAndVisibilityFiltered() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let fake = FakeCalendarService()
+        let dayStart = makeDate(2026, 6, 12, h: 0)
+        fake.cannedAllDayEvents = [
+            CalendarEvent(eventKitID: "ad-1", title: "PTO — Sam",
+                          start: dayStart, end: makeDate(2026, 6, 13, h: 0),
+                          calendarTitle: "Team", calendarID: "cal-team"),
+            CalendarEvent(eventKitID: "ad-2", title: "Public holiday",
+                          start: dayStart, end: makeDate(2026, 6, 13, h: 0),
+                          calendarTitle: "Holidays", calendarID: "cal-holidays"),
+        ]
+        let cfg = try config(deletePref: nil)
+        try cfg.update { $0.visibleCalendarIDs = ["cal-team"] }
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake, configStore: cfg)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(model.allDayEvents.count, 2, "the raw all-day fetch lands")
+        XCTAssertEqual(model.visibleAllDayEvents.map(\.eventKitID), ["ad-1"],
+                       "the chip row honors the same visibility filter")
+    }
+
+    /// A failed all-day read degrades to no chips without disturbing the timed
+    /// section (both fetches are independently best-effort)... the reverse — a
+    /// failed timed read — clears BOTH (the section is gone anyway).
+    func testAllDayFetchIsBestEffort() async throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "boom")
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        XCTAssertTrue(model.calendarEvents.isEmpty)
+        XCTAssertTrue(model.allDayEvents.isEmpty)
+    }
+
     // MARK: - ⌘K highlight expands a collapsed Done group
 
     /// Enter on a completed task must transiently expand "Done · N" (like the

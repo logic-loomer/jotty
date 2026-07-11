@@ -27,7 +27,13 @@ struct CalendarTab: View {
     @State private var selectedCalendarID: String?
     @State private var deletePreference: DeletePreference
     @State private var writableCalendars: [(id: String, title: String)] = []
+    /// EVERY event calendar (read-only subscriptions included) for the visibility
+    /// multi-select — the writable list never surfaces holiday/birthday feeds.
+    @State private var readableCalendars: [(id: String, title: String)] = []
     @State private var didLoadCalendars = false
+    /// Local mirror of `AppConfig.visibleCalendarIDs` driving the Toggle bindings;
+    /// nil = all visible (the default).
+    @State private var visibleCalendarIDs: [String]?
     /// CQ-01: set when a config write fails; drives the shared PersistFailureNotice.
     @State private var persistFailed = false
     /// Mirror of the OS calendar grant, so the tab can recover IN PLACE: previously it
@@ -63,6 +69,7 @@ struct CalendarTab: View {
         self.calendar = calendar
         _selectedCalendarID = State(initialValue: configStore.config.calendarIdentifier)
         _deletePreference = State(initialValue: DeletePreference(configStore.config.deleteCalendarEventWithTask))
+        _visibleCalendarIDs = State(initialValue: configStore.config.visibleCalendarIDs)
     }
 
     /// Persists a calendar selection, guarding against a SwiftUI Picker auto-reset (WR-07).
@@ -141,6 +148,20 @@ struct CalendarTab: View {
                 }
             }
 
+            if access == .authorized, !readableCalendars.isEmpty {
+                Section(header: Text("Show events from")) {
+                    ForEach(readableCalendars, id: \.id) { cal in
+                        Toggle(cal.title, isOn: Binding(
+                            get: { isCalendarVisible(cal.id) },
+                            set: { setCalendarVisible(cal.id, $0) }))
+                    }
+                    Text("Hidden calendars stay out of the menubar list, canvas, and "
+                         + "suggestions. Conflict warnings and linked-task sync still "
+                         + "see every calendar.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+
             Section(header: Text("Deleting a task")) {
                 Picker("When deleting a task", selection: $deletePreference) {
                     Text("Ask each time").tag(DeletePreference.ask)
@@ -169,6 +190,7 @@ struct CalendarTab: View {
             access = calendar.access()
             guard access == .authorized, !didLoadCalendars else { return }
             writableCalendars = await calendar.writableCalendars()
+            readableCalendars = await calendar.readableCalendars()
             didLoadCalendars = true
         }
     }
@@ -182,8 +204,31 @@ struct CalendarTab: View {
             access = await calendar.requestAccess()
             guard access == .authorized else { return }
             writableCalendars = await calendar.writableCalendars()
+            readableCalendars = await calendar.readableCalendars()
             didLoadCalendars = true
         }
+    }
+
+    // MARK: - Calendar visibility (Settings → "Show events from")
+
+    /// nil (no stored list) = every calendar visible.
+    private func isCalendarVisible(_ id: String) -> Bool {
+        visibleCalendarIDs.map { $0.contains(id) } ?? true
+    }
+
+    /// Persists a visibility toggle. Materializes the nil-default against the loaded
+    /// calendar list on the first toggle-off, and collapses BACK to nil once every
+    /// calendar is visible again — nil keeps future new calendars visible
+    /// automatically, which an explicit full list would silently exclude.
+    private func setCalendarVisible(_ id: String, _ on: Bool) {
+        let allIDs = readableCalendars.map(\.id)
+        var visible = Set(visibleCalendarIDs ?? allIDs)
+        if on { visible.insert(id) } else { visible.remove(id) }
+        let newValue: [String]? = allIDs.allSatisfy(visible.contains)
+            ? nil
+            : visible.sorted()
+        visibleCalendarIDs = newValue
+        persist { $0.visibleCalendarIDs = newValue }
     }
 
     /// Deep-link to Privacy & Security → Calendars for the denied → re-enable path

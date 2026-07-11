@@ -173,7 +173,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 }
                         },
                         now: Date.init,
-                        timezone: .current)
+                        timezone: .current,
+                        // Live-read of the Settings → Calendar visibility filter, so
+                        // hiding a calendar also stops its events being suggested.
+                        visibleCalendarIDs: { [weak configStore] in
+                            configStore?.config.visibleCalendarIDs
+                        })
                 ],
                 state: inboxState)
         } else {

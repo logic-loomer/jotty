@@ -42,6 +42,12 @@ struct AppConfig: Codable, Equatable {
     /// Settings → Integrations. Flipping it on surfaces today's timed events as
     /// suggestions on the next menubar open.
     var calendarInboxEnabled: Bool = false
+    /// Calendars whose events DISPLAY in the menubar section, canvas, and calendar
+    /// inbox. nil = all calendars (the default — new calendars appear automatically).
+    /// Display-only: the drift/missing-link pass and the conflict gates always see
+    /// every calendar, so hiding one can never clear a live link or let a "hidden"
+    /// meeting be double-booked silently.
+    var visibleCalendarIDs: [String]?
 
     init(storageFolder: URL,
          aiProviderID: String = "apple-fm",
@@ -52,7 +58,8 @@ struct AppConfig: Codable, Equatable {
          hasCompletedOnboarding: Bool = false,
          inboxCheckPeriodically: Bool = false,
          inboxCheckIntervalMinutes: Int? = nil,
-         calendarInboxEnabled: Bool = false) {
+         calendarInboxEnabled: Bool = false,
+         visibleCalendarIDs: [String]? = nil) {
         self.storageFolder = storageFolder
         self.aiProviderID = aiProviderID
         self.ollamaModel = ollamaModel
@@ -63,6 +70,7 @@ struct AppConfig: Codable, Equatable {
         self.inboxCheckPeriodically = inboxCheckPeriodically
         self.inboxCheckIntervalMinutes = inboxCheckIntervalMinutes
         self.calendarInboxEnabled = calendarInboxEnabled
+        self.visibleCalendarIDs = visibleCalendarIDs
     }
 
     /// Backward-compatible decode: config.json files written before Phase 4
@@ -99,6 +107,10 @@ struct AppConfig: Codable, Equatable {
         // for existing files — only an explicit Settings toggle can enable it.
         calendarInboxEnabled = try container.decodeIfPresent(
             Bool.self, forKey: .calendarInboxEnabled) ?? false
+        // Calendar-visibility key: missing = nil = all calendars visible, so an
+        // older config.json decodes to today's default behavior.
+        visibleCalendarIDs = try container.decodeIfPresent(
+            [String].self, forKey: .visibleCalendarIDs)
     }
 
     static var defaultValue: AppConfig {

@@ -51,6 +51,35 @@ final class CalendarServiceTests: XCTestCase {
         XCTAssertNil(event.calendarTitle)
     }
 
+    // MARK: - Calendar-visibility display filter
+
+    func testVisibleFilterNilShowsEverything() {
+        let start = dateFor("2026-06-13T09:00:00+10:00")
+        let end = dateFor("2026-06-13T10:00:00+10:00")
+        let events = [
+            CalendarEvent(eventKitID: "e1", title: "Work thing", start: start, end: end,
+                          calendarTitle: "Work", calendarID: "cal-work"),
+            CalendarEvent(eventKitID: "e2", title: "Holiday", start: start, end: end,
+                          calendarTitle: "Holidays", calendarID: "cal-holidays"),
+        ]
+        XCTAssertEqual(events.visible(in: nil), events, "nil = all calendars visible")
+    }
+
+    func testVisibleFilterKeepsListedAndUnknownCalendars() {
+        let start = dateFor("2026-06-13T09:00:00+10:00")
+        let end = dateFor("2026-06-13T10:00:00+10:00")
+        let work = CalendarEvent(eventKitID: "e1", title: "Work thing", start: start, end: end,
+                                 calendarTitle: "Work", calendarID: "cal-work")
+        let holiday = CalendarEvent(eventKitID: "e2", title: "Holiday", start: start, end: end,
+                                    calendarTitle: "Holidays", calendarID: "cal-holidays")
+        // Unknown owning calendar stays visible (fail-open — hiding it would be silent).
+        let unknown = CalendarEvent(eventKitID: "e3", title: "Mystery", start: start, end: end,
+                                    calendarTitle: nil, calendarID: nil)
+        let filtered = [work, holiday, unknown].visible(in: ["cal-work"])
+        XCTAssertEqual(filtered.map(\.eventKitID), ["e1", "e3"],
+                       "listed calendar + unknown-calendar events survive; hidden one drops")
+    }
+
     // MARK: - calshow URL builder (RESEARCH Pitfall 5)
 
     func testCalshowURLSchemeIsCalshow() {

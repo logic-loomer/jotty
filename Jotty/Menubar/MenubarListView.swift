@@ -23,11 +23,27 @@ final class MenubarListModel: ObservableObject {
 
     /// Today's timed calendar events for the read-only menubar section (SC2).
     /// Empty when no service is injected or access is denied; the service already
-    /// filters all-day events and sorts by start (plan 03).
+    /// filters all-day events and sorts by start (plan 03). UNFILTERED by calendar
+    /// visibility — the drift pass and conflict copy need the full set; views render
+    /// `visibleCalendarEvents`.
     @Published private(set) var calendarEvents: [CalendarEvent] = []
+    /// Today's ALL-DAY events for the chip row (deadlines, PTO, holidays) — the rows
+    /// the timed fetch deliberately drops. Read-only signal, never conflict material.
+    @Published private(set) var allDayEvents: [CalendarEvent] = []
     /// True when calendar access is denied/restricted; the view degrades to a
     /// one-line affordance instead of rows (graceful degradation, never crashes).
     @Published private(set) var calendarAccessDenied: Bool = false
+
+    /// The DISPLAY set for the menubar section + canvas: `calendarEvents` through the
+    /// Settings → Calendar visibility filter (nil = all). Live-read so a Settings
+    /// toggle takes effect on the next render with no reload.
+    var visibleCalendarEvents: [CalendarEvent] {
+        calendarEvents.visible(in: configStore?.config.visibleCalendarIDs)
+    }
+    /// The display set for the all-day chip row, same visibility filter.
+    var visibleAllDayEvents: [CalendarEvent] {
+        allDayEvents.visible(in: configStore?.config.visibleCalendarIDs)
+    }
 
     /// One-time "Also delete the calendar event?" prompt (SC3). Set only when a
     /// linked task is deleted and `deleteCalendarEventWithTask` is still nil
@@ -79,6 +95,12 @@ final class MenubarListModel: ObservableObject {
     /// Exposed so the view can build a timezone-pinned HH:mm formatter that matches
     /// the model's date partitioning (the calendar section renders event start times).
     let timezone: TimeZone
+    /// SHARED timezone-pinned HH:mm formatter for event/block times, built ONCE (the
+    /// menubar section and canvas previously rebuilt a DateFormatter per render —
+    /// formatter construction is one of the more expensive Foundation inits, and the
+    /// calendar section renders one per visible event row). Main-actor confined like
+    /// the rest of the model, so the non-thread-safe DateFormatter is safe to share.
+    let timeFormatter: DateFormatter
     private let defaults: UserDefaults
     private let now: () -> Date
     /// Optional calendar seam; nil = pure task tool (no calendar section). Plan 08
@@ -161,6 +183,11 @@ final class MenubarListModel: ObservableObject {
          keybindings: KeybindingsStore? = nil) {
         self.store = store
         self.timezone = timezone
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        f.timeZone = timezone
+        self.timeFormatter = f
         self.defaults = defaults
         self.now = now
         self.calendar = calendar
@@ -368,6 +395,7 @@ final class MenubarListModel: ObservableObject {
                         clearMissingLinks: Bool = true) async {
         guard let calendar else {
             calendarEvents = []
+            allDayEvents = []
             calendarAccessDenied = false
             return
         }
@@ -385,6 +413,7 @@ final class MenubarListModel: ObservableObject {
             // the section empty WITHOUT flagging denial, so a later user action can still ask.
             guard promptIfUndetermined else {
                 calendarEvents = []
+                allDayEvents = []
                 calendarAccessDenied = false
                 return
             }
@@ -396,6 +425,7 @@ final class MenubarListModel: ObservableObject {
 
         guard granted else {
             calendarEvents = []
+            allDayEvents = []
             calendarAccessDenied = true
             return
         }
@@ -407,6 +437,7 @@ final class MenubarListModel: ObservableObject {
         let todayStart = cal.startOfDay(for: snapshot)
         guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else {
             calendarEvents = []
+            allDayEvents = []
             return
         }
 
@@ -421,7 +452,20 @@ final class MenubarListModel: ObservableObject {
             // Best-effort: a read failure degrades to no rows, never crashes capture/UI.
             NSLog("[Jotty] calendar read failed: \(error.localizedDescription)")
             calendarEvents = []
+            allDayEvents = []
             return
+        }
+
+        // All-day chip row: strictly additive signal, best-effort like the timed
+        // fetch — a failure degrades to no chips and never blocks the section.
+        do {
+            let fetchedAllDay = try await calendar.allDayEventsInRange(start: todayStart,
+                                                                       end: todayEnd)
+            guard !Task.isCancelled else { return }
+            allDayEvents = fetchedAllDay
+        } catch {
+            guard !Task.isCancelled else { return }
+            allDayEvents = []
         }
 
         // SC4: open-time drift awareness. Compare today's linked tasks against the fetched
@@ -2130,16 +2174,6 @@ struct MenubarListView: View {
 
     // MARK: - Calendar section (SC2)
 
-    /// Timezone-pinned HH:mm formatter for event start times; matches the model's
-    /// date partitioning so a row's time reads in the same zone as the rest of the view.
-    private var timeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        f.timeZone = model.timezone
-        return f
-    }
-
     @ViewBuilder
     private var calendarSection: some View {
         if model.calendarAccessDenied {
@@ -2155,7 +2189,7 @@ struct MenubarListView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-        } else if !model.calendarEvents.isEmpty {
+        } else if !model.visibleCalendarEvents.isEmpty || !model.visibleAllDayEvents.isEmpty {
             Divider()
             VStack(alignment: .leading, spacing: 4) {
                 Text("Calendar")
@@ -2167,20 +2201,25 @@ struct MenubarListView: View {
                     // #10: rotor-navigable section header.
                     .accessibilityAddTraits(.isHeader)
 
+                // All-day chips (deadlines, PTO, holidays): the compact signal row the
+                // timed list can't carry — the mapper drops all-day rows from it by
+                // design (they aren't conflict material and have no meaningful time).
+                allDayChipRow
+
                 // A busy day's events get their OWN capped scroll so the list can never
                 // grow unbounded and push the footer off-screen (#1). The header above
                 // stays fixed; every event stays reachable by scrolling. LazyVStack so a
                 // long agenda only builds the rows actually on screen.
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(model.calendarEvents) { event in
+                        ForEach(model.visibleCalendarEvents) { event in
                             Button(action: { openInCalendar(event) }) {
                                 HStack(spacing: 8) {
                                     // `·` bullet — read-only, distinct from task checkboxes.
                                     Text("·")
                                         .font(.callout.weight(.bold))
                                         .foregroundStyle(.secondary)
-                                    Text(timeFormatter.string(from: event.start))
+                                    Text(model.timeFormatter.string(from: event.start))
                                         .font(.callout.monospacedDigit())
                                         .foregroundStyle(.secondary)
                                     Text(event.title)
@@ -2201,6 +2240,34 @@ struct MenubarListView: View {
             .padding(.bottom, 6)
         }
         // Authorized-but-empty: render nothing (keep the popover tidy).
+    }
+
+    /// The all-day chip row: one capsule per all-day event, horizontally scrollable
+    /// when a day carries several. Tapping opens Calendar.app at the day, same as a
+    /// timed row. Renders nothing when the day has no (visible) all-day events.
+    @ViewBuilder
+    private var allDayChipRow: some View {
+        if !model.visibleAllDayEvents.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(model.visibleAllDayEvents) { event in
+                        Button(action: { openInCalendar(event) }) {
+                            Text(event.title)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("All-day: \(event.title)")
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .padding(.bottom, 2)
+        }
     }
 
     /// Opens Calendar.app at the event's date via `calshow:` (date-level, not

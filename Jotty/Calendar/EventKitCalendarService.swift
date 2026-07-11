@@ -147,6 +147,16 @@ final class EventKitCalendarService: CalendarService {
             map: CalendarEventMapper.map)
     }
 
+    func allDayEventsInRange(start: Date, end: Date) async throws -> [CalendarEvent] {
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        // The complement of eventsInRange: ONLY the all-day rows (deadlines, PTO,
+        // holidays), mapped and start-sorted the same way, for the chip row.
+        return CalendarEventMapper.transformAllDay(
+            store.events(matching: predicate),
+            isAllDay: { $0.isAllDay },
+            map: CalendarEventMapper.map)
+    }
+
     func overlappingEvents(start: Date, end: Date) async throws -> [CalendarEvent] {
         // The predicate already returns events intersecting the window; tighten to a strict
         // overlap so touching intervals (end == start) are not flagged as conflicts (SC5).
@@ -159,6 +169,14 @@ final class EventKitCalendarService: CalendarService {
     func writableCalendars() async -> [(id: String, title: String)] {
         store.calendars(for: .event)
             .filter { $0.allowsContentModifications }
+            .map { (id: $0.calendarIdentifier, title: $0.title) }
+    }
+
+    func readableCalendars() async -> [(id: String, title: String)] {
+        // EVERY event calendar — read-only subscriptions included — so the
+        // visibility multi-select can hide the holiday/birthday feeds that
+        // writable-only listing never surfaces.
+        store.calendars(for: .event)
             .map { (id: $0.calendarIdentifier, title: $0.title) }
     }
 
