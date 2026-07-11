@@ -1824,6 +1824,48 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertEqual(stored.calEventID, "evt-1")
     }
 
+    /// A conflict decision can arrive arbitrarily late — the popover can close with
+    /// the prompt pending and re-present it on a later open. A confirm that crossed
+    /// midnight must NOT replay the stale snapshot (it wrote the time: token into
+    /// YESTERDAY's file and moved the live event onto a past slot).
+    func testEditTimeConflictConfirmAfterMidnightAbortsStaleMove() async throws {
+        let day1 = makeDate(2026, 6, 12, h: 22)
+        let originalBlock = TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                                      end: makeDate(2026, 6, 12, h: 15))
+        let (store, _) = try seed(tasks: [linkedTask(id: "t_linked", eventID: "evt-1")],
+                                  at: day1)
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-1", title: "review",
+                          start: originalBlock.start, end: originalBlock.end,
+                          calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-busy", title: "Busy Slot",
+                          start: makeDate(2026, 6, 12, h: 23),
+                          end: makeDate(2026, 6, 12, h: 23, min: 30), calendarTitle: "Work"),
+        ]
+        // Mutable clock: the decision lands on the NEXT day.
+        nonisolated(unsafe) var currentNow = day1
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { currentNow }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let task = try XCTUnwrap(model.todayTasks.first { $0.id == "t_linked" })
+
+        model.editTime(task, to: TimeBlock(start: makeDate(2026, 6, 12, h: 23),
+                                           end: makeDate(2026, 6, 12, h: 23, min: 30)))
+        try await waitUntil { model.pendingDropConflict != nil }
+
+        // Midnight passes with the prompt unanswered; then the user confirms.
+        currentNow = makeDate(2026, 6, 13, h: 9)
+        model.resolveDropConflict(commitAnyway: true)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertTrue(fake.updatedEventIDs.isEmpty,
+                      "a stale cross-midnight confirm must not move the event")
+        let stored = try XCTUnwrap(try store.readDoc(on: day1).tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.timeBlock, originalBlock,
+                       "yesterday's file keeps the original time: token")
+    }
+
     // MARK: - Calendar visibility (Settings → "Show events from") + all-day chips
 
     /// `visibleCalendarEvents` live-reads the config filter for DISPLAY, while the

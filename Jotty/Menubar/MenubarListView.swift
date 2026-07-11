@@ -746,6 +746,17 @@ final class MenubarListModel: ObservableObject {
                 await self.reloadOnMain(clearMissingLinks: false)
                 return
             }
+            // The decision can arrive arbitrarily late: the popover can close with
+            // the prompt pending (the inert isPresented setter keeps the
+            // continuation suspended) and re-present it on a later open. A confirm
+            // that crossed midnight must not replay the stale snapshot — that wrote
+            // the time: token into YESTERDAY's file and moved the live event onto a
+            // past slot. The task has rolled; abort and let the user re-issue.
+            guard DailyFile.calendar(timezone: self.timezone)
+                .isDate(self.now(), inSameDayAs: snapshot) else {
+                await self.reloadOnMain(clearMissingLinks: false)
+                return
+            }
 
             do {
                 try self.store.updateTodoTime(id: task.id, timeBlock: newBlock, on: snapshot)
@@ -1173,6 +1184,14 @@ final class MenubarListModel: ObservableObject {
                 commitAnyway = await self.awaitDropConflictDecision(title: first.title)
             }
             if commitAnyway {
+                // Same cross-midnight guard as editTime: a conflict decision that
+                // arrives on a later day must not create an event for the stale
+                // (yesterday) slot or write the link into yesterday's file.
+                guard DailyFile.calendar(timezone: self.timezone)
+                    .isDate(self.now(), inSameDayAs: snapshot) else {
+                    await self.reloadOnMain(clearMissingLinks: false)
+                    return
+                }
                 do {
                     let eventID = try await calendar.createEvent(title: title,
                                                                  start: block.start,
