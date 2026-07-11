@@ -29,59 +29,78 @@ final class CalendarCoordinatorTests: XCTestCase {
         (makeDate(2026, 6, 12, h: 0), makeDate(2026, 6, 13, h: 0))
     }
 
-    // MARK: - loadToday: the lazy access gate + fetches
+    // MARK: - resolveAccess: the lazy gate
 
-    func testLoadTodayAuthorizedReturnsSnapshot() async {
+    func testResolveAccessAuthorizedNeverRePrompts() async {
         let fake = FakeCalendarService()
-        fake.cannedEvents = [event("e1", "Standup", h: 9)]
-        fake.cannedAllDayEvents = [
-            CalendarEvent(eventKitID: "ad1", title: "PTO",
-                          start: window.start, end: window.end, calendarTitle: "Team")
-        ]
         let outcome = await CalendarCoordinator(calendar: fake)
-            .loadToday(promptIfUndetermined: true, from: window.start, to: window.end)
-        XCTAssertEqual(outcome, .snapshot(events: fake.cannedEvents,
-                                          allDay: fake.cannedAllDayEvents))
+            .resolveAccess(promptIfUndetermined: true)
+        XCTAssertEqual(outcome, .granted)
         XCTAssertFalse(fake.calls.contains(.requestAccess), "authorized never re-prompts")
     }
 
-    func testLoadTodayDeniedDegradesWithoutPrompting() async {
+    func testResolveAccessDeniedWithoutPromptingOrReads() async {
         let fake = FakeCalendarService()
         fake.accessToReturn = .denied
         let outcome = await CalendarCoordinator(calendar: fake)
-            .loadToday(promptIfUndetermined: true, from: window.start, to: window.end)
+            .resolveAccess(promptIfUndetermined: true)
         XCTAssertEqual(outcome, .denied)
         XCTAssertFalse(fake.calls.contains(.requestAccess))
-        XCTAssertFalse(fake.calls.contains(.eventsInRange), "denied performs zero reads")
+        XCTAssertFalse(fake.calls.contains(.eventsInRange), "the gate performs zero reads")
     }
 
-    func testLoadTodayNotDeterminedWithoutPromptIsUnavailable() async {
+    func testResolveAccessNotDeterminedWithoutPromptIsUnavailable() async {
         // WR-06: a background reload must never fire the TCC dialog.
         let fake = FakeCalendarService()
         fake.accessToReturn = .notDetermined
         let outcome = await CalendarCoordinator(calendar: fake)
-            .loadToday(promptIfUndetermined: false, from: window.start, to: window.end)
+            .resolveAccess(promptIfUndetermined: false)
         XCTAssertEqual(outcome, .unavailable)
         XCTAssertEqual(fake.requestAccessCallCount, 0)
     }
 
-    func testLoadTodayNotDeterminedPromptsOnceAndDeniedRefusalDegrades() async {
+    func testResolveAccessNotDeterminedPromptsOnceAndRefusalDegrades() async {
         // The fake's requestAccess returns accessToReturn (.notDetermined here,
         // != .authorized), modelling a refused prompt → denied outcome, one ask.
         let fake = FakeCalendarService()
         fake.accessToReturn = .notDetermined
         let outcome = await CalendarCoordinator(calendar: fake)
-            .loadToday(promptIfUndetermined: true, from: window.start, to: window.end)
+            .resolveAccess(promptIfUndetermined: true)
         XCTAssertEqual(outcome, .denied)
         XCTAssertEqual(fake.requestAccessCallCount, 1, "asks exactly once")
     }
 
-    func testLoadTodayTimedReadFailureIsReadFailed() async {
+    // MARK: - Window fetches
+
+    func testFetchTimedEventsReturnsFetched() async {
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("e1", "Standup", h: 9)]
+        let outcome = await CalendarCoordinator(calendar: fake)
+            .fetchTimedEvents(from: window.start, to: window.end)
+        XCTAssertEqual(outcome, .fetched(fake.cannedEvents))
+    }
+
+    func testFetchTimedEventsReadFailureIsFailed() async {
         let fake = FakeCalendarService()
         fake.errorToThrow = .underlying(message: "boom")
         let outcome = await CalendarCoordinator(calendar: fake)
-            .loadToday(promptIfUndetermined: true, from: window.start, to: window.end)
-        XCTAssertEqual(outcome, .readFailed)
+            .fetchTimedEvents(from: window.start, to: window.end)
+        XCTAssertEqual(outcome, .failed)
+    }
+
+    func testFetchAllDayEventsReturnsFetchedAndFailsSoft() async {
+        let fake = FakeCalendarService()
+        fake.cannedAllDayEvents = [
+            CalendarEvent(eventKitID: "ad1", title: "PTO",
+                          start: window.start, end: window.end, calendarTitle: "Team")
+        ]
+        let coordinator = CalendarCoordinator(calendar: fake)
+        let ok = await coordinator.fetchAllDayEvents(from: window.start, to: window.end)
+        XCTAssertEqual(ok, .fetched(fake.cannedAllDayEvents))
+
+        fake.errorToThrow = .underlying(message: "boom")
+        let bad = await coordinator.fetchAllDayEvents(from: window.start, to: window.end)
+        XCTAssertEqual(bad, .failed, "the chip row degrades, never blocks")
     }
 
     // MARK: - updateOrRecreate (SC3)

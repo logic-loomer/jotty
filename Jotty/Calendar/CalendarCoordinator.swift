@@ -21,34 +21,32 @@ final class CalendarCoordinator {
     }
 
     // MARK: - Today load (the reloadCalendar service leg)
+    //
+    // Deliberately THREE small calls rather than one combined load, because the
+    // model's publish CADENCE between them is behavior (refactor-review WR):
+    // `calendarAccessDenied = false` publishes immediately on grant (not after a
+    // slow fetch), the today WINDOW is computed after the gate (a TCC prompt can
+    // suspend across midnight — the window must be the day the fetch actually
+    // runs), and fresh timed events publish before the all-day fetch (a
+    // supersede between the two must not discard the timed result).
 
-    /// Outcome of a today-window load. `superseded` means the wrapping task was
-    /// cancelled mid-flight (a newer reload owns the published state) — the caller
-    /// must not touch any state for it.
-    enum TodayOutcome: Equatable {
-        /// Authorized and fetched. `allDay` degrades to [] on its own read failure
-        /// (the chip row is strictly additive signal; a failure never blocks the
-        /// timed section or the drift pass).
-        case snapshot(events: [CalendarEvent], allDay: [CalendarEvent])
+    /// Outcome of the lazy access gate. `superseded` = the wrapping task was
+    /// cancelled while awaiting the prompt (a newer reload owns the published
+    /// state) — the caller must not touch any state for it.
+    enum AccessOutcome: Equatable {
+        case granted
         /// Access denied/restricted: the caller shows the degraded one-liner.
         case denied
         /// Still notDetermined and prompting was not allowed (WR-06 background
         /// reload): leave the section empty WITHOUT flagging denial, so a later
         /// explicit user action can still ask.
         case unavailable
-        /// The timed read threw: degrade to no rows, skip the drift pass.
-        case readFailed
-        /// Cancelled while awaiting the prompt or a fetch.
         case superseded
     }
 
-    /// Runs the lazy access gate (authorized → fetch; denied → degrade;
-    /// notDetermined → request once, only when `promptIfUndetermined`) and, when
-    /// granted, fetches the window's timed + all-day events. Checks
-    /// `Task.isCancelled` after every suspension so an out-of-order older reload
-    /// can never overwrite a newer one's state (the caller bails on `.superseded`).
-    func loadToday(promptIfUndetermined: Bool,
-                   from start: Date, to end: Date) async -> TodayOutcome {
+    /// Runs the lazy access gate: authorized → granted; denied → denied;
+    /// notDetermined → request once (only when `promptIfUndetermined`).
+    func resolveAccess(promptIfUndetermined: Bool) async -> AccessOutcome {
         let granted: Bool
         switch calendar.access() {
         case .authorized:
@@ -59,28 +57,46 @@ final class CalendarCoordinator {
             guard promptIfUndetermined else { return .unavailable }
             granted = await calendar.requestAccess() == .authorized
         }
+        // Superseded while awaiting the prompt: checked BEFORE the denied branch so
+        // a stale run can never publish a denial the newer run no longer sees.
         guard !Task.isCancelled else { return .superseded }
-        guard granted else { return .denied }
+        return granted ? .granted : .denied
+    }
 
-        let events: [CalendarEvent]
+    /// Outcome of one window fetch.
+    enum FetchOutcome: Equatable {
+        case fetched([CalendarEvent])
+        /// The read threw (already logged where warranted).
+        case failed
+        /// Cancelled mid-fetch: the caller must not touch any state.
+        case superseded
+    }
+
+    /// The timed-events fetch (service filters all-day + sorts by start, plan 03).
+    func fetchTimedEvents(from start: Date, to end: Date) async -> FetchOutcome {
         do {
-            events = try await calendar.eventsInRange(start: start, end: end)
+            let events = try await calendar.eventsInRange(start: start, end: end)
             guard !Task.isCancelled else { return .superseded }
+            return .fetched(events)
         } catch {
             guard !Task.isCancelled else { return .superseded }
             NSLog("[Jotty] calendar read failed: \(error.localizedDescription)")
-            return .readFailed
+            return .failed
         }
+    }
 
-        var allDay: [CalendarEvent] = []
+    /// The all-day fetch for the chip row — strictly additive signal, so a read
+    /// failure is `.failed` and the caller degrades to no chips without blocking
+    /// the timed section or the drift pass.
+    func fetchAllDayEvents(from start: Date, to end: Date) async -> FetchOutcome {
         do {
-            allDay = try await calendar.allDayEventsInRange(start: start, end: end)
+            let events = try await calendar.allDayEventsInRange(start: start, end: end)
             guard !Task.isCancelled else { return .superseded }
+            return .fetched(events)
         } catch {
             guard !Task.isCancelled else { return .superseded }
-            allDay = []
+            return .failed
         }
-        return .snapshot(events: events, allDay: allDay)
     }
 
     // MARK: - Update-or-recreate (SC3, shared by editTime and moveToTomorrow)

@@ -409,23 +409,11 @@ final class MenubarListModel: ObservableObject {
             return
         }
 
-        // Today's range in the model's timezone (matches task partitioning).
-        let snapshot = now()
-        let cal = DailyFile.calendar(timezone: timezone)
-        let todayStart = cal.startOfDay(for: snapshot)
-        guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else {
-            calendarEvents = []
-            allDayEvents = []
-            return
-        }
-
-        // The coordinator runs the lazy access gate + fetches (with the WR-06
-        // no-prompt rule and per-suspension cancellation checks); this model maps
-        // the outcome onto its published state and owns the drift pass below.
-        let outcome = await calendarCoordinator.loadToday(
-            promptIfUndetermined: promptIfUndetermined,
-            from: todayStart, to: todayEnd)
-        switch outcome {
+        // The coordinator runs the lazy access gate (WR-06 no-prompt rule and the
+        // post-prompt cancellation check); this model maps outcomes onto its
+        // published state — immediately, so a fresh grant clears the denied
+        // affordance before the (possibly slow) fetches run.
+        switch await calendarCoordinator.resolveAccess(promptIfUndetermined: promptIfUndetermined) {
         case .superseded:
             // A newer reload owns the published state — touch nothing.
             return
@@ -439,14 +427,42 @@ final class MenubarListModel: ObservableObject {
             allDayEvents = []
             calendarAccessDenied = false
             return
-        case .readFailed:
+        case .granted:
+            calendarAccessDenied = false
+        }
+
+        // Today's range in the model's timezone (matches task partitioning) —
+        // computed AFTER the gate: the TCC prompt can suspend across midnight, and
+        // the window must be the day the fetch actually runs, not the day it asked.
+        let snapshot = now()
+        let cal = DailyFile.calendar(timezone: timezone)
+        let todayStart = cal.startOfDay(for: snapshot)
+        guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else {
             calendarEvents = []
             allDayEvents = []
-            calendarAccessDenied = false
             return
-        case .snapshot(let events, let allDay):
-            calendarAccessDenied = false
+        }
+
+        switch await calendarCoordinator.fetchTimedEvents(from: todayStart, to: todayEnd) {
+        case .superseded:
+            return
+        case .failed:
+            // Best-effort: a read failure degrades to no rows, skips the drift pass.
+            calendarEvents = []
+            allDayEvents = []
+            return
+        case .fetched(let events):
+            // Published BEFORE the all-day fetch: a supersede between the two must
+            // not discard the already-fetched timed result.
             calendarEvents = events
+        }
+
+        switch await calendarCoordinator.fetchAllDayEvents(from: todayStart, to: todayEnd) {
+        case .superseded:
+            return
+        case .failed:
+            allDayEvents = []
+        case .fetched(let allDay):
             allDayEvents = allDay
         }
 
