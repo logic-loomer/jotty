@@ -68,3 +68,31 @@ jobs:
             -scheme Jotty \
             -destination 'platform=macOS' \
             -skip-testing:JottyTests/CrossProviderTests
+
+  # Release-configuration compile check: the test job builds Debug only, so a
+  # Release-only breakage (optimization/assertion differences, dead-stripping)
+  # would otherwise land silently and only surface at install time
+  # (scripts/build-and-install.sh builds Release). Build-only — no signing,
+  # no tests, no artifacts.
+  release-build:
+    name: Release build (macOS 26)
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app || sudo xcode-select -p
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release
+        run: |
+          xcodebuild build \
+            -scheme Jotty \
+            -configuration Release \
+            -destination 'platform=macOS'
