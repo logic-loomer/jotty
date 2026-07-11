@@ -115,4 +115,46 @@ final class ISOTaskMapperTests: XCTestCase {
         XCTAssertEqual(fmt.string(from: block.start), "2026-05-04 13:00",
                        "Start time in user TZ must match the ISO offset")
     }
+
+    // MARK: - Datetime tolerance chain (WR: common LLM variants dropped blocks)
+
+    /// Models routinely emit fractional seconds, zone-less datetimes, or minute
+    /// precision even when the prompt's example shows the strict form. The old
+    /// single strict formatter silently dropped the WHOLE block on every variant.
+    func test_blockParsesCommonLLMDatetimeVariants() {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let variants: [(start: String, end: String, label: String)] = [
+            ("2026-05-04T13:00:00.000+10:00", "2026-05-04T14:00:00.000+10:00", "fractional seconds"),
+            ("2026-05-04T13:00:00", "2026-05-04T14:00:00", "no offset (local intended)"),
+            ("2026-05-04T13:00", "2026-05-04T14:00", "minute precision, no offset"),
+        ]
+        for v in variants {
+            let ai = [ExtractedTaskAI(title: "laptop setup", dueDateISO: nil,
+                                      blockStartISO: v.start, blockEndISO: v.end)]
+            let result = ISOTaskMapper.map(ai, in: tz)
+            let block = result.first?.timeBlock
+            XCTAssertNotNil(block, "variant '\(v.label)' must parse, not drop the block")
+            if let block {
+                let fmt = DateFormatter()
+                fmt.locale = Locale(identifier: "en_US_POSIX")
+                fmt.timeZone = tz
+                fmt.dateFormat = "yyyy-MM-dd HH:mm"
+                XCTAssertEqual(fmt.string(from: block.start), "2026-05-04 13:00",
+                               "variant '\(v.label)' resolves to Sydney wall-clock 13:00")
+            }
+        }
+    }
+
+    /// The due-date field stays STRICT (yyyy-MM-dd only): models hallucinate full
+    /// datetimes into it for undated inputs, and rejecting them is what keeps a
+    /// dateless capture from growing a spurious due date.
+    func test_dueDateRejectsFullDatetime() {
+        let tz = TimeZone(identifier: "Australia/Sydney")!
+        let ai = [ExtractedTaskAI(title: "look into the auth bug",
+                                  dueDateISO: "2026-05-04T07:00:00+10:00",
+                                  blockStartISO: nil, blockEndISO: nil)]
+        let result = ISOTaskMapper.map(ai, in: tz)
+        XCTAssertNil(result.first?.dueDate,
+                     "a hallucinated datetime in the date-only field must be rejected")
+    }
 }

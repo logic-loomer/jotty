@@ -126,6 +126,13 @@ final class OllamaInstaller: ObservableObject {
     /// codesign. Never called when locate() found an existing install — the
     /// UI only offers Download from `.notInstalled`.
     func install() async {
+        // Reentrancy guard: a second Download click while the (slow) release lookup
+        // is still in flight started TWO concurrent ~250MB downloads racing over the
+        // same download.tmp/Ollama.app paths. State flips to .downloading BEFORE the
+        // first await so the button disappears synchronously with the first click.
+        guard case .notInstalled = state else { return }
+        state = .downloading(progress: 0)
+
         let supportDir = deps.supportDir
         let bundleURL = supportDir.appendingPathComponent("Ollama.app")
         let tmpURL = supportDir.appendingPathComponent("download.tmp")
@@ -137,7 +144,6 @@ final class OllamaInstaller: ObservableObject {
             let asset = try await deps.latestRelease()
 
             // 2. Streaming download with progress.
-            state = .downloading(progress: 0)
             let zipURL = try await deps.download(asset.url, tmpURL) {
                 [weak self] fraction in
                 self?.state = .downloading(progress: fraction)
@@ -157,7 +163,14 @@ final class OllamaInstaller: ObservableObject {
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
             try? FileManager.default.removeItem(at: tmpURL)
-            state = .failed(OllamaError(from: error))
+            // The Cancel button cancels the wrapping task — a user-driven abort is a
+            // return to "not installed", not a red failure row with an OS-generated
+            // cancellation message.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                state = .notInstalled
+            } else {
+                state = .failed(OllamaError(from: error))
+            }
         }
     }
 

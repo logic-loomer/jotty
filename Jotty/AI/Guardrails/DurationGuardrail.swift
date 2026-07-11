@@ -78,9 +78,19 @@ enum DurationGuardrail {
         }
     }
 
-    /// Matches "1pm", "1:30pm", "13:00", "1-2pm", "from 9 to 11am", "9am-5pm", "14:00-15:30".
+    /// Matches "1pm", "1:30pm", "13:00", "1-2pm", "from 9 to 11am", "9am-5pm",
+    /// "14:00-15:30" — and the bare-digits range form "from 9 to 11" (no meridiem).
+    /// Without that last form, a capture like "meet Sam from 9 to 11, then an hour
+    /// of email" tripped the duration gate ("an hour") with no recognized clock
+    /// anchor, stripping the MEETING's legitimate block along with the duration's.
     private static func hasExplicitClockTime(in input: String) -> Bool {
-        let pattern = #"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\b|\b\d{1,2}:\d{2}\b"#
-        return input.range(of: pattern, options: .regularExpression) != nil
+        let patterns = [
+            #"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b"#,
+            #"\b\d{1,2}:\d{2}\b"#,
+            #"\bfrom\s+\d{1,2}(?::\d{2})?\s+(?:to|till|until)\s+\d{1,2}(?::\d{2})?\b"#,
+        ]
+        return patterns.contains { pattern in
+            input.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 }
