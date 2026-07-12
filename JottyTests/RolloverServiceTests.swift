@@ -52,6 +52,64 @@ final class RolloverServiceTests: XCTestCase {
                        .flatMap(dateOnly), "2026-05-08")
     }
 
+    /// Adversarial-review finding 1 (blocker): the today-merge must not clobber
+    /// an external edit that lands while the merge is being written. The old
+    /// readDoc→replaceTasks pattern re-asserted a stale snapshot on conflict
+    /// retry; the merge transform must re-apply against a FRESH read.
+    func testRolloverMergePreservesExternalTaskAddedMidWrite() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 7, m: 30)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "leftover", createdAt: yesterday)],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-07")
+
+        let todayURL = folder.appendingPathComponent("2026-05-08.md")
+        var injected = false
+        store.onBeforeWriteForTesting = {
+            guard !injected else { return }
+            injected = true
+            // External writer (Obsidian) adds a task to TODAY's file while the
+            // rollover merge is in flight.
+            var doc = MarkdownDoc(date: self.makeDate(2026, 5, 8))
+            doc.appendTodo(Todo(id: "t_ext", text: "obsidian task", createdAt: self.makeDate(2026, 5, 8)))
+            try! doc.serialize(timezone: self.tz).write(to: todayURL, atomically: true, encoding: .utf8)
+        }
+        defer { store.onBeforeWriteForTesting = nil }
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        try svc.run(now: today)
+
+        let todayDoc = try store.readDoc(on: today)
+        XCTAssertTrue(todayDoc.tasks.contains { $0.id == "t_ext" },
+                      "external edit must survive the rollover merge retry")
+        XCTAssertTrue(todayDoc.tasks.contains { $0.id == "t_a" },
+                      "collected leftover must still land")
+    }
+
+    /// Adversarial-review finding 2: an unreadable ORIGIN day must abort the run
+    /// (state not advanced) — not be silently skipped with its leftovers
+    /// stranded forever behind an advanced lastRollover anchor.
+    func testRolloverAbortsWhenOriginDayUnreadable() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 7, m: 30)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "leftover", createdAt: yesterday)],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-07")
+        let ydayURL = folder.appendingPathComponent("2026-05-07.md")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: ydayURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: ydayURL.path) }
+
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz)
+        XCTAssertThrowsError(try svc.run(now: today))
+
+        XCTAssertEqual(try String(contentsOf: statePath, encoding: .utf8), "2026-05-07",
+                       "state must not advance past an unread origin day")
+    }
+
     // MARK: - Recurrence instancing (Phase 8 SC2 / CALX-02)
 
     /// A .daily template due on the new day produces exactly one FRESH instance

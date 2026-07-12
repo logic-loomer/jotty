@@ -180,6 +180,57 @@ final class StoreSyncSafetyTests: XCTestCase {
                        "retry must re-assert the captured intent (done), not re-flip to false")
     }
 
+    /// Adversarial-review finding 4: an EXTERNAL delete of the task mid-move must
+    /// win — the landing must not resurrect a task the user just deleted in
+    /// Obsidian. (The landing id-guard prevents duplication, not resurrection.)
+    func testMoveToTomorrowDoesNotResurrectExternallyDeletedTask() throws {
+        let source = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_move", text: "moving", createdAt: source)],
+                                at: source)
+        let sourceURL = folder.appendingPathComponent("2026-05-08.md")
+
+        var injected = false
+        store.onBeforeWriteForTesting = {
+            guard !injected else { return }
+            injected = true
+            // External writer deletes the task from the SOURCE file while the
+            // move is landing the copy on tomorrow.
+            var external = try! MarkdownDoc.parse(String(contentsOf: sourceURL, encoding: .utf8), timezone: self.tz)
+            external.tasks.removeAll { $0.id == "t_move" }
+            try! external.serialize(timezone: self.tz).write(to: sourceURL, atomically: true, encoding: .utf8)
+        }
+        defer { store.onBeforeWriteForTesting = nil }
+
+        try store.moveTodoToTomorrow(id: "t_move", from: source, now: source)
+
+        let sourceDoc = try store.readDoc(on: source)
+        let tomorrowDoc = try store.readDoc(on: makeDate(2026, 5, 9, h: 0, m: 0))
+        XCTAssertFalse(sourceDoc.tasks.contains { $0.id == "t_move" })
+        XCTAssertFalse(tomorrowDoc.tasks.contains { $0.id == "t_move" },
+                       "landing must be compensated when the source line vanished externally")
+    }
+
+    /// Adversarial-review nit 5: a declining transform must not materialize the
+    /// storage folder as a side effect.
+    func testDecliningTransformDoesNotCreateStorageFolder() throws {
+        let ghostFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let ghostStore = Store(folder: ghostFolder, timezone: tz)
+        try ghostStore.mutateDay(on: makeDate(2026, 5, 8, h: 9, m: 0)) { _ in false }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ghostFolder.path))
+    }
+
+    /// Adversarial-review finding 3 (visibility): StoreError must render a
+    /// human-readable description, not "(Jotty.StoreError error 1.)".
+    func testStoreErrorsAreLocalized() {
+        let url = URL(fileURLWithPath: "/tmp/2026-05-08.md")
+        let unreadable = StoreError.dayFileUnreadable(url, underlying: CocoaError(.fileReadNoPermission))
+        let exhausted = StoreError.conflictRetryExhausted(url)
+        XCTAssertTrue((unreadable.errorDescription ?? "").contains("2026-05-08"))
+        XCTAssertTrue((exhausted.errorDescription ?? "").lowercased().contains("conflict"))
+    }
+
     /// Guarded ops (rename/toggle/…) on an unreadable file must also throw rather
     /// than silently no-op — the caller needs to surface the failure notice.
     func testRenameOnUnreadableDayFileThrows() throws {

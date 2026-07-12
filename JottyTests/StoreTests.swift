@@ -72,13 +72,16 @@ final class StoreTests: XCTestCase {
         XCTAssertFalse(body2.contains("done:"), "'done:' metadata should be removed on toggle-off")
     }
 
-    func testReplaceTasksOverwritesList() throws {
+    func testMutateDayCanOverwriteTaskList() throws {
         let store = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
         let now = makeDate(2026, 5, 8, h: 7, m: 30)
         try store.appendCapture(noteText: "", noteId: nil,
                                 tasks: [Todo(id: "t_001", text: "old", createdAt: now)],
                                 at: now)
-        try store.replaceTasks([Todo(id: "t_999", text: "new", createdAt: now)], on: now)
+        try store.mutateDay(on: now) { doc in
+            doc.tasks = [Todo(id: "t_999", text: "new", createdAt: now)]
+            return true
+        }
         let url = folder.appendingPathComponent("2026-05-08.md")
         let body = try String(contentsOf: url, encoding: .utf8)
         XCTAssertFalse(body.contains("t_001"))

@@ -15,6 +15,21 @@ enum StoreError: Error {
     case conflictRetryExhausted(URL)
 }
 
+extension StoreError: LocalizedError {
+    /// Human-readable messages: these currently reach the user only via NSLog
+    /// (the Tier-1 1.4 actionFailureNotice channel is not built yet — when it
+    /// lands, these strings are what it shows). Without this conformance the
+    /// logs printed "(Jotty.StoreError error 1.)".
+    var errorDescription: String? {
+        switch self {
+        case .dayFileUnreadable(let url, let underlying):
+            return "Couldn't read \(url.lastPathComponent): \(underlying.localizedDescription)"
+        case .conflictRetryExhausted(let url):
+            return "Couldn't save \(url.lastPathComponent): another app kept changing it (conflict retries exhausted)"
+        }
+    }
+}
+
 /// Opaque token capturing what was on disk when a day file was read — the
 /// optimistic-concurrency stamp (design note 2026-07-12, phase 1). Hash of the
 /// RAW on-disk bytes (not the parsed doc): any external byte change, even a
@@ -202,17 +217,25 @@ final class Store {
             return true
         }
 
+        var removedFromSource = false
         try mutateDay(on: sourceDate) { doc in
             guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return false }
             doc.tasks.remove(at: idx)
+            removedFromSource = true
             return true
         }
-    }
 
-    func replaceTasks(_ tasks: [Todo], on date: Date) throws {
-        try mutateDay(on: date) { doc in
-            doc.tasks = tasks
-            return true
+        // Compensation (adversarial-review finding 4): if the source line vanished
+        // between our pre-read and the removal — an EXTERNAL delete won the race —
+        // the landing above just resurrected a task the user deleted. Take the
+        // landed copy back off tomorrow so the external delete wins. (A re-driven
+        // move after a mid-failure is unaffected: its source removal succeeds.)
+        if !removedFromSource {
+            try mutateDay(on: tomorrowStart) { doc in
+                guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return false }
+                doc.tasks.remove(at: idx)
+                return true
+            }
         }
     }
 
@@ -288,7 +311,6 @@ final class Store {
     /// elimination needs a lock file every writer honors, and Obsidian never will.
     func mutateDay(on date: Date, attempts: Int = 3,
                    _ transform: (inout MarkdownDoc) -> Bool) throws {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
         for _ in 0..<attempts {
             let read = try readDay(at: url, on: date)
@@ -296,6 +318,10 @@ final class Store {
             guard transform(&doc) else { return }
             onBeforeWriteForTesting?()
             guard try currentStamp(at: url) == read.stamp else { continue }
+            // Folder creation sits on the WRITE path only: a declining transform
+            // (or a pure read) must not materialize the storage folder as a side
+            // effect (adversarial-review nit 5).
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try persist(doc, to: url, quarantining: read.corruptRaw)
             return
         }

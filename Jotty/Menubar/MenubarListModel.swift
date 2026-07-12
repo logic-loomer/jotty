@@ -516,16 +516,15 @@ final class MenubarListModel: ObservableObject {
         missingLinkPrompt = nil
         let snapshot = now()
         do {
-            var doc = try store.readDoc(on: snapshot)
             let missingIDs = Set(prompt.tasks.map(\.id))
-            var cleared = false
-            for idx in doc.tasks.indices where missingIDs.contains(doc.tasks[idx].id)
-                && doc.tasks[idx].calEventID != nil {
-                doc.tasks[idx].calEventID = nil
-                cleared = true
-            }
-            if cleared {
-                try store.replaceTasks(doc.tasks, on: snapshot)
+            try store.mutateDay(on: snapshot) { doc in
+                var cleared = false
+                for idx in doc.tasks.indices where missingIDs.contains(doc.tasks[idx].id)
+                    && doc.tasks[idx].calEventID != nil {
+                    doc.tasks[idx].calEventID = nil
+                    cleared = true
+                }
+                return cleared
             }
         } catch {
             NSLog("[Jotty] clearing dead calendar links failed: \(error.localizedDescription)")
@@ -776,11 +775,11 @@ final class MenubarListModel: ObservableObject {
     /// `CalendarCoordinator.updateOrRecreate`.
     private func relink(taskID: String, block: TimeBlock, newEventID: String, on date: Date) {
         do {
-            var doc = try store.readDoc(on: date)
-            if let idx = doc.tasks.firstIndex(where: { $0.id == taskID }) {
+            try store.mutateDay(on: date) { doc in
+                guard let idx = doc.tasks.firstIndex(where: { $0.id == taskID }) else { return false }
                 doc.tasks[idx].timeBlock = block
                 doc.tasks[idx].calEventID = newEventID
-                try store.replaceTasks(doc.tasks, on: date)
+                return true
             }
         } catch {
             NSLog("[Jotty] recreate-relink rewrite failed: \(error.localizedDescription)")
@@ -790,26 +789,30 @@ final class MenubarListModel: ObservableObject {
     // MARK: - Drift sync (SC4)
 
     /// Confirms the open-time drift prompt: calendar wins. Each drifted task's text
-    /// and time block are rewritten to match its calendar event, persisted via
-    /// replaceTasks (T-5-10 — user-confirmed, scoped to the drifted linked tasks).
+    /// and time block are rewritten to match its calendar event, persisted per-id
+    /// through the mutateDay funnel (T-5-10 — user-confirmed, scoped to the drifted
+    /// linked tasks; conflict-safe against external writers, review finding 1).
     func confirmDriftSync() {
         guard let prompt = driftPrompt else { return }
         driftPrompt = nil
         let snapshot = now()
         do {
-            var doc = try store.readDoc(on: snapshot)
-            for pair in prompt.drifted {
-                guard let idx = doc.tasks.firstIndex(where: { $0.id == pair.task.id }) else { continue }
-                // Store the SANITIZED title (WR-04): drift is detected via
-                // `sanitize(task.text) != event.title`, and create writes `sanitize(text)`
-                // as the event title. Writing the raw event title back into `task.text`
-                // would be asymmetric — the next open recomputes `sanitize(newText)`, which
-                // can differ from `event.title` and re-trigger drift on every open. It also
-                // keeps markdown-significant chars out of the parser-sensitive task line (IN-01).
-                doc.tasks[idx].text = CalendarDrift.sanitize(title: pair.event.title)
-                doc.tasks[idx].timeBlock = TimeBlock(start: pair.event.start, end: pair.event.end)
+            try store.mutateDay(on: snapshot) { doc in
+                var changed = false
+                for pair in prompt.drifted {
+                    guard let idx = doc.tasks.firstIndex(where: { $0.id == pair.task.id }) else { continue }
+                    // Store the SANITIZED title (WR-04): drift is detected via
+                    // `sanitize(task.text) != event.title`, and create writes `sanitize(text)`
+                    // as the event title. Writing the raw event title back into `task.text`
+                    // would be asymmetric — the next open recomputes `sanitize(newText)`, which
+                    // can differ from `event.title` and re-trigger drift on every open. It also
+                    // keeps markdown-significant chars out of the parser-sensitive task line (IN-01).
+                    doc.tasks[idx].text = CalendarDrift.sanitize(title: pair.event.title)
+                    doc.tasks[idx].timeBlock = TimeBlock(start: pair.event.start, end: pair.event.end)
+                    changed = true
+                }
+                return changed
             }
-            try store.replaceTasks(doc.tasks, on: snapshot)
         } catch {
             NSLog("[Jotty] drift sync failed: \(error.localizedDescription)")
         }
@@ -1027,11 +1030,11 @@ final class MenubarListModel: ObservableObject {
         guard let templateDay else {
             if recurrence != nil {
                 // Promote the instance: it becomes the template going forward.
-                var doc = try store.readDoc(on: snapshot)
-                if let idx = doc.tasks.firstIndex(where: { $0.id == instance.id }) {
+                try store.mutateDay(on: snapshot) { doc in
+                    guard let idx = doc.tasks.firstIndex(where: { $0.id == instance.id }) else { return false }
                     doc.tasks[idx].recur = recurrence
                     doc.tasks[idx].recurSrc = nil
-                    try store.replaceTasks(doc.tasks, on: snapshot)
+                    return true
                 }
             } else {
                 try store.setTodoRecurrence(id: instance.id, to: nil, on: snapshot)
@@ -1040,13 +1043,13 @@ final class MenubarListModel: ObservableObject {
             return
         }
 
-        var doc = try store.readDoc(on: templateDay)
-        if let idx = doc.tasks.firstIndex(where: { $0.id == templateID }) {
+        try store.mutateDay(on: templateDay) { doc in
+            guard let idx = doc.tasks.firstIndex(where: { $0.id == templateID }) else { return false }
             doc.tasks[idx].recur = recurrence
             if recurrence == nil, !doc.tasks[idx].done, doc.tasks[idx].rolledTo == nil {
                 doc.tasks[idx].rolledTo = todayStart
             }
-            try store.replaceTasks(doc.tasks, on: templateDay)
+            return true
         }
         // Mirror onto the visible line (checkmark reflects reality).
         try store.setTodoRecurrence(id: instance.id, to: recurrence, on: snapshot)
@@ -1183,10 +1186,10 @@ final class MenubarListModel: ObservableObject {
     /// tasks (mirrors `CaptureViewModel.writeCalEventID` + `recreateAndRelink`).
     private func writeDropCalEventID(_ eventID: String, forTaskID id: String, on date: Date) {
         do {
-            var doc = try store.readDoc(on: date)
-            if let idx = doc.tasks.firstIndex(where: { $0.id == id }) {
+            try store.mutateDay(on: date) { doc in
+                guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return false }
                 doc.tasks[idx].calEventID = eventID
-                try store.replaceTasks(doc.tasks, on: date)
+                return true
             }
         } catch {
             NSLog("[Jotty] dropTask cal_event write-back failed: \(error.localizedDescription)")
