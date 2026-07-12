@@ -24,15 +24,19 @@ final class RolloverService {
         )
 
         var collected: [Todo] = []
-        /// Origin-day rewrites, DEFERRED until after the today-write lands (see below).
-        var originRewrites: [(day: Date, tasks: [Todo])] = []
+        /// Origin-day rolled_to stamps (per-id), DEFERRED until after the
+        /// today-write lands (see below). Ids, not whole-array snapshots: the
+        /// stamps are applied through the funnel per-id so an external edit to
+        /// any other line on the origin day survives (finding 1).
+        var originStamps: [(day: Date, ids: Set<String>)] = []
         var cursor = cal.date(byAdding: .day, value: -1, to: today)!
         while cursor >= lookbackStart {
-            let doc = (try? store.readDoc(on: cursor)) ?? MarkdownDoc(date: cursor)
-            var changed = false
-            var rewritten: [Todo] = []
-            for taskItem in doc.tasks {
-                var task = taskItem
+            // Unreadable origin day ABORTS the run (throw) before any write —
+            // the old try?-skip advanced lastRollover past the day and stranded
+            // its leftovers forever (finding 2).
+            let doc = try store.readDoc(on: cursor)
+            var stampIDs: Set<String> = []
+            for task in doc.tasks {
                 // A recurring TEMPLATE (recur set, no recur_src marker) is never
                 // collected as a leftover and never marked rolled — it persists on
                 // its origin day as the source of future instances (SC2/CALX-02).
@@ -69,13 +73,11 @@ final class RolloverService {
                     if !collected.contains(where: { $0.id == copy.id }) {
                         collected.append(copy)
                     }
-                    task.rolledTo = today
-                    changed = true
+                    stampIDs.insert(task.id)
                 }
-                rewritten.append(task)
             }
-            if changed {
-                originRewrites.append((day: cursor, tasks: rewritten))
+            if !stampIDs.isEmpty {
+                originStamps.append((day: cursor, ids: stampIDs))
             }
             cursor = cal.date(byAdding: .day, value: -1, to: cursor)!
         }
@@ -109,18 +111,30 @@ final class RolloverService {
         // before the origin stamps just re-collects on the retry, and the id guard
         // below makes that retry a no-op instead of a duplicate.
         if !collected.isEmpty || !instances.isEmpty {
-            var todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
-            // Idempotency guard: a copy keeps its origin task id, so a crash-retry
-            // (today written, origins not yet stamped) must not land it twice.
-            let existingIDs = Set(todayDoc.tasks.map(\.id))
-            todayDoc.tasks.append(contentsOf: collected.filter { !existingIDs.contains($0.id) })
-            todayDoc.tasks.append(contentsOf: instances)
-            try store.replaceTasks(todayDoc.tasks, on: today)
+            // The merge is a funnel TRANSFORM against a fresh read (finding 1):
+            // the old readDoc→replaceTasks pattern re-asserted a stale snapshot
+            // over any external edit landing mid-write. Id guards keep the
+            // crash-retry idempotency (a copy keeps its origin task id).
+            try store.mutateDay(on: today) { doc in
+                let existingIDs = Set(doc.tasks.map(\.id))
+                doc.tasks.append(contentsOf: collected.filter { !existingIDs.contains($0.id) })
+                doc.tasks.append(contentsOf: instances.filter { !existingIDs.contains($0.id) })
+                return true
+            }
         }
 
         // Only now stamp the origin days: the copies are safely on today's disk.
-        for rewrite in originRewrites {
-            try store.replaceTasks(rewrite.tasks, on: rewrite.day)
+        // Per-id, funnel-checked — external edits to other lines survive.
+        for stamp in originStamps {
+            try store.mutateDay(on: stamp.day) { doc in
+                var changed = false
+                for idx in doc.tasks.indices where stamp.ids.contains(doc.tasks[idx].id)
+                    && doc.tasks[idx].rolledTo == nil {
+                    doc.tasks[idx].rolledTo = today
+                    changed = true
+                }
+                return changed
+            }
         }
 
         try writeState(today)
@@ -149,7 +163,7 @@ final class RolloverService {
         var seenIDs = Set<String>()
         let days = store.allDayDates().filter { $0 < today }.sorted(by: >)
         for day in days {
-            let doc = (try? store.readDoc(on: day)) ?? MarkdownDoc(date: day)
+            let doc = try store.readDoc(on: day)
             for task in doc.tasks where task.recur != nil && task.recurSrc == nil {
                 if seenIDs.insert(task.id).inserted { templates.append(task) }
             }
@@ -158,7 +172,7 @@ final class RolloverService {
 
         let todayKey = dayFormatter().string(from: today)
 
-        let todayDoc = (try? store.readDoc(on: today)) ?? MarkdownDoc(date: today)
+        let todayDoc = try store.readDoc(on: today)
         var existingMarkers = Set(todayDoc.tasks.compactMap { $0.recurSrc })
 
         var instances: [Todo] = []

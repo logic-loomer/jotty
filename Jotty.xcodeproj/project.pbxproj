@@ -24,6 +24,7 @@
 		21A7F51F90F9E201E4DEF4E2 /* OllamaError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B8DDE953367F6C614E57C3 /* OllamaError.swift */; };
 		2288271E5923B3CB25E4D09E /* KeybindingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09D99CCA3CCAA25B705C12E9 /* KeybindingsTab.swift */; };
 		24C3A1050859A957D9C0D897 /* OllamaInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4094049BA724125B54C206D /* OllamaInstallerTests.swift */; };
+		258B071FAE5B8431FD5A9D16 /* StoreSyncSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93A5A3ADF079FA476839FBA4 /* StoreSyncSafetyTests.swift */; };
 		27A18BC23BB19F258170C636 /* CaptureViewModelAIPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D97F1123ECF84F37FF90AF /* CaptureViewModelAIPathTests.swift */; };
 		28BC4B4FCC196AAD8CCEDB19 /* CaptureViewModelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424E549027F93BB23F8A8121 /* CaptureViewModelFallbackTests.swift */; };
 		2AA565D66C3EA90E7B0DC256 /* TaskBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5594F7906F98D16824535A /* TaskBadgeTests.swift */; };
@@ -308,6 +309,7 @@
 		8EA76498A5FA03218FD07FC2 /* AIAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAvailability.swift; sourceTree = "<group>"; };
 		8F1D9867048C61485160F48A /* OllamaModelManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaModelManagerTests.swift; sourceTree = "<group>"; };
 		9113B404F80D9A6A66CDFC7F /* ExtractionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionPrompt.swift; sourceTree = "<group>"; };
+		93A5A3ADF079FA476839FBA4 /* StoreSyncSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSyncSafetyTests.swift; sourceTree = "<group>"; };
 		989392B9AE0158984B8094BF /* ClaudePromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePromptTests.swift; sourceTree = "<group>"; };
 		99EB871EE3BC1E7D453AA11E /* KeyComboDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyComboDisplay.swift; sourceTree = "<group>"; };
 		9A52B932EAFBCE5AD83268C7 /* FakeCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeCalendarService.swift; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 				F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */,
 				B74F35AEAC40DCE682986CCC /* SmokeTest.swift */,
 				A5536334E5276877A353B5FC /* StoreRenameTests.swift */,
+				93A5A3ADF079FA476839FBA4 /* StoreSyncSafetyTests.swift */,
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
 				2E5594F7906F98D16824535A /* TaskBadgeTests.swift */,
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
@@ -983,6 +986,7 @@
 				562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */,
 				F0A2AE6B8DEE8009ED9E631D /* SmokeTest.swift in Sources */,
 				3ED22ED5CB96C60B04AEC04B /* StoreRenameTests.swift in Sources */,
+				258B071FAE5B8431FD5A9D16 /* StoreSyncSafetyTests.swift in Sources */,
 				535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */,
 				8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */,
 				A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */,

@@ -719,11 +719,11 @@ final class CaptureViewModel: ObservableObject {
 
     /// Sets `cal_event:<id>` on the matching committed task and re-persists the day's task list.
     private func writeCalEventID(_ eventID: String, forTaskID id: String, at now: Date) {
-        guard let doc = try? store.readDoc(on: now) else { return }
-        var tasks = doc.tasks
-        guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
-        tasks[idx].calEventID = eventID
-        try? store.replaceTasks(tasks, on: now)
+        try? store.mutateDay(on: now) { doc in
+            guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return false }
+            doc.tasks[idx].calEventID = eventID
+            return true
+        }
     }
 
     /// Publishes a pending conflict and suspends until the view calls `resolveConflict(...)`.
