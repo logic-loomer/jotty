@@ -118,6 +118,48 @@ enum CalendarDrift {
     /// crafted task text cannot inject control sequences into the EKEvent title (threat T-5-07).
     ///
     /// The function is idempotent: sanitizing an already-sanitized title returns it unchanged.
+    // MARK: - TZ-shift drift partition (roadmap 3.3)
+
+    /// The split of drifted pairs after a live timezone change (design note
+    /// 2026-07-12): `tzShift` pairs moved by exactly the zone-offset delta —
+    /// artifacts of re-anchoring wall-clock tokens in the new zone, handled by
+    /// the ONE bulk prompt ("times moved with you" vs "keep appointment times").
+    /// `other` pairs are genuine user drift and take the normal per-set prompt.
+    struct TZShiftPartition {
+        var tzShift: [(task: Todo, event: CalendarEvent)]
+        var other: [(task: Todo, event: CalendarEvent)]
+    }
+
+    /// Classifies each drifted pair: TZ-shift iff `event.start − block.start`
+    /// is within `toleranceSeconds` of `offsetDelta` (new − old zone offset).
+    /// A zero delta means no shift happened — everything is `other`, so ordinary
+    /// drift can never be silently bulk-synced. A pair without a time block
+    /// falls through defensively (driftedTasks shouldn't produce one). Known,
+    /// accepted misclassification (design risk 3): a user who genuinely moved an
+    /// event by exactly the zone delta lands in the bulk prompt — the prompt
+    /// shows the times and the user still chooses.
+    static func partitionForTZShift(_ drifted: [(task: Todo, event: CalendarEvent)],
+                                    offsetDelta: TimeInterval) -> TZShiftPartition {
+        var result = TZShiftPartition(tzShift: [], other: [])
+        guard offsetDelta != 0 else {
+            result.other = drifted
+            return result
+        }
+        for pair in drifted {
+            guard let block = pair.task.timeBlock else {
+                result.other.append(pair)
+                continue
+            }
+            let instantDelta = pair.event.start.timeIntervalSince(block.start)
+            if abs(instantDelta - offsetDelta) <= toleranceSeconds {
+                result.tzShift.append(pair)
+            } else {
+                result.other.append(pair)
+            }
+        }
+        return result
+    }
+
     static func sanitize(title: String) -> String {
         var s = title
 
