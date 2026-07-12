@@ -1,5 +1,16 @@
 import Foundation
 
+/// Errors surfaced by day-file operations (roadmap 3.4 phase 1). Distinct from
+/// the quarantine path: these mean the operation did NOT complete and nothing
+/// was written — callers surface them through the failure-notice channel.
+enum StoreError: Error {
+    /// The day file exists (or its state is unknowable) but could not be read at
+    /// the I/O layer — permissions, an evicted (dataless) iCloud file while
+    /// offline, etc. Never treated as "absent": a fresh doc written over an
+    /// unreadable file is whole-day data loss.
+    case dayFileUnreadable(URL, underlying: Error)
+}
+
 final class Store {
     let folder: URL
     let timezone: TimeZone
@@ -19,7 +30,7 @@ final class Store {
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = DailyFile.url(in: folder, on: time, timezone: timezone)
-        let read = readDay(at: url, on: time)
+        let read = try readDay(at: url, on: time)
         var doc = read.doc
         for task in tasks { doc.appendTodo(task) }
         if !noteText.isEmpty, let noteId {
@@ -34,7 +45,7 @@ final class Store {
 
     func toggleTodo(id: String, on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks[idx].done.toggle()
         doc.tasks[idx].completedAt = doc.tasks[idx].done ? Date() : nil
@@ -46,7 +57,7 @@ final class Store {
     /// is handled best-effort by the caller, never here.
     func deleteTodo(id: String, on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks.remove(at: idx)
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
@@ -57,7 +68,7 @@ final class Store {
     /// best-effort by the caller, never here.
     func updateTodoTime(id: String, timeBlock: TimeBlock, on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks[idx].timeBlock = timeBlock
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
@@ -72,7 +83,7 @@ final class Store {
     /// via `Todo(id:…)`, Phase 7 CR-01).
     func snoozeTodo(id: String, to snoozeDate: Date, on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks[idx].snooze = snoozeDate
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
@@ -84,7 +95,7 @@ final class Store {
     /// as `snoozeTodo` (Phase 7 CR-01: every other token survives).
     func setTodoRecurrence(id: String, to recurrence: Recurrence?, on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks[idx].recur = recurrence
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
@@ -100,7 +111,7 @@ final class Store {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        var doc = readOrCreate(at: url, on: date)
+        var doc = try readOrCreate(at: url, on: date)
         guard let idx = doc.tasks.firstIndex(where: { $0.id == id }) else { return }
         doc.tasks[idx].text = trimmed
         try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
@@ -124,7 +135,7 @@ final class Store {
         let tomorrowStart = cal.date(byAdding: .day, value: 1, to: startOfDay(now))!
 
         let sourceURL = DailyFile.url(in: folder, on: sourceDate, timezone: timezone)
-        var sourceDoc = readOrCreate(at: sourceURL, on: sourceDate)
+        var sourceDoc = try readOrCreate(at: sourceURL, on: sourceDate)
         guard let idx = sourceDoc.tasks.firstIndex(where: { $0.id == id }) else { return }
 
         // Copy the WHOLE value so every field (id/text/tokens, and the Phase-7
@@ -162,7 +173,7 @@ final class Store {
         // failure leaves the task visible in both files instead: benign, and
         // self-healing — the rollover pass skips re-collecting an id already present
         // on the target day.
-        let tomorrowRead = readDay(at: tomorrowURL, on: tomorrowStart)
+        let tomorrowRead = try readDay(at: tomorrowURL, on: tomorrowStart)
         var tomorrowDoc = tomorrowRead.doc
         tomorrowDoc.appendTodo(moved)
         try persist(tomorrowDoc, to: tomorrowURL, quarantining: tomorrowRead.corruptRaw)
@@ -173,7 +184,7 @@ final class Store {
 
     func replaceTasks(_ tasks: [Todo], on date: Date) throws {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        let read = readDay(at: url, on: date)
+        let read = try readDay(at: url, on: date)
         var doc = read.doc
         doc.tasks = tasks
         try persist(doc, to: url, quarantining: read.corruptRaw)
@@ -181,7 +192,7 @@ final class Store {
 
     func readDoc(on date: Date) throws -> MarkdownDoc {
         let url = DailyFile.url(in: folder, on: date, timezone: timezone)
-        return readOrCreate(at: url, on: date)
+        return try readOrCreate(at: url, on: date)
     }
 
     /// Ensures the day file for `date` exists on disk, creating an empty scaffold
@@ -251,10 +262,18 @@ final class Store {
     /// single-step `String(contentsOf:encoding:)` collapsed that into "absent",
     /// so the day's full contents were clobbered with no sidecar) and bytes that
     /// decode but don't parse as a day doc.
-    private func readDay(at url: URL, on date: Date) -> DayRead {
-        guard let data = try? Data(contentsOf: url) else {
-            // Genuinely absent (or unreadable at the I/O layer): fresh doc.
+    private func readDay(at url: URL, on date: Date) throws -> DayRead {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            // Genuinely absent: fresh doc, nothing to quarantine.
             return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil)
+        } catch {
+            // Present but unreadable at the I/O layer (permissions, evicted
+            // iCloud file offline). NOT absent — writing a fresh doc here would
+            // clobber the whole day (design note 2026-07-12, phase 1).
+            throw StoreError.dayFileUnreadable(url, underlying: error)
         }
         guard let existing = String(data: data, encoding: .utf8) else {
             // Present but not UTF-8: corrupt, NOT absent — quarantine before any write.
@@ -270,8 +289,8 @@ final class Store {
     /// early-return when the id is absent, so an unparseable file yields an empty
     /// doc, no matching id, and NO write — the corrupt file is left untouched
     /// rather than clobbered, so those paths never need quarantine.
-    private func readOrCreate(at url: URL, on date: Date) -> MarkdownDoc {
-        readDay(at: url, on: date).doc
+    private func readOrCreate(at url: URL, on date: Date) throws -> MarkdownDoc {
+        try readDay(at: url, on: date).doc
     }
 
     /// Serializes `doc` to `url`. When `corruptRaw` is non-nil (the file was
