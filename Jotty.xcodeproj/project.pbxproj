@@ -57,11 +57,13 @@
 		5301946C5B6D48C7C50349C2 /* ReviewListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79CF682EE31F9B3C2A6EA2B /* ReviewListView.swift */; };
 		535B07B92B41919A93B2E099 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE591493870DE367A409DBE2 /* StoreTests.swift */; };
 		53ABCE40CC53CD970F8E82C0 /* HotkeyManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C086338D15373A532D6D952A /* HotkeyManagerTests.swift */; };
+		554C0A5743292B41380FDD1A /* TimeZoneMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8469288420D74FAEC583FB9A /* TimeZoneMonitor.swift */; };
 		5594C88B64D1A22FE8E2F940 /* ConflictDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 676042673E7F955996E5AC8D /* ConflictDetectionTests.swift */; };
 		561A4F5D3945D120976D6E71 /* OllamaInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED076436B08FDD988E3A9CD /* OllamaInstaller.swift */; };
 		562FC1864EC866444522CA5B /* RolloverServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F110BAA2A85A08104EDA30A2 /* RolloverServiceTests.swift */; };
 		5858C556D6D4A6B141134BA7 /* FakeInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423C42337CB98153A4329E2E /* FakeInboxSource.swift */; };
 		58E1D28C1017EC0D65392998 /* AIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0E7D3DD37BF03C0B72371 /* AIProvider.swift */; };
+		5985B3F3D28802EFBD14685C /* TimeZoneChangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7868111EA03059804DC2CFF /* TimeZoneChangeTests.swift */; };
 		59E60F507AABE6D15FC14623 /* CalendarInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C998CC6BAE474B13E9F16C /* CalendarInboxSource.swift */; };
 		5A567E21E1743428D4444C8C /* GitHubInboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69365BBBAF95E3608D0CF803 /* GitHubInboxSource.swift */; };
 		5AF0C3CA0C3F5D1CFC6F6E63 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7656CBC204B1A25BA07AFA45 /* ClaudeProvider.swift */; };
@@ -303,6 +305,7 @@
 		8344F2A8901F1A9B158F4447 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		8433F760EBFFC769678CD02D /* SystemClaudeHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemClaudeHandoffTests.swift; sourceTree = "<group>"; };
 		844D4B65E21DF680B648E59A /* CommandBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBarView.swift; sourceTree = "<group>"; };
+		8469288420D74FAEC583FB9A /* TimeZoneMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeZoneMonitor.swift; sourceTree = "<group>"; };
 		88B479C8DBBC174CCACF42C1 /* InboxSourceCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxSourceCatalogTests.swift; sourceTree = "<group>"; };
 		8A9053C9CFEB56811D8D06FA /* JottyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottyApp.swift; sourceTree = "<group>"; };
 		8DD4F7231C515D0F74EE4D3E /* TaskBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBadge.swift; sourceTree = "<group>"; };
@@ -339,6 +342,7 @@
 		C1EE9AF48450765E33411A86 /* AdvancedTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedTab.swift; sourceTree = "<group>"; };
 		C3FBDC26E512E1C6BE656FBF /* DurationGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationGuardrailTests.swift; sourceTree = "<group>"; };
 		C54D753E3299F8A51C67C960 /* FuzzyScorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyScorer.swift; sourceTree = "<group>"; };
+		C7868111EA03059804DC2CFF /* TimeZoneChangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeZoneChangeTests.swift; sourceTree = "<group>"; };
 		C84E33A536DA47388C797099 /* MenubarListModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListModelTests.swift; sourceTree = "<group>"; };
 		C8551D206161FBA16129AA93 /* CalendarInboxSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarInboxSourceTests.swift; sourceTree = "<group>"; };
 		C8DC934F8F6E3BDE39C8F4B6 /* GeminiProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProviderTests.swift; sourceTree = "<group>"; };
@@ -427,6 +431,7 @@
 				93A5A3ADF079FA476839FBA4 /* StoreSyncSafetyTests.swift */,
 				AE591493870DE367A409DBE2 /* StoreTests.swift */,
 				2E5594F7906F98D16824535A /* TaskBadgeTests.swift */,
+				C7868111EA03059804DC2CFF /* TimeZoneChangeTests.swift */,
 				A0FC8742B157EA7431075271 /* TodoTests.swift */,
 				547C70B02E19E956E281543A /* AI */,
 				66278E9AE794B036093FAE80 /* Calendar */,
@@ -445,6 +450,7 @@
 			children = (
 				B026F43211BD2F9BB519C180 /* AppDelegate.swift */,
 				8A9053C9CFEB56811D8D06FA /* JottyApp.swift */,
+				8469288420D74FAEC583FB9A /* TimeZoneMonitor.swift */,
 				9B697A19AD720FCBE7A97AA8 /* AI */,
 				F215FDE7B6DBAAB18293CFD6 /* Calendar */,
 				98110515FAB8B246A26DE230 /* Capture */,
@@ -991,6 +997,7 @@
 				8A500C03063516DADDB72FE6 /* StubURLProtocol.swift in Sources */,
 				A388BF6E88C7F460B6D647AB /* SystemClaudeHandoffTests.swift in Sources */,
 				2AA565D66C3EA90E7B0DC256 /* TaskBadgeTests.swift in Sources */,
+				5985B3F3D28802EFBD14685C /* TimeZoneChangeTests.swift in Sources */,
 				659AC5D433FD661DE35CD4DF /* TodoTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1096,6 +1103,7 @@
 				1143FCA70958F285D810FE6C /* SystemClaudeHandoff.swift in Sources */,
 				6F88CB448B54A859C52F5AAD /* TaskBadge.swift in Sources */,
 				98B0247A2F46F0809F9F8FB1 /* TimeBlock.swift in Sources */,
+				554C0A5743292B41380FDD1A /* TimeZoneMonitor.swift in Sources */,
 				18BAC487B1E51BF1AB0FB1D0 /* Todo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

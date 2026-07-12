@@ -118,6 +118,55 @@ enum CalendarDrift {
     /// crafted task text cannot inject control sequences into the EKEvent title (threat T-5-07).
     ///
     /// The function is idempotent: sanitizing an already-sanitized title returns it unchanged.
+    // MARK: - TZ-shift drift partition (roadmap 3.3)
+
+    /// The split of drifted pairs after a live timezone change (design note
+    /// 2026-07-12): `tzShift` pairs moved by exactly the zone-offset delta —
+    /// artifacts of re-anchoring wall-clock tokens in the new zone, handled by
+    /// the ONE bulk prompt ("times moved with you" vs "keep appointment times").
+    /// `other` pairs are genuine user drift and take the normal per-set prompt.
+    struct TZShiftPartition {
+        var tzShift: [(task: Todo, event: CalendarEvent)]
+        var other: [(task: Todo, event: CalendarEvent)]
+    }
+
+    /// Classifies each drifted pair against the zone change `from → to`.
+    /// TZ-shift iff `event.start − block.start` is within `toleranceSeconds`
+    /// of the PER-BLOCK offset delta — `to.offset(at: block.start) −
+    /// from.offset(at: block.start)` — because the re-anchor shift depends on
+    /// both zones' rules at the block's own date, not at "now" (review F2:
+    /// Sydney→LA is −17h for a July block but −18h for an October one; a
+    /// Brisbane→Sydney change is offset-identical in July yet shifts every
+    /// post-DST block +1h and must still reach the bulk prompt).
+    ///
+    /// A zero per-block delta means that block did not move — its drift is
+    /// genuine, so ordinary drift can never be silently bulk-synced. A pair
+    /// without a time block falls through defensively (driftedTasks shouldn't
+    /// produce one). Known, accepted misclassifications: a user who genuinely
+    /// moved an event by exactly the zone delta lands in the bulk prompt (the
+    /// prompt shows the times; the user still chooses), and a pair with BOTH a
+    /// TZ shift and a title edit is bulk-handled on time only — the title
+    /// drift re-detects on the next open (idempotent).
+    static func partitionForTZShift(_ drifted: [(task: Todo, event: CalendarEvent)],
+                                    from: TimeZone, to: TimeZone) -> TZShiftPartition {
+        var result = TZShiftPartition(tzShift: [], other: [])
+        for pair in drifted {
+            guard let block = pair.task.timeBlock else {
+                result.other.append(pair)
+                continue
+            }
+            let perBlockDelta = TimeInterval(
+                to.secondsFromGMT(for: block.start) - from.secondsFromGMT(for: block.start))
+            let instantDelta = pair.event.start.timeIntervalSince(block.start)
+            if perBlockDelta != 0, abs(instantDelta - perBlockDelta) <= toleranceSeconds {
+                result.tzShift.append(pair)
+            } else {
+                result.other.append(pair)
+            }
+        }
+        return result
+    }
+
     static func sanitize(title: String) -> String {
         var s = title
 
