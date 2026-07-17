@@ -48,6 +48,16 @@ final class FakeCalendarService: CalendarService {
 
         var createdEvents: [CreatedEvent] = []
         var updatedEventIDs: [String] = []
+        /// Full-detail record of every `updateEvent` call (id/title/start/end), so the
+        /// roadmap 2.3 task-wins drift resolution can assert exactly what was pushed —
+        /// `updatedEventIDs` alone can't tell the sanitized title / block apart.
+        var updatedEvents: [UpdatedEvent] = []
+        /// Per-id override for `updateEvent`: when the id is a key, THAT call throws the
+        /// mapped error regardless of `updateErrorToThrow`/`errorToThrow`. Lets a test
+        /// simulate the WR-05 `isJottyEvent` marker guard refusing ONE recycled/foreign
+        /// id (`.eventNotFound`) while a legitimate id in the SAME batch still succeeds
+        /// (roadmap 2.3).
+        var updateErrorsByID: [String: CalendarError] = [:]
         var deletedEventIDs: [String] = []
         var calls: [Call] = []
         var requestAccessCallCount = 0
@@ -62,6 +72,14 @@ final class FakeCalendarService: CalendarService {
 
     /// Recorded inputs to a `createEvent` call.
     struct CreatedEvent: Equatable, Sendable {
+        let title: String
+        let start: Date
+        let end: Date
+    }
+
+    /// Recorded inputs to an `updateEvent` call.
+    struct UpdatedEvent: Equatable, Sendable {
+        let id: String
         let title: String
         let start: Date
         let end: Date
@@ -121,7 +139,14 @@ final class FakeCalendarService: CalendarService {
     /// Inputs to each `createEvent` call, in order.
     var createdEvents: [CreatedEvent] { state.withLock { $0.createdEvents } }
     var updatedEventIDs: [String] { state.withLock { $0.updatedEventIDs } }
+    var updatedEvents: [UpdatedEvent] { state.withLock { $0.updatedEvents } }
     var deletedEventIDs: [String] { state.withLock { $0.deletedEventIDs } }
+    /// Per-id override for `updateEvent`; set to make ONE id's call throw while
+    /// its siblings in the same batch still succeed (roadmap 2.3 test (c)).
+    var updateErrorsByID: [String: CalendarError] {
+        get { state.withLock { $0.updateErrorsByID } }
+        set { state.withLock { $0.updateErrorsByID = newValue } }
+    }
     /// Ordered call log; supports "X called once" / "Y NOT called" assertions.
     var calls: [Call] { state.withLock { $0.calls } }
     var requestAccessCallCount: Int { state.withLock { $0.requestAccessCallCount } }
@@ -160,6 +185,8 @@ final class FakeCalendarService: CalendarService {
         try state.withLock {
             $0.calls.append(.updateEvent)
             $0.updatedEventIDs.append(id)
+            $0.updatedEvents.append(UpdatedEvent(id: id, title: title, start: start, end: end))
+            if let idError = $0.updateErrorsByID[id] { throw idError }
             if let error = $0.updateErrorToThrow { throw error }
             if let error = $0.errorToThrow { throw error }
         }

@@ -137,6 +137,37 @@ final class CalendarCoordinator {
         }
     }
 
+    // MARK: - Task-wins per-pair update (roadmap 2.3 "Update event")
+
+    /// Outcome of a single task-wins `updateEvent` push.
+    enum UpdateEventOutcome: Equatable {
+        case updated
+        /// The event is gone from the store — deleted in Calendar, or a foreign/recycled
+        /// id the WR-05 `isJottyEvent` marker guard refused to touch. The caller (drift
+        /// resolution) surfaces a per-pair skip notice; this does NOT recreate.
+        case notFound
+        case failed
+    }
+
+    /// Pushes ONE drifted pair's own fields onto its linked calendar event. Distinct from
+    /// `updateOrRecreate` (editTime/moveToTomorrow): a task-wins confirm must never
+    /// recreate on `.eventNotFound` — the drift prompt's sibling "Sync" button already
+    /// covers "take the calendar's word for it", so silently recreating here would
+    /// multiply events instead of surfacing the miss. `context` labels the failure log.
+    func updateEvent(eventID: String, title: String, block: TimeBlock,
+                     context: String) async -> UpdateEventOutcome {
+        do {
+            try await calendar.updateEvent(id: eventID, title: title,
+                                           start: block.start, end: block.end)
+            return .updated
+        } catch CalendarError.eventNotFound {
+            return .notFound
+        } catch {
+            NSLog("[Jotty] \(context) updateEvent failed: \(error.localizedDescription)")
+            return .failed
+        }
+    }
+
     // MARK: - Conflict gate query (SC5)
 
     /// The first event overlapping `block`, excluding the task's OWN linked event

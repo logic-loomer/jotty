@@ -91,6 +91,10 @@ struct MenubarListView: View {
             // (quarantined to a `.corrupt-*` sidecar before a write).
             corruptQuarantineBanner
 
+            // roadmap 2.3: transient, dismissible banner when a task-wins "Update
+            // event" push could not update one or more linked events.
+            driftUpdateSkipNoticeBanner
+
             // Suggested section (Phase 7, SC2): external inbox items offered for
             // Accept/Dismiss, ABOVE the task list. Renders only when the inbox service
             // is wired AND has suggestions; nothing on the default/unconfigured config.
@@ -276,12 +280,15 @@ struct MenubarListView: View {
         } message: {
             Text("Your choice is remembered for future deletions.")
         }
-        // SC4: open-time drift sync prompt (calendar wins on confirm).
+        // SC4: open-time drift sync prompt. "Sync" = calendar wins (rewrite the task
+        // from the event); "Update event" = task wins (roadmap 2.3 — push the task's
+        // own fields to the event); "Keep mine" dismisses, leaving both sides as-is.
         .alert("Sync from Calendar?",
                isPresented: Binding(
                    get: { model.driftPrompt != nil },
                    set: { if !$0 { model.driftPrompt = nil } })) {
             Button("Sync") { model.confirmDriftSync() }
+            Button("Update event") { model.confirmDriftUpdateEvent() }
             Button("Keep mine", role: .cancel) { model.dismissDriftPrompt() }
         } message: {
             Text(driftMessage)
@@ -778,6 +785,36 @@ struct MenubarListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss recovery notice")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            Divider()
+        }
+    }
+
+    // MARK: - "Update event" skip notice (roadmap 2.3)
+
+    /// A brief, dismissible banner shown when a task-wins "Update event" push could
+    /// not update one or more linked events (deleted in Calendar, or a foreign event
+    /// the WR-05 marker guard refused). Mirrors `corruptQuarantineBanner`'s pattern.
+    @ViewBuilder
+    private var driftUpdateSkipNoticeBanner: some View {
+        if let notice = model.driftUpdateSkipNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(action: { model.dismissDriftUpdateSkipNotice() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss update-event notice")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

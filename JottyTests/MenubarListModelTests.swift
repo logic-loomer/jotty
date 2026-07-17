@@ -769,6 +769,121 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.driftPrompt, "resolved drift must clear the stale prompt")
     }
 
+    // MARK: - roadmap 2.3: task-wins "Update event" drift resolution
+
+    /// The third drift-prompt action: TASK wins. Each drifted pair's own fields —
+    /// sanitized text, block start/end — are pushed onto the linked calendar event;
+    /// the markdown is untouched (the task was already correct, the calendar was stale).
+    func testConfirmDriftUpdateEventPushesSanitizedTitleAndBlockToCalendar() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_linked", eventID: "evt-1", text: "**Deep** `work`")
+        ])
+        let fake = FakeCalendarService()
+        // The calendar event drifted away from the task (different title + time).
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-1", title: "some other meeting",
+                          start: makeDate(2026, 6, 12, h: 16),
+                          end: makeDate(2026, 6, 12, h: 17), calendarTitle: "Work")
+        ]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt, "drift on open must surface a prompt")
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+
+        // The event was pushed the TASK's own sanitized title + block, not the event's.
+        XCTAssertEqual(fake.updatedEvents, [
+            FakeCalendarService.UpdatedEvent(
+                id: "evt-1", title: "Deep work",
+                start: makeDate(2026, 6, 12, h: 14), end: makeDate(2026, 6, 12, h: 15))
+        ])
+        // Markdown is untouched: task wins, nothing to rewrite on disk.
+        let doc = try store.readDoc(on: today)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_linked" })
+        XCTAssertEqual(stored.text, "**Deep** `work`", "task-wins leaves the task's own text alone")
+        XCTAssertEqual(stored.timeBlock, TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                                                    end: makeDate(2026, 6, 12, h: 15)))
+        XCTAssertNil(model.driftPrompt, "prompt cleared after confirm")
+    }
+
+    /// `.eventNotFound` (deleted in Calendar) degrades to a per-pair skip notice; the
+    /// OTHER drifted pair in the same resolve is still attempted (no early return).
+    func testConfirmDriftUpdateEventNotFoundSkipsWithNoticeOtherPairsStillProcessed() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_a", eventID: "evt-a", text: "task a",
+                       start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10)),
+            linkedTask(id: "t_b", eventID: "evt-b", text: "task b",
+                       start: makeDate(2026, 6, 12, h: 11), end: makeDate(2026, 6, 12, h: 12))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-a", title: "drifted a",
+                          start: makeDate(2026, 6, 12, h: 20), end: makeDate(2026, 6, 12, h: 21), calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-b", title: "drifted b",
+                          start: makeDate(2026, 6, 12, h: 22), end: makeDate(2026, 6, 12, h: 23), calendarTitle: "Work"),
+        ]
+        // Every updateEvent call throws .eventNotFound (both linked events were deleted).
+        fake.updateErrorToThrow = .eventNotFound
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        let prompt = try XCTUnwrap(model.driftPrompt)
+        XCTAssertEqual(Set(prompt.drifted.map(\.task.id)), ["t_a", "t_b"])
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+
+        // BOTH pairs were attempted despite the first one throwing — no early return.
+        XCTAssertEqual(Set(fake.updatedEventIDs), ["evt-a", "evt-b"], "every pair still attempted")
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "2 calendar events could not be found and were not updated.")
+        XCTAssertNil(model.driftPrompt, "prompt cleared immediately on confirm")
+    }
+
+    /// The WR-05 `isJottyEvent` marker guard (proven directly against a foreign EKEvent in
+    /// `CalendarEventMapperTests.testIsJottyEventFalseForForeignOrNilNotes`) makes
+    /// `EventKitCalendarService.updateEvent` throw `.eventNotFound` for a foreign/recycled
+    /// event id — the SAME error a genuinely deleted event throws. This exercises that
+    /// contract at the drift-resolution seam: only the FOREIGN id's pair is refused; its
+    /// legitimate sibling in the same batch still updates.
+    func testConfirmDriftUpdateEventForeignEventRefusedSiblingPairStillUpdates() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_ours", eventID: "evt-ours", text: "our task",
+                       start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10)),
+            linkedTask(id: "t_foreign", eventID: "evt-foreign", text: "foreign task",
+                       start: makeDate(2026, 6, 12, h: 11), end: makeDate(2026, 6, 12, h: 12))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-ours", title: "drifted ours",
+                          start: makeDate(2026, 6, 12, h: 20), end: makeDate(2026, 6, 12, h: 21), calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-foreign", title: "drifted foreign",
+                          start: makeDate(2026, 6, 12, h: 22), end: makeDate(2026, 6, 12, h: 23), calendarTitle: "Work"),
+        ]
+        // Only "evt-foreign" is refused (stands in for the WR-05 guard's recycled/foreign
+        // refusal); "evt-ours" is a legitimate Jotty event and must still update cleanly.
+        fake.updateErrorsByID = ["evt-foreign": .eventNotFound]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+
+        XCTAssertTrue(fake.updatedEvents.contains(
+            FakeCalendarService.UpdatedEvent(
+                id: "evt-ours", title: "our task",
+                start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10))),
+            "the legitimate sibling pair still updates")
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "1 calendar event could not be found and was not updated.",
+                       "only the foreign/refused pair is reported skipped")
+        XCTAssertNil(model.driftPrompt)
+    }
+
     // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
 
     func testMissingLinkedEventSurfacesPromptOnOpen() async throws {

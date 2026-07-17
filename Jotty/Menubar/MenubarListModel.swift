@@ -64,6 +64,13 @@ final class MenubarListModel: ObservableObject {
     /// time-blocked task instead of leaving it pointing at a dead (and recyclable, WR-05) id
     /// forever. Set by `reloadCalendar`; cleared on confirm/dismiss and reset each reload.
     @Published var missingLinkPrompt: MissingLinkPrompt?
+    /// Transient, dismissible notice surfaced when a task-wins "Update event" push
+    /// (roadmap 2.3) could not update one or more linked events — deleted in Calendar,
+    /// or a foreign/recycled event the WR-05 marker guard refused to touch. Every OTHER
+    /// pair in the same resolve is unaffected (each pair's push is independent). Reset
+    /// to nil at the start of each `confirmDriftUpdateEvent` so a stale notice from a
+    /// prior resolve never bleeds into a clean one. nil = nothing to show.
+    @Published var driftUpdateSkipNotice: String?
     /// Pending drop conflict (Phase 8 SC1 / T-8-10): set when a drop's
     /// `overlappingEvents` gate finds an overlap, mirroring the capture flow's
     /// SC5 semantics — the canvas UI (plan 05) resolves it via
@@ -822,6 +829,66 @@ final class MenubarListModel: ObservableObject {
     /// Dismisses the drift prompt, leaving the markdown unchanged ("Keep mine").
     func dismissDriftPrompt() {
         driftPrompt = nil
+    }
+
+    /// Confirms the open-time drift prompt: TASK wins ("Update event", roadmap 2.3).
+    /// For each drifted pair, pushes the TASK's own fields onto its linked calendar
+    /// event via the per-pair `updateEventForDrift` — the SAME action a later
+    /// roadmap-3.3 task reuses in bulk after a timezone change, so it stays callable
+    /// independently of this prompt. Unlike `confirmDriftSync`, the markdown is
+    /// untouched: the task was already correct, the calendar was stale.
+    ///
+    /// A pair whose event is gone (`.eventNotFound` — deleted in Calendar, or a
+    /// foreign/recycled event the WR-05 marker guard refuses to touch) is skipped
+    /// with a notice; every OTHER pair is still attempted (no early return on one
+    /// pair's failure).
+    func confirmDriftUpdateEvent() {
+        guard let prompt = driftPrompt else { return }
+        driftPrompt = nil
+        driftUpdateSkipNotice = nil
+        editTask = Task { [weak self] in
+            guard let self else { return }
+            var skipped = 0
+            for pair in prompt.drifted {
+                if await !self.updateEventForDrift(pair) {
+                    skipped += 1
+                }
+            }
+            if skipped > 0 {
+                // "Not found" covers BOTH a genuinely deleted event and a foreign/recycled
+                // id the WR-05 marker guard refused — deliberately not claiming "deleted"
+                // here, since the guard case is not a deletion.
+                self.driftUpdateSkipNotice = skipped == 1
+                    ? "1 calendar event could not be found and was not updated."
+                    : "\(skipped) calendar events could not be found and were not updated."
+            }
+        }
+    }
+
+    /// Per-pair task-wins "Update event" push (roadmap 2.3): rewrites ONE drifted
+    /// pair's linked calendar event from the TASK's own fields — sanitized text
+    /// (`CalendarDrift.sanitize`, the SAME derivation the create path uses, so the
+    /// title agrees with what drift detection recomputes) and the task's time block.
+    /// Callable independently of the drift-prompt UI (a later roadmap-3.3 task reuses
+    /// it for the bulk TZ-shift "times moved with you" resolution).
+    ///
+    /// Returns `false` when the event is gone (`.eventNotFound`, including the WR-05
+    /// marker guard refusing a foreign/recycled id) or the push otherwise failed
+    /// (already logged); never recreates — recreating on a task-wins confirm would
+    /// silently multiply events for a user who only meant to update one.
+    func updateEventForDrift(_ pair: (task: Todo, event: CalendarEvent)) async -> Bool {
+        guard let calendarCoordinator,
+              let eventID = pair.task.calEventID,
+              let block = pair.task.timeBlock else { return false }
+        let title = CalendarDrift.sanitize(title: pair.task.text)
+        let outcome = await calendarCoordinator.updateEvent(
+            eventID: eventID, title: title, block: block, context: "driftUpdateEvent")
+        return outcome == .updated
+    }
+
+    /// Dismisses the "Update event" skip notice (non-blocking, user-dismissible).
+    func dismissDriftUpdateSkipNotice() {
+        driftUpdateSkipNotice = nil
     }
 
     private func reloadOnMain(clearMissingLinks: Bool = true) async {
