@@ -105,15 +105,19 @@ final class MenubarListModel: ObservableObject {
     /// menubar list, rollover reload, toggle/delete/rename, and the drift pass operating
     /// on the OLD folder for the rest of the session while capture writes to the new one.
     private(set) var store: Store
-    /// Exposed so the view can build a timezone-pinned HH:mm formatter that matches
-    /// the model's date partitioning (the calendar section renders event start times).
-    let timezone: TimeZone
-    /// SHARED timezone-pinned HH:mm formatter for event/block times, built ONCE (the
-    /// menubar section and canvas previously rebuilt a DateFormatter per render —
-    /// formatter construction is one of the more expensive Foundation inits, and the
-    /// calendar section renders one per visible event row). Main-actor confined like
-    /// the rest of the model, so the non-thread-safe DateFormatter is safe to share.
-    let timeFormatter: DateFormatter
+    /// The zone the render stack is PINNED to (day partitioning, collapse keys, the
+    /// HH:mm formatter). `private(set) var` (roadmap 3.3 slice 2): a live system-
+    /// timezone change re-pins it through `replace(store:timezone:)`, rebuilding the
+    /// cached formatter — otherwise the menubar would keep partitioning and rendering
+    /// in the launch zone after the user (or a laptop crossing regions) moved.
+    private(set) var timezone: TimeZone
+    /// SHARED timezone-pinned HH:mm formatter for event/block times, built ONCE per
+    /// pinned zone (the menubar section and canvas previously rebuilt a DateFormatter
+    /// per render — formatter construction is one of the more expensive Foundation
+    /// inits, and the calendar section renders one per visible event row). Main-actor
+    /// confined like the rest of the model, so the non-thread-safe DateFormatter is
+    /// safe to share; `replace(store:timezone:)` rebuilds it on a zone change.
+    private(set) var timeFormatter: DateFormatter
     private let defaults: UserDefaults
     private let now: () -> Date
     /// Optional calendar orchestration seam; nil = pure task tool (no calendar
@@ -134,8 +138,12 @@ final class MenubarListModel: ObservableObject {
     /// existing tests/callers construct the model without it; when nil there is no
     /// Suggested section and `refreshInbox()` is a no-op. AppDelegate injects the real
     /// `InboxService([GitHubInboxSource], …)`. Exposed (not private) so the view can
-    /// `@ObservedObject` it directly for `suggestions` updates.
-    let inboxService: InboxService?
+    /// `@ObservedObject` it directly for `suggestions` updates. `private(set) var`
+    /// (roadmap 3.3 slice 2): the live timezone-change rebuild swaps in a freshly
+    /// zone-pinned InboxService (its `CalendarInboxSource` pins the today-window
+    /// timezone at construction), so the Suggested section's window follows a zone
+    /// change on the next popover open. Folder-only changes keep the current instance.
+    private(set) var inboxService: InboxService?
     /// Optional SHARED user keybindings store (UX-07). nil-defaulted like the other
     /// seams so existing tests/callers construct the model without it; when nil the
     /// Send-to-Claude item simply shows no key equivalent. AppDelegate injects the
@@ -199,11 +207,7 @@ final class MenubarListModel: ObservableObject {
          keybindings: KeybindingsStore? = nil) {
         self.store = store
         self.timezone = timezone
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        f.timeZone = timezone
-        self.timeFormatter = f
+        self.timeFormatter = Self.makeTimeFormatter(timezone: timezone)
         self.defaults = defaults
         self.now = now
         self.calendarCoordinator = calendar.map { CalendarCoordinator(calendar: $0) }
@@ -321,17 +325,55 @@ final class MenubarListModel: ObservableObject {
         }
     }
 
-    /// WR-09: swaps the backing Store after a Settings → Storage folder change and
-    /// reloads so the visible list reflects the NEW folder immediately. Safe to call
-    /// with an unchanged folder — it then behaves like a plain `reload()`.
-    ///
-    /// The reload passes `promptIfUndetermined: false`: a store swap is never an explicit
-    /// calendar action (it fires from the Settings willClose observer and the capture-window
-    /// open path), so it must NEVER re-issue the one-time TCC calendar prompt while access
-    /// is notDetermined — same class as WR-06's foreground-activation guard. The one-time
-    /// prompt stays reserved for genuine user-driven calendar paths (popover open, edit).
+    /// The timezone-pinned HH:mm formatter builder (POSIX/Gregorian discipline),
+    /// shared by `init` and the rebuild so the two can never drift.
+    private static func makeTimeFormatter(timezone: TimeZone) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        f.timeZone = timezone
+        return f
+    }
+
+    /// WR-09 folder-change convenience: swaps the backing Store after a Settings →
+    /// Storage folder change and reloads so the visible list reflects the NEW folder
+    /// immediately, adopting the new Store's timezone (the AppDelegate builds that
+    /// Store with a fresh `.current`, so the model's zone stays in lock-step with the
+    /// store's — the invariant MenubarController relies on). Safe to call with an
+    /// unchanged folder/zone — it then behaves like a plain `reload()`.
     func replaceStore(_ newStore: Store) {
+        replace(store: newStore, timezone: newStore.timezone)
+    }
+
+    /// Re-pins the render stack onto a NEW Store + timezone, KEEPING the current
+    /// inbox service — the folder-change path and the tests' rebuild entry point.
+    /// Delegates to the inbox-swapping overload the live timezone-change rebuild uses.
+    func replace(store newStore: Store, timezone newTimezone: TimeZone) {
+        replace(store: newStore, timezone: newTimezone, inboxService: inboxService)
+    }
+
+    /// The live timezone-change rebuild (roadmap 3.3 slice 2): re-pins the backing
+    /// Store, the model timezone, and the cached HH:mm formatter onto `newTimezone`,
+    /// swaps in the freshly zone-pinned `inboxService` (its `CalendarInboxSource`
+    /// fixes the today-window zone at construction), re-hooks corrupt-quarantine, and
+    /// reloads so the list + calendar section re-render in the new zone.
+    ///
+    /// RENDER-ONLY: no Store WRITE is reachable from here — `reload()` only READS
+    /// today's doc and fetches calendar events; the wall-clock tokens on disk are
+    /// TZ-agnostic and stay byte-identical (the rollover over-correction taught us
+    /// that acting automatically on re-anchored data destroys it, so a rebuild never
+    /// rewrites a file). Enforced by construction AND the byte-identical-folder test.
+    ///
+    /// The reload passes `promptIfUndetermined: false` (WR-06 class): a rebuild is
+    /// never an explicit calendar action, so it must NEVER re-issue the one-time TCC
+    /// calendar prompt while access is notDetermined. Main-actor sequenced (@MainActor)
+    /// so it cannot interleave with an in-flight capture commit or rollover (WR-09).
+    func replace(store newStore: Store, timezone newTimezone: TimeZone,
+                 inboxService newInbox: InboxService?) {
         store = newStore
+        timezone = newTimezone
+        timeFormatter = Self.makeTimeFormatter(timezone: newTimezone)
+        inboxService = newInbox
         hookCorruptQuarantine()   // #7: re-hook so the new store's quarantines surface.
         reload(promptIfUndetermined: false)
     }

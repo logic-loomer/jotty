@@ -56,6 +56,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// default config makes no network call (SC3). nil only if the state store fails to
     /// open (degrades to no Suggested section rather than crashing the app).
     private var inboxService: InboxService?
+    /// The persisted inbox dedupe state, promoted to a property (roadmap 3.3 slice 2)
+    /// so the live timezone-change rebuild can reconstruct `inboxService` in the new
+    /// zone WITHOUT re-opening the state file (one owner, no double-open). nil ⇒ no
+    /// Suggested section (open failed at launch).
+    private var inboxState: InboxStateStore?
+    /// Observes live system-timezone changes and drives `rebuildForTimeZoneChange`
+    /// (roadmap 3.3 slice 2). Retained for the app's lifetime; its `deinit` removes
+    /// the observer from the injected notification center. nil until launch wires it.
+    private var timeZoneMonitor: TimeZoneMonitor?
 
     /// Debounced store-changed calendar reload (CR-02): EventKit posts `EKEventStoreChanged`
     /// in bursts (CalDAV sync, and for Jotty's OWN saves), so each notification cancels the
@@ -138,53 +147,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // shared URLSession, plus the persisted dedupe state. `refresh()` self-guards
         // on a configured source, so with no PAT the menubar open makes no network
         // call (SC3). A state-store open failure degrades to no Suggested section.
-        if let inboxState = try? InboxStateStore() {
-            inboxService = InboxService(
-                sources: [
-                    GitHubInboxSource(session: .shared,
-                                      keychain: KeychainAPIKeyStore(),
-                                      patAccount: "github"),
-                    // Phase 11: the calendar source rides the SAME app-lifetime
-                    // EventKitCalendarService (L101). `enabled` reads the toggle LIVE
-                    // (mirrors the claudeAction/calendarID closures) so a Settings flip
-                    // takes effect on the next refresh with no re-wiring; OFF by default
-                    // ⇒ isConfigured false ⇒ zero calendar reads (SC5). `linkedEventIDs`
-                    // reads today's tasks' cal_event ids FRESH from the Store each call so
-                    // the SC4 dedup filter uses current state (never a stale snapshot).
-                    CalendarInboxSource(
-                        calendar: calendar,
-                        enabled: { [weak configStore] in
-                            configStore?.config.calendarInboxEnabled ?? false
-                        },
-                        // @MainActor closure: this live per-fetch Store read runs ON the
-                        // main actor, so it never races main-actor writes (accept/reload);
-                        // awaiting it hops off-actor fetchItems to main (WR-01).
-                        // Captures SELF (not the store): `openCapture`/Settings-close swap
-                        // `self.store` for a fresh instance (WR-09), so a `[weak store]`
-                        // capture pointed at the deallocated launch-time Store and the
-                        // linked filter silently returned [] for the rest of the session.
-                        linkedEventIDs: { [weak self] instant in
-                            guard let store = self?.store else { return [] }
-                            return ((try? store.readDoc(on: instant))?.tasks ?? [])
-                                .compactMap { task in
-                                    task.calEventID.map {
-                                        LinkedEventRef(eventKitID: $0, start: task.timeBlock?.start)
-                                    }
-                                }
-                        },
-                        now: Date.init,
-                        timezone: .current,
-                        // Live-read of the Settings → Calendar visibility filter, so
-                        // hiding a calendar also stops its events being suggested.
-                        visibleCalendarIDs: { [weak configStore] in
-                            configStore?.config.visibleCalendarIDs
-                        })
-                ],
-                state: inboxState)
-        } else {
+        // Promote the dedupe state to a property so the live TZ rebuild (roadmap 3.3
+        // slice 2) can reconstruct the zone-pinned inbox service without re-opening it.
+        inboxState = try? InboxStateStore()
+        if inboxState == nil {
             NSLog("[Jotty] inbox state store unavailable; Suggested section disabled")
-            inboxService = nil
         }
+        inboxService = makeInboxService(timezone: .current)
 
         // Inject the real calendar service into the menubar: the read section
         // (SC2), the SC3 lifecycle, and the SC4 drift-on-open hook all ride the
@@ -231,6 +200,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                              clearMissingLinks: false)
             }
         }
+
+        // Roadmap 3.3 slice 2: observe LIVE system-timezone changes and rebuild the
+        // pinned Store/model stack in the new zone. The app pins the zone at launch
+        // and never uses `autoupdatingCurrent` (which would flip mid-operation), so
+        // this monitor is the ONE place a zone change enters. It reports the zone PAIR
+        // and hands it here; we own the rebuild (WR-09 main-actor sequencing — the
+        // monitor delivers on the main queue). `activeTZ` reads the currently pinned
+        // model zone so a second change classifies against the last rebuild's zone;
+        // `currentTZ` reads `.current` FRESH at notification time.
+        timeZoneMonitor = TimeZoneMonitor(
+            activeTZ: { [weak self] in
+                MainActor.assumeIsolated { self?.menubar.listModel.timezone ?? .current }
+            },
+            currentTZ: { .current },
+            onChange: { [weak self] decision in
+                MainActor.assumeIsolated {
+                    guard let self, case let .zoneChanged(_, newTZ) = decision else { return }
+                    self.rebuildForTimeZoneChange(to: newTZ)
+                }
+            })
 
         scheduleMidnightRollover()
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
@@ -345,6 +334,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("[Jotty] Rollover failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Builds the unified-inbox coordinator pinned to `timezone` (Phase 7 + roadmap
+    /// 3.3 slice 2). The `CalendarInboxSource` fixes its today-window zone at
+    /// construction (pinned-calendar discipline), so the live TZ rebuild reconstructs
+    /// the service to re-pin that window; every OTHER collaborator is a LIVE closure
+    /// (enabled/linkedEventIDs/visibleCalendarIDs read fresh per fetch), unchanged
+    /// across a rebuild. Reuses the app-lifetime `inboxState` (no re-open). Returns nil
+    /// when the state store is unavailable (degrades to no Suggested section).
+    private func makeInboxService(timezone: TimeZone) -> InboxService? {
+        guard let inboxState else { return nil }
+        return InboxService(
+            sources: [
+                GitHubInboxSource(session: .shared,
+                                  keychain: KeychainAPIKeyStore(),
+                                  patAccount: "github"),
+                // Phase 11: the calendar source rides the SAME app-lifetime
+                // EventKitCalendarService (L101). `enabled` reads the toggle LIVE
+                // (mirrors the claudeAction/calendarID closures) so a Settings flip
+                // takes effect on the next refresh with no re-wiring; OFF by default
+                // ⇒ isConfigured false ⇒ zero calendar reads (SC5). `linkedEventIDs`
+                // reads today's tasks' cal_event ids FRESH from the Store each call so
+                // the SC4 dedup filter uses current state (never a stale snapshot).
+                CalendarInboxSource(
+                    calendar: calendar,
+                    enabled: { [weak configStore] in
+                        configStore?.config.calendarInboxEnabled ?? false
+                    },
+                    // @MainActor closure: this live per-fetch Store read runs ON the
+                    // main actor, so it never races main-actor writes (accept/reload);
+                    // awaiting it hops off-actor fetchItems to main (WR-01).
+                    // Captures SELF (not the store): `openCapture`/Settings-close/TZ-change
+                    // swap `self.store` for a fresh instance (WR-09), so a `[weak store]`
+                    // capture pointed at the deallocated launch-time Store and the
+                    // linked filter silently returned [] for the rest of the session.
+                    linkedEventIDs: { [weak self] instant in
+                        guard let store = self?.store else { return [] }
+                        return ((try? store.readDoc(on: instant))?.tasks ?? [])
+                            .compactMap { task in
+                                task.calEventID.map {
+                                    LinkedEventRef(eventKitID: $0, start: task.timeBlock?.start)
+                                }
+                            }
+                    },
+                    now: Date.init,
+                    timezone: timezone,
+                    // Live-read of the Settings → Calendar visibility filter, so
+                    // hiding a calendar also stops its events being suggested.
+                    visibleCalendarIDs: { [weak configStore] in
+                        configStore?.config.visibleCalendarIDs
+                    })
+            ],
+            state: inboxState)
+    }
+
+    /// Whether a live TZ rebuild from `old` to `new` should ARM the one-shot bulk
+    /// re-anchor prompt (roadmap 3.3 slice 2 — a later task consumes this). Armed IFF
+    /// the two zones map wall-clock to a DIFFERENT UTC offset at `instant` (the rebuild
+    /// decision point): an identifier-only change between offset-equivalent zones
+    /// (Melbourne→Sydney) rebuilds SILENTLY. This is the COARSE arm gate; the per-block
+    /// partition (`CalendarDrift.partitionForTZShift`, the later task) still refines
+    /// WHICH blocks are prompted. Reads offsets from the zone pair the monitor reported
+    /// — never `autoupdatingCurrent`.
+    nonisolated static func shouldArmReanchorPrompt(from old: TimeZone, to new: TimeZone,
+                                                    at instant: Date) -> Bool {
+        old.secondsFromGMT(for: instant) != new.secondsFromGMT(for: instant)
+    }
+
+    /// Set by `rebuildForTimeZoneChange`: true when the most recent live TZ rebuild
+    /// changed the UTC offset (the later one-shot bulk re-anchor task arms its prompt
+    /// on this from the menubar reload path); false for an identifier-only,
+    /// offset-equivalent change (silent). Never set by a folder-only change.
+    private(set) var reanchorPromptArmed = false
+
+    /// THE live timezone-change rebuild entry point (roadmap 3.3 slice 2), invoked by
+    /// `TimeZoneMonitor` on every identifier change and reusable by the later bulk
+    /// re-anchor task. Re-pins the delegate's Store and the menubar model/inbox stack
+    /// to `newTZ`, and records whether the offset changed so the prompt can be armed.
+    ///
+    /// RENDER-ONLY: it constructs a fresh `Store(folder:timezone:)` (a pure value
+    /// wrapper — no write) and drives the model's render-only `replace(...)`; NO Store
+    /// WRITE is reachable from here (the byte-identical-folder test enforces it). The
+    /// rollover over-correction taught us that acting automatically on re-anchored data
+    /// destroys it — the rebuild only re-renders. Main-actor (@MainActor) + synchronous,
+    /// so it cannot interleave with an in-flight capture commit or rollover (WR-09).
+    ///
+    /// Sites that converge WITHOUT wiring here: `RolloverService` is reconstructed per
+    /// run from the (now-rebuilt) `self.store` reading `.current` fresh; `CommandBarIndex`
+    /// rebuilds its Store from the model's rebuilt timezone on its next per-open build;
+    /// the capture path resolves `TimeZone.current` fresh per submit.
+    func rebuildForTimeZoneChange(to newTZ: TimeZone) {
+        // Classify BEFORE re-pinning: compare the CURRENTLY pinned model zone to newTZ
+        // at the rebuild instant (the sole decision point).
+        reanchorPromptArmed = Self.shouldArmReanchorPrompt(
+            from: menubar.listModel.timezone, to: newTZ, at: Date())
+
+        // Re-pin the delegate's Store (rollover + "Open Today's File" read it) and
+        // rebuild the timezone-pinned inbox service, then hand both to the model's
+        // render-only swap. No write is reachable from any of these.
+        store = Store(folder: configStore.config.storageFolder, timezone: newTZ)
+        inboxService = makeInboxService(timezone: newTZ)
+        menubar.listModel.replace(store: store, timezone: newTZ, inboxService: inboxService)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
