@@ -58,6 +58,14 @@ final class MenubarListModel: ObservableObject {
     /// Open-time drift prompt (SC4): the linked tasks whose calendar event changed
     /// externally, offered for a calendar-wins sync. Set by `reloadCalendar`.
     @Published var driftPrompt: DriftPrompt?
+    /// The ONE-SHOT bulk TZ-shift re-anchor prompt (roadmap 3.3 slice 2). Set by the
+    /// FIRST `reloadCalendar` after a live timezone-change rebuild when the per-block
+    /// partition (`CalendarDrift.partitionForTZShift`) finds pairs that moved by exactly
+    /// the zone-offset delta — re-anchoring artifacts, not genuine user drift. Offers the
+    /// whole set one choice ("Times moved with you" vs "Keep appointment times") instead
+    /// of a per-task drift storm; the non-matching pairs fall through to `driftPrompt`.
+    /// A normal (non-rebuild) reload clears it — those pairs re-detect as ordinary drift.
+    @Published var reanchorPrompt: ReanchorPrompt?
     /// Linked tasks whose calendar event was deleted in Calendar.app (detected at open time,
     /// CR-02). Surfaced — not silently dropped — so the user is offered a calendar-wins
     /// cleanup: clearing the now-dead `cal_event:` link degrades the task to an unlinked
@@ -99,6 +107,13 @@ final class MenubarListModel: ObservableObject {
         let drifted: [(task: Todo, event: CalendarEvent)]
     }
 
+    /// Carries the TZ-shifted (task, event) pairs awaiting the one-shot bulk re-anchor
+    /// decision after a live timezone change (roadmap 3.3 slice 2).
+    struct ReanchorPrompt: Identifiable {
+        let id = UUID()
+        let tzShift: [(task: Todo, event: CalendarEvent)]
+    }
+
     /// WR-09: `var` (not `let`) — the storage folder can change in Settings → Storage
     /// while the app runs, and `Store.folder` is immutable, so AppDelegate swaps in a
     /// freshly built Store via `replaceStore(_:)`. A launch-time capture would leave the
@@ -111,6 +126,15 @@ final class MenubarListModel: ObservableObject {
     /// cached formatter — otherwise the menubar would keep partitioning and rendering
     /// in the launch zone after the user (or a laptop crossing regions) moved.
     private(set) var timezone: TimeZone
+    /// Armed by `replace(...)` on any zone-IDENTIFIER change (roadmap 3.3 slice 2): the
+    /// FROM zone the NEXT `reloadCalendar` hands to `CalendarDrift.partitionForTZShift`
+    /// (paired with the now-current `timezone`) so it can split re-anchor artifacts from
+    /// genuine drift per-block. Consumed (cleared) by that reload. nil = no pending rebuild
+    /// (a folder-only change keeps the same identifier, so it never arms). The arm is the
+    /// identifier change, NOT a single-instant offset compare — Brisbane→Sydney is
+    /// offset-identical in July yet shifts every post-Oct block, so the per-block partition
+    /// (not an offset gate) is the sole decider of WHICH pairs are prompted.
+    private var pendingReanchorFromZone: TimeZone?
     /// SHARED timezone-pinned HH:mm formatter for event/block times, built ONCE per
     /// pinned zone (the menubar section and canvas previously rebuilt a DateFormatter
     /// per render — formatter construction is one of the more expensive Foundation
@@ -370,6 +394,12 @@ final class MenubarListModel: ObservableObject {
     /// so it cannot interleave with an in-flight capture commit or rollover (WR-09).
     func replace(store newStore: Store, timezone newTimezone: TimeZone,
                  inboxService newInbox: InboxService?) {
+        // Arm the one-shot bulk re-anchor partition for the NEXT reload iff the zone
+        // IDENTIFIER changed (roadmap 3.3 slice 2). A folder-only change keeps the same
+        // identifier → no arm → plain reload. The zone PAIR (old, new) must reach the
+        // partition so it computes each block's re-anchor delta at the block's own date.
+        let oldTimezone = timezone
+        pendingReanchorFromZone = oldTimezone.identifier == newTimezone.identifier ? nil : oldTimezone
         store = newStore
         timezone = newTimezone
         timeFormatter = Self.makeTimeFormatter(timezone: newTimezone)
@@ -451,6 +481,14 @@ final class MenubarListModel: ObservableObject {
     /// never re-entered once the user has answered).
     func reloadCalendar(promptIfUndetermined: Bool = true,
                         clearMissingLinks: Bool = true) async {
+        // Consume the pending re-anchor arm (roadmap 3.3 slice 2): THIS invocation owns it,
+        // so the FIRST reload after a rebuild partitions drift while every later reload uses
+        // the normal path. On an early return below (no coordinator / denied / superseded /
+        // fetch failure) there is no drift to classify anyway, and the design re-detects the
+        // shift on the next open (idempotent — nothing is persisted about the prompt).
+        let reanchorFrom = pendingReanchorFromZone
+        pendingReanchorFromZone = nil
+
         guard let calendarCoordinator else {
             calendarEvents = []
             allDayEvents = []
@@ -537,9 +575,28 @@ final class MenubarListModel: ObservableObject {
         // the just-written id is never raced against a not-yet-refreshed fetch and the
         // in-progress edit is not fought (CR-02 must not fight the SC3 edit flow).
         if clearMissingLinks {
-            driftPrompt = result.drifted.isEmpty
+            // On the FIRST reload after a rebuild (`reanchorFrom` set), intercept BEFORE
+            // the normal drift prompt: split the drifted pairs into TZ-shift artifacts (the
+            // one-shot bulk re-anchor prompt) and genuine drift (the normal per-set prompt).
+            // The zone PAIR is (reanchorFrom → the now-current `timezone`), so the partition
+            // computes each block's re-anchor delta at that block's own date (DST-safe). A
+            // non-rebuild reload clears any stale bulk prompt — those pairs re-detect as
+            // ordinary drift, so nothing is ever silently stranded.
+            let driftedForPrompt: [(task: Todo, event: CalendarEvent)]
+            if let reanchorFrom {
+                let partition = CalendarDrift.partitionForTZShift(
+                    result.drifted, from: reanchorFrom, to: timezone)
+                reanchorPrompt = partition.tzShift.isEmpty
+                    ? nil
+                    : ReanchorPrompt(tzShift: partition.tzShift)
+                driftedForPrompt = partition.other
+            } else {
+                reanchorPrompt = nil
+                driftedForPrompt = result.drifted
+            }
+            driftPrompt = driftedForPrompt.isEmpty
                 ? nil
-                : DriftPrompt(drifted: result.drifted)
+                : DriftPrompt(drifted: driftedForPrompt)
             missingLinkPrompt = result.missing.isEmpty
                 ? nil
                 : MissingLinkPrompt(tasks: result.missing)
@@ -844,11 +901,21 @@ final class MenubarListModel: ObservableObject {
     func confirmDriftSync() {
         guard let prompt = driftPrompt else { return }
         driftPrompt = nil
+        applyCalendarWins(prompt.drifted)
+    }
+
+    /// The calendar-wins per-pair rewrite funnel (SC4), shared by `confirmDriftSync` and
+    /// the bulk re-anchor "Keep appointment times" choice (roadmap 3.3 slice 2). Rewrites
+    /// each pair's task text + time block from its event, persisted per-id through the
+    /// mutateDay funnel (T-5-10 — conflict-safe against external writers). A cross-midnight
+    /// event re-anchors to a rolled-end/day-qualified block automatically on serialization.
+    /// Per-pair by construction: a task no longer on today's doc is skipped, never fatal.
+    private func applyCalendarWins(_ pairs: [(task: Todo, event: CalendarEvent)]) {
         let snapshot = now()
         do {
             try store.mutateDay(on: snapshot) { doc in
                 var changed = false
-                for pair in prompt.drifted {
+                for pair in pairs {
                     guard let idx = doc.tasks.firstIndex(where: { $0.id == pair.task.id }) else { continue }
                     // Store the SANITIZED title (WR-04): drift is detected via
                     // `sanitize(task.text) != event.title`, and create writes `sanitize(text)`
@@ -873,6 +940,34 @@ final class MenubarListModel: ObservableObject {
         driftPrompt = nil
     }
 
+    // MARK: - One-shot bulk TZ-shift re-anchor (roadmap 3.3 slice 2)
+
+    /// "Times moved with you": push each TZ-shifted task's OWN (re-anchored) wall-clock
+    /// instants onto its linked event, in bulk. Reuses the per-pair task-wins funnel — one
+    /// pair's `.notFound`/`.failed` never stops its siblings (no all-or-nothing batch), with
+    /// the Task-1 skip-notice semantics. Each block already carries the NEW zone's wall-clock
+    /// after the rebuild's reparse, so pushing it moves the appointment to follow the user.
+    func confirmReanchorMoveWithMe() {
+        guard let prompt = reanchorPrompt else { return }
+        reanchorPrompt = nil
+        bulkPushMine(prompt.tzShift)
+    }
+
+    /// "Keep appointment times": calendar wins in bulk — pin each task back onto its event's
+    /// absolute instants (the existing SC4 per-pair path). Day-qualified tokens fall out of
+    /// serialization automatically where a re-anchor crossed midnight.
+    func confirmReanchorKeepTimes() {
+        guard let prompt = reanchorPrompt else { return }
+        reanchorPrompt = nil
+        applyCalendarWins(prompt.tzShift)
+    }
+
+    /// Dismisses the bulk re-anchor prompt without persisting anything ("decide later"):
+    /// the next reload re-detects the still-present shift as ordinary drift (idempotent).
+    func dismissReanchorPrompt() {
+        reanchorPrompt = nil
+    }
+
     /// Confirms the open-time drift prompt: TASK wins ("Update event", roadmap 2.3).
     /// For each drifted pair, pushes the TASK's own fields onto its linked calendar
     /// event via the per-pair `updateEventForDrift` — the SAME action a later
@@ -890,12 +985,22 @@ final class MenubarListModel: ObservableObject {
     func confirmDriftUpdateEvent() {
         guard let prompt = driftPrompt else { return }
         driftPrompt = nil
+        bulkPushMine(prompt.drifted)
+    }
+
+    /// The task-wins bulk-push funnel, shared by `confirmDriftUpdateEvent` and the bulk
+    /// re-anchor "Times moved with you" choice (roadmap 3.3 slice 2). Pushes each pair's
+    /// task fields onto its event through the per-pair `updateEventForDrift`; a pair whose
+    /// event is gone (`.notFound`) or whose save failed (`.failed`) is counted and skipped
+    /// while every OTHER pair is still attempted (review finding 1 — per-pair isolation, no
+    /// early return). The combined skip notice is published when the batch finishes.
+    private func bulkPushMine(_ pairs: [(task: Todo, event: CalendarEvent)]) {
         driftUpdateSkipNotice = nil
         editTask = Task { [weak self] in
             guard let self else { return }
             var notFoundCount = 0
             var failedCount = 0
-            for pair in prompt.drifted {
+            for pair in pairs {
                 switch await self.updateEventForDrift(pair) {
                 case .updated:
                     break

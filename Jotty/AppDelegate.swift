@@ -389,29 +389,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state: inboxState)
     }
 
-    /// Whether a live TZ rebuild from `old` to `new` should ARM the one-shot bulk
-    /// re-anchor prompt (roadmap 3.3 slice 2 — a later task consumes this). Armed IFF
-    /// the two zones map wall-clock to a DIFFERENT UTC offset at `instant` (the rebuild
-    /// decision point): an identifier-only change between offset-equivalent zones
-    /// (Melbourne→Sydney) rebuilds SILENTLY. This is the COARSE arm gate; the per-block
-    /// partition (`CalendarDrift.partitionForTZShift`, the later task) still refines
-    /// WHICH blocks are prompted. Reads offsets from the zone pair the monitor reported
-    /// — never `autoupdatingCurrent`.
-    nonisolated static func shouldArmReanchorPrompt(from old: TimeZone, to new: TimeZone,
-                                                    at instant: Date) -> Bool {
-        old.secondsFromGMT(for: instant) != new.secondsFromGMT(for: instant)
-    }
-
-    /// Set by `rebuildForTimeZoneChange`: true when the most recent live TZ rebuild
-    /// changed the UTC offset (the later one-shot bulk re-anchor task arms its prompt
-    /// on this from the menubar reload path); false for an identifier-only,
-    /// offset-equivalent change (silent). Never set by a folder-only change.
-    private(set) var reanchorPromptArmed = false
-
     /// THE live timezone-change rebuild entry point (roadmap 3.3 slice 2), invoked by
-    /// `TimeZoneMonitor` on every identifier change and reusable by the later bulk
-    /// re-anchor task. Re-pins the delegate's Store and the menubar model/inbox stack
-    /// to `newTZ`, and records whether the offset changed so the prompt can be armed.
+    /// `TimeZoneMonitor` on every identifier change. Re-pins the delegate's Store and the
+    /// menubar model/inbox stack to `newTZ`; the model's `replace(...)` itself arms the
+    /// one-shot bulk re-anchor partition on the zone-identifier change (roadmap 3.3 slice
+    /// 2), so no arm decision is made here — the per-block partition is the sole decider.
     ///
     /// RENDER-ONLY: it constructs a fresh `Store(folder:timezone:)` (a pure value
     /// wrapper — no write) and drives the model's render-only `replace(...)`; NO Store
@@ -425,11 +407,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// rebuilds its Store from the model's rebuilt timezone on its next per-open build;
     /// the capture path resolves `TimeZone.current` fresh per submit.
     func rebuildForTimeZoneChange(to newTZ: TimeZone) {
-        // Classify BEFORE re-pinning: compare the CURRENTLY pinned model zone to newTZ
-        // at the rebuild instant (the sole decision point).
-        reanchorPromptArmed = Self.shouldArmReanchorPrompt(
-            from: menubar.listModel.timezone, to: newTZ, at: Date())
-
         // Re-pin the delegate's Store (rollover + "Open Today's File" read it) and
         // rebuild the timezone-pinned inbox service, then hand both to the model's
         // render-only swap. No write is reachable from any of these.

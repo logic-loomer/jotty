@@ -293,6 +293,23 @@ struct MenubarListView: View {
         } message: {
             Text(driftMessage)
         }
+        // Roadmap 3.3 slice 2: the ONE-SHOT bulk re-anchor prompt after a live timezone
+        // change. "Times moved with you" pushes each task's re-anchored wall-clock onto its
+        // event (2.3 push-mine, in bulk); "Keep appointment times" pins each task back to its
+        // event's absolute instants (SC4 calendar-wins, in bulk); dismiss decides later (the
+        // shift re-detects on the next open). Fires only when the per-block partition found
+        // pairs that moved by exactly the zone-offset delta — genuine drift stays on the
+        // normal "Sync from Calendar?" prompt above.
+        .alert("Your timezone changed",
+               isPresented: Binding(
+                   get: { model.reanchorPrompt != nil },
+                   set: { if !$0 { model.reanchorPrompt = nil } })) {
+            Button("Times moved with you") { model.confirmReanchorMoveWithMe() }
+            Button("Keep appointment times") { model.confirmReanchorKeepTimes() }
+            Button("Decide later", role: .cancel) { model.dismissReanchorPrompt() }
+        } message: {
+            Text(reanchorMessage)
+        }
         // SC5 parity for menubar-initiated moves ("Move +30 min" runs the same overlap
         // gate as capture/drop). Mirrors the canvas alert: the isPresented setter is
         // INERT (WR-04) — the buttons own the decision, and the model clears
@@ -731,6 +748,14 @@ struct MenubarListView: View {
             return "“\(titles[0])” changed in Calendar. Sync the task to match?"
         }
         return "\(titles.count) tasks changed in Calendar. Sync them to match?"
+    }
+
+    /// Human-readable summary for the one-shot bulk re-anchor prompt (roadmap 3.3).
+    private var reanchorMessage: String {
+        let count = model.reanchorPrompt?.tzShift.count ?? 0
+        let subject = count == 1 ? "1 calendar-linked block" : "\(count) calendar-linked blocks"
+        return "\(subject) kept their wall-clock times when your timezone changed. "
+            + "Move the events to match, or keep them pinned to the original appointment times?"
     }
 
     // MARK: - Missing-link notice (CR-02)

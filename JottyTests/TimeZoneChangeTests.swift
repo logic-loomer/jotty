@@ -204,36 +204,237 @@ final class TimeZoneChangeTests: XCTestCase {
         XCTAssertEqual(result.other.map(\.task.id), ["t_nb"])
     }
 
-    // MARK: - Rebuild arm classification (roadmap 3.3 slice 2, Task 3 signal)
+    // MARK: - One-shot bulk TZ-shift re-anchor prompt (roadmap 3.3 slice 2, Task 3)
+    //
+    // These drive the WHOLE integration: seed linked task(s) on disk under an
+    // original zone, build the model there (no drift — block == event), then
+    // `replace(...)` to the NEW zone (the live-rebuild entry Task 2 wired). The
+    // rebuild re-pins the store so today's file reparses under the new zone; the
+    // bare wall-clock block shifts by the per-block offset delta while the linked
+    // EVENT stays put — pure TZ-shift drift that the ONE bulk prompt intercepts
+    // BEFORE the normal per-set drift prompt can show it (Task 2 review handoff).
+    //
+    // Zone idiom: Brisbane→Sydney in OCTOBER (the adversarial-review star case) —
+    // offset-identical in July but +1h after Oct 4, and small enough (+1h) that
+    // "today" is the same calendar day and file in both zones, so the reparse is
+    // exercised without cross-midnight file-name drift. A mid-morning `now` keeps
+    // every block inside the day window in both zones.
 
-    /// The live-TZ rebuild ALWAYS runs on any identifier change, but it ARMS the
-    /// one-shot bulk re-anchor prompt (Task 3) only when the wall-clock→UTC offset
-    /// actually changes at the rebuild instant. Melbourne→Sydney is offset-identical
-    /// at every instant, so it rebuilds SILENTLY (no arm) — the brief's canonical
-    /// identifier-only case.
-    func testMelbourneToSydneyRebuildDoesNotArmPrompt() {
-        let now = makeDate(2026, 7, 12, h: 9)
-        XCTAssertFalse(AppDelegate.shouldArmReanchorPrompt(from: melbourne, to: sydney, at: now),
-                       "an offset-identical identifier change must rebuild silently")
+    /// (a) One linked task + a real TZ flip surfaces exactly ONE bulk re-anchor
+    /// prompt carrying every shifted pair — never a per-task drift storm, and the
+    /// tz-shifted pairs do NOT leak into the normal drift prompt.
+    @MainActor
+    func testTZFlipSurfacesOneBulkReanchorPromptNotPerTaskStorm() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        let bStart = makeDate(2026, 10, 10, h: 16, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+            (id: "t_b", eventID: "ev_b", text: "review", start: bStart, end: bStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        // Events stay at their ORIGINAL Brisbane-anchored instants (unmoved appointments).
+        fake.cannedEvents = [
+            event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800)),
+            event("ev_b", "review", bStart, bStart.addingTimeInterval(1800)),
+        ]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+        XCTAssertNil(model.reanchorPrompt, "no rebuild yet → no bulk prompt")
+
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+
+        let prompt = try XCTUnwrap(model.reanchorPrompt, "a real TZ flip must arm the bulk prompt")
+        XCTAssertEqual(Set(prompt.tzShift.map(\.task.id)), ["t_a", "t_b"],
+                       "ONE prompt carries every shifted pair (no per-task storm)")
+        XCTAssertNil(model.driftPrompt, "tz-shifted pairs must NOT leak into the normal drift prompt")
     }
 
-    /// A genuine offset change (Sydney→LA) arms the prompt.
-    func testSydneyToLosAngelesRebuildArmsPrompt() {
-        let now = makeDate(2026, 7, 12, h: 9)
-        XCTAssertTrue(AppDelegate.shouldArmReanchorPrompt(from: sydney, to: losAngeles, at: now),
-                      "a UTC-offset change must arm the bulk re-anchor prompt")
+    /// (b) "Times moved with you" pushes each task's wall-clock instants onto its
+    /// event; an `.eventNotFound` pair skips with the Task-1 notice, siblings still
+    /// processed (per-pair isolation — no all-or-nothing batch).
+    @MainActor
+    func testMoveWithMePushesWallClockAndToleratesNotFoundPerPair() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        let bStart = makeDate(2026, 10, 10, h: 16, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+            (id: "t_b", eventID: "ev_b", text: "review", start: bStart, end: bStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800)),
+            event("ev_b", "review", bStart, bStart.addingTimeInterval(1800)),
+        ]
+        // ev_a is gone in Calendar (deleted) → its push reports .notFound and is skipped.
+        fake.updateErrorsByID = ["ev_a": .eventNotFound]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt)
+
+        model.confirmReanchorMoveWithMe()
+        await model.awaitCalendarRefresh()
+
+        // Both pairs attempted (no early return); ev_b pushed the TASK's NEW-zone wall-clock.
+        XCTAssertEqual(Set(fake.updatedEventIDs), ["ev_a", "ev_b"], "every pair attempted")
+        let bReanchored = makeDate(2026, 10, 10, h: 16, tz: sydney) // "16:00" now reparsed under Sydney
+        XCTAssertTrue(fake.updatedEvents.contains(
+            FakeCalendarService.UpdatedEvent(id: "ev_b", title: "review",
+                                             start: bReanchored, end: bReanchored.addingTimeInterval(1800))),
+            "the surviving pair pushes the task's re-anchored wall-clock instant")
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "1 calendar event could not be found and was not updated.")
+        XCTAssertNil(model.reanchorPrompt, "prompt cleared on choice")
     }
 
-    /// The arm decision is evaluated at the rebuild INSTANT (the sole decision
-    /// point): Brisbane→Sydney is offset-identical in July (both +10, no arm) but
-    /// differs after Oct 4 (Sydney +11 → arm). Mirrors the "offsets match now"
-    /// discriminator the brief specifies for the coarse arm gate; the per-block
-    /// partition (Task 3) still refines WHICH blocks are prompted.
-    func testArmDecisionIsEvaluatedAtRebuildInstant() {
-        let july = makeDate(2026, 7, 12, h: 9)
-        let october = makeDate(2026, 10, 10, h: 9)
-        XCTAssertFalse(AppDelegate.shouldArmReanchorPrompt(from: brisbane, to: sydney, at: july))
-        XCTAssertTrue(AppDelegate.shouldArmReanchorPrompt(from: brisbane, to: sydney, at: october))
+    /// (c) "Keep appointment times" rewrites each block from its event's absolute
+    /// instants (calendar-wins, the existing SC4 per-pair path), pinning the task
+    /// to the appointment rather than the moved wall-clock.
+    @MainActor
+    func testKeepAppointmentTimesRewritesBlocksFromEvents() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt)
+
+        model.confirmReanchorKeepTimes()
+        await model.awaitCalendarRefresh()
+
+        // Calendar wins: the block on disk now reparses to the EVENT's absolute instant.
+        let doc = try Store(folder: folder, timezone: sydney).readDoc(on: day)
+        let stored = try XCTUnwrap(doc.tasks.first { $0.id == "t_a" })
+        XCTAssertEqual(stored.timeBlock, TimeBlock(start: aStart, end: aStart.addingTimeInterval(1800)),
+                       "the block is pinned to the appointment's absolute instant")
+        XCTAssertNil(model.reanchorPrompt)
+        XCTAssertNil(model.driftPrompt, "calendar-wins resolves the drift")
+    }
+
+    /// (d) Mixed set: a pair that moved by exactly the offset delta is TZ-shift (bulk
+    /// prompt); a pair that moved by some OTHER amount is genuine drift and falls
+    /// through to the normal per-set drift prompt.
+    @MainActor
+    func testMixedSetTZShiftBulkGenuineDriftFallsThrough() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let tzStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        let userStart = makeDate(2026, 10, 10, h: 16, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_tz", eventID: "ev_tz", text: "standup", start: tzStart, end: tzStart.addingTimeInterval(1800)),
+            (id: "t_user", eventID: "ev_user", text: "review", start: userStart, end: userStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        // ev_tz stays put (pure TZ-shift after reparse). ev_user moved +2h in ADDITION,
+        // so its post-reparse delta ≠ the +1h offset delta → genuine drift.
+        let userStartSyd = makeDate(2026, 10, 10, h: 16, tz: sydney)
+        fake.cannedEvents = [
+            event("ev_tz", "standup", tzStart, tzStart.addingTimeInterval(1800)),
+            event("ev_user", "review", userStartSyd.addingTimeInterval(7200),
+                  userStartSyd.addingTimeInterval(7200 + 1800)),
+        ]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+
+        let bulk = try XCTUnwrap(model.reanchorPrompt)
+        XCTAssertEqual(bulk.tzShift.map(\.task.id), ["t_tz"], "only the offset-delta pair is TZ-shift")
+        let drift = try XCTUnwrap(model.driftPrompt, "the genuine-drift pair falls through")
+        XCTAssertEqual(drift.drifted.map(\.task.id), ["t_user"])
+    }
+
+    /// (e) Dismissing persists NOTHING; the next reload re-detects the still-present
+    /// drift (idempotent by construction — the prompt writes nothing about itself).
+    @MainActor
+    func testDismissReanchorPersistsNothingNextReloadReDetects() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt)
+
+        let before = folderSnapshot(folder)
+        model.dismissReanchorPrompt()
+        XCTAssertNil(model.reanchorPrompt)
+        XCTAssertEqual(folderSnapshot(folder), before, "dismiss persists nothing")
+
+        // A plain reload (no rebuild) re-detects the still-present drift — now as the
+        // normal per-set prompt (decide-later falls back to the granular path).
+        model.reload()
+        await model.awaitCalendarRefresh()
+        XCTAssertNotNil(model.driftPrompt, "nothing was persisted, so the drift re-detects")
+    }
+
+    /// Correction: an identifier-only rebuild between OFFSET-IDENTICAL zones
+    /// (Melbourne→Sydney) shows NO bulk prompt — the partition yields zero pairs
+    /// because every block's per-block offset delta is zero, so it stays silent
+    /// naturally (the arm fires on the identifier change; the partition decides).
+    @MainActor
+    func testMelbourneToSydneyRebuildShowsNoBulkPrompt() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: melbourne)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: melbourne)
+        try seedLinked(folder: folder, zone: melbourne, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: melbourne, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertNil(model.reanchorPrompt, "offset-identical rebuild → partition empty → no bulk prompt")
+        XCTAssertNil(model.driftPrompt, "and nothing drifted, so no normal prompt either")
+    }
+
+    /// Byte-identity through the whole rebuild→partition→prompt-display path (Task 2
+    /// review): with a real calendar coordinator and a drifting linked task, the
+    /// populated folder stays byte-identical — the bulk prompt DISPLAYS, and not one
+    /// byte is written until the user makes a choice.
+    @MainActor
+    func testRebuildWithCoordinatorLeavesFolderByteIdenticalUntilChoice() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        let before = folderSnapshot(folder)
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+
+        _ = try XCTUnwrap(model.reanchorPrompt, "the prompt displays")
+        XCTAssertEqual(folderSnapshot(folder), before,
+                       "rebuild + partition + prompt display must write zero bytes")
     }
 
     // MARK: - Live rebuild: render-only (zero bytes written)
@@ -376,6 +577,31 @@ final class TimeZoneChangeTests: XCTestCase {
     }
 
     // MARK: - Test helpers
+
+    /// Seeds linked (timeBlock + calEventID) tasks on disk under `zone`, so the block's
+    /// bare wall-clock `time:` token reparses per-zone on a later rebuild.
+    private func seedLinked(folder: URL, zone: TimeZone, day: Date,
+                            tasks: [(id: String, eventID: String, text: String, start: Date, end: Date)]) throws {
+        let store = Store(folder: folder, timezone: zone)
+        let todos: [Todo] = tasks.map { spec in
+            var t = Todo(id: spec.id, text: spec.text, createdAt: day)
+            t.timeBlock = TimeBlock(start: spec.start, end: spec.end)
+            t.calEventID = spec.eventID
+            return t
+        }
+        try store.appendCapture(noteText: "", noteId: nil, tasks: todos, at: day)
+    }
+
+    private func event(_ id: String, _ title: String, _ start: Date, _ end: Date) -> CalendarEvent {
+        CalendarEvent(eventKitID: id, title: title, start: start, end: end, calendarTitle: "Work")
+    }
+
+    @MainActor
+    private func buildModel(folder: URL, zone: TimeZone, fake: FakeCalendarService,
+                            now: Date) -> MenubarListModel {
+        MenubarListModel(store: Store(folder: folder, timezone: zone), timezone: zone,
+                         defaults: throwawayDefaults(), now: { now }, calendar: fake)
+    }
 
     private func makeTempFolder() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
