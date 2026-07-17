@@ -884,6 +884,45 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.driftPrompt)
     }
 
+    /// Review finding 1: a genuine save failure (`.underlying`, NOT `.eventNotFound`) must
+    /// get notice copy that does NOT claim the event "could not be found" — that phrasing is
+    /// factually wrong when the event still exists and the write itself failed. The sibling
+    /// pair in the same resolve is unaffected (per-pair isolation, no early return).
+    func testConfirmDriftUpdateEventSaveFailureGetsDistinctNoticeSiblingStillUpdates() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_ok", eventID: "evt-ok", text: "ok task",
+                       start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10)),
+            linkedTask(id: "t_bad", eventID: "evt-bad", text: "bad task",
+                       start: makeDate(2026, 6, 12, h: 11), end: makeDate(2026, 6, 12, h: 12))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-ok", title: "drifted ok",
+                          start: makeDate(2026, 6, 12, h: 20), end: makeDate(2026, 6, 12, h: 21), calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-bad", title: "drifted bad",
+                          start: makeDate(2026, 6, 12, h: 22), end: makeDate(2026, 6, 12, h: 23), calendarTitle: "Work"),
+        ]
+        // "evt-bad" hits a genuine save error (not eventNotFound); "evt-ok" succeeds cleanly.
+        fake.updateErrorsByID = ["evt-bad": .underlying(message: "network")]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+
+        XCTAssertTrue(fake.updatedEvents.contains(
+            FakeCalendarService.UpdatedEvent(
+                id: "evt-ok", title: "ok task",
+                start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10))),
+            "the sibling pair still updates despite the other's save failure")
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "1 calendar event could not be updated.",
+                       "a save failure must not claim the event was not found")
+        XCTAssertNil(model.driftPrompt)
+    }
+
     // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
 
     func testMissingLinkedEventSurfacesPromptOnOpen() async throws {

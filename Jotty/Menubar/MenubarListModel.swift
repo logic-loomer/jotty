@@ -840,7 +840,10 @@ final class MenubarListModel: ObservableObject {
     ///
     /// A pair whose event is gone (`.eventNotFound` — deleted in Calendar, or a
     /// foreign/recycled event the WR-05 marker guard refuses to touch) is skipped
-    /// with a notice; every OTHER pair is still attempted (no early return on one
+    /// with a notice; a pair whose event still exists but whose write genuinely
+    /// failed gets its OWN distinct notice (review finding 1 — the old copy
+    /// collapsed both into "could not be found", which is factually wrong for a
+    /// save failure). Every OTHER pair is still attempted (no early return on one
     /// pair's failure).
     func confirmDriftUpdateEvent() {
         guard let prompt = driftPrompt else { return }
@@ -848,21 +851,43 @@ final class MenubarListModel: ObservableObject {
         driftUpdateSkipNotice = nil
         editTask = Task { [weak self] in
             guard let self else { return }
-            var skipped = 0
+            var notFoundCount = 0
+            var failedCount = 0
             for pair in prompt.drifted {
-                if await !self.updateEventForDrift(pair) {
-                    skipped += 1
+                switch await self.updateEventForDrift(pair) {
+                case .updated:
+                    break
+                case .notFound:
+                    notFoundCount += 1
+                case .failed:
+                    failedCount += 1
                 }
             }
-            if skipped > 0 {
-                // "Not found" covers BOTH a genuinely deleted event and a foreign/recycled
-                // id the WR-05 marker guard refused — deliberately not claiming "deleted"
-                // here, since the guard case is not a deletion.
-                self.driftUpdateSkipNotice = skipped == 1
-                    ? "1 calendar event could not be found and was not updated."
-                    : "\(skipped) calendar events could not be found and were not updated."
-            }
+            self.driftUpdateSkipNotice = Self.driftUpdateNotice(notFound: notFoundCount, failed: failedCount)
         }
+    }
+
+    /// Builds the per-resolve "Update event" skip notice (review finding 1).
+    /// `.notFound` and `.failed` are DISTINCT outcomes and must never share copy that
+    /// claims "not found" for a genuine save failure. When only `.notFound` pairs were
+    /// skipped, the original copy applies ("not found" covers BOTH a genuinely deleted
+    /// event and a foreign/recycled id the WR-05 marker guard refused — deliberately not
+    /// claiming "deleted", since the guard case is not a deletion). When ANY pair failed
+    /// to save — alone or mixed with `.notFound` pairs — the notice falls back to the
+    /// generic "could not be updated" copy over the combined count, since claiming "not
+    /// found" would misdescribe the failed pairs in that mix. Returns nil when nothing
+    /// was skipped.
+    private static func driftUpdateNotice(notFound: Int, failed: Int) -> String? {
+        guard notFound + failed > 0 else { return nil }
+        guard failed == 0 else {
+            let total = notFound + failed
+            return total == 1
+                ? "1 calendar event could not be updated."
+                : "\(total) calendar events could not be updated."
+        }
+        return notFound == 1
+            ? "1 calendar event could not be found and was not updated."
+            : "\(notFound) calendar events could not be found and were not updated."
     }
 
     /// Per-pair task-wins "Update event" push (roadmap 2.3): rewrites ONE drifted
@@ -872,18 +897,21 @@ final class MenubarListModel: ObservableObject {
     /// Callable independently of the drift-prompt UI (a later roadmap-3.3 task reuses
     /// it for the bulk TZ-shift "times moved with you" resolution).
     ///
-    /// Returns `false` when the event is gone (`.eventNotFound`, including the WR-05
-    /// marker guard refusing a foreign/recycled id) or the push otherwise failed
-    /// (already logged); never recreates — recreating on a task-wins confirm would
-    /// silently multiply events for a user who only meant to update one.
-    func updateEventForDrift(_ pair: (task: Todo, event: CalendarEvent)) async -> Bool {
+    /// Returns `.notFound` when the event is gone (`.eventNotFound`, including the WR-05
+    /// marker guard refusing a foreign/recycled id) or `.failed` when the push otherwise
+    /// failed (already logged) — kept DISTINCT (review finding 1) so the caller's notice
+    /// copy never claims "not found" for a genuine save failure. Never recreates on
+    /// either outcome — recreating on a task-wins confirm would silently multiply events
+    /// for a user who only meant to update one. A missing coordinator/link/block (should
+    /// not happen for a pair sourced from `driftPrompt`, which only carries linked tasks)
+    /// also reports `.failed`, since it is not an "event not found in Calendar" case.
+    func updateEventForDrift(_ pair: (task: Todo, event: CalendarEvent)) async -> CalendarCoordinator.UpdateEventOutcome {
         guard let calendarCoordinator,
               let eventID = pair.task.calEventID,
-              let block = pair.task.timeBlock else { return false }
+              let block = pair.task.timeBlock else { return .failed }
         let title = CalendarDrift.sanitize(title: pair.task.text)
-        let outcome = await calendarCoordinator.updateEvent(
+        return await calendarCoordinator.updateEvent(
             eventID: eventID, title: title, block: block, context: "driftUpdateEvent")
-        return outcome == .updated
     }
 
     /// Dismisses the "Update event" skip notice (non-blocking, user-dismissible).
