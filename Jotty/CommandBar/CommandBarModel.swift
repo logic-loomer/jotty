@@ -271,7 +271,7 @@ final class CommandBarModel: ObservableObject {
         case .inbox(let item):
             // WR-01 ordering (dedupe id BEFORE write) for free — never re-implemented (T-9-12).
             list.acceptSuggestion(item)
-        case .earlierTask(_, let day), .dayFile(let day, _):
+        case .earlierTask(_, let day, _), .dayFile(let day, _, _, _):
             // Resolve list.store at ACTIVATION time (Pitfall 9: live-swapped
             // store). URLs derive ONLY from enumerated store dates — the query
             // string is never a path component (T-9-11).

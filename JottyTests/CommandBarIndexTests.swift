@@ -201,6 +201,56 @@ final class CommandBarIndexTests: XCTestCase {
         XCTAssertNil(inboxItem.recency)
     }
 
+    // MARK: - I4: day strings follow the STORE timezone, not the launch zone
+
+    /// I4 (final review): the `.dayFile`/`.earlierTask` day key + label are formatted in
+    /// `buildHistorical`'s PASSED timezone, so they round-trip the on-disk file name in the
+    /// current zone. Building the SAME folder under an EAST (+14) and a WEST (−12) zone must
+    /// yield the IDENTICAL day key (each round-trips its own file name). d8a9166 formatted
+    /// with a process-static LAUNCH-zone formatter, so the two builds' 26h-apart midnight
+    /// instants rendered as DIFFERENT days — the "east of launch shifts one day back" bug
+    /// that made date searches hit the adjacent day and Enter open a file one day off.
+    func testDayStringsFollowStoreTimezoneNotLaunchZone() throws {
+        let east = TimeZone(identifier: "Pacific/Kiritimati")!   // UTC+14
+        let west = TimeZone(identifier: "Etc/GMT+12")!           // UTC−12
+        let store = Store(folder: folder, timezone: east)
+        let day = dateIn(2026, 6, 15, h: 9, tz: east)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "ledger", createdAt: day)], at: day)
+
+        let itemsEast = CommandBarIndex.buildHistorical(
+            folder: folder, timezone: east, excludingDay: dateIn(2026, 6, 16, h: 8, tz: east))
+        let itemsWest = CommandBarIndex.buildHistorical(
+            folder: folder, timezone: west, excludingDay: dateIn(2026, 6, 16, h: 8, tz: west))
+
+        // Both builds round-trip the file name in their own zone → identical id + key.
+        XCTAssertEqual(dayFileItems2(itemsEast).map(\.id), ["day:2026-06-15"],
+                       "east build formats the day key in the PASSED zone (I4)")
+        XCTAssertEqual(dayFileItems2(itemsWest).map(\.id), ["day:2026-06-15"],
+                       "west build round-trips the same file name — no launch-zone shift")
+
+        // Label + searchText are the passed zone's forms; a date search hits the right day.
+        let eastDayItem = try XCTUnwrap(itemsEast.first { if case .dayFile = $0 { return true }; return false })
+        XCTAssertEqual(eastDayItem.searchText,
+                       "2026-06-15 \(CommandItem.dayLabelFormatter(timezone: east).string(from: day))")
+        XCTAssertTrue(eastDayItem.searchText.contains("2026-06-15"),
+                      "the raw date search key must match the store-zone day")
+        let earlierEast = try XCTUnwrap(itemsEast.first { if case .earlierTask = $0 { return true }; return false })
+        XCTAssertEqual(earlierEast.id, "earlier:t_a:2026-06-15",
+                       "the earlier-task id day component follows the store zone too")
+    }
+
+    private func dateIn(_ y: Int, _ m: Int, _ d: Int, h: Int, tz: TimeZone) -> Date {
+        var c = DateComponents()
+        c.year = y; c.month = m; c.day = d; c.hour = h
+        c.timeZone = tz
+        return Calendar(identifier: .gregorian).date(from: c)!
+    }
+
+    private func dayFileItems2(_ items: [CommandItem]) -> [CommandItem] {
+        items.filter { if case .dayFile = $0 { return true }; return false }
+    }
+
     // MARK: - Fail-soft (Pattern 3)
 
     func testMissingFolderYieldsEmpty() {
@@ -306,14 +356,14 @@ final class CommandBarIndexTests: XCTestCase {
 
     private func earlierItems(_ items: [CommandItem]) -> [(todoID: String, day: Date)] {
         items.compactMap {
-            if case let .earlierTask(todo, day) = $0 { return (todo.id, day) }
+            if case let .earlierTask(todo, day, _) = $0 { return (todo.id, day) }
             return nil
         }
     }
 
     private func dayFileItems(_ items: [CommandItem]) -> [(day: Date, taskCount: Int)] {
         items.compactMap {
-            if case let .dayFile(day, count) = $0 { return (day, count) }
+            if case let .dayFile(day, count, _, _) = $0 { return (day, count) }
             return nil
         }
     }

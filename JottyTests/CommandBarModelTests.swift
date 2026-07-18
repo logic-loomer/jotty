@@ -57,9 +57,9 @@ final class CommandBarModelTests: XCTestCase {
         // (its searchText "2026-06-15 Mon Jun 15 2026" has no "match" subsequence).
         let earlierDay = makeDate(2026, 6, 15, h: 9)
         model.merge(historical: [
-            .earlierTask(Todo(id: "t_e1", text: "match earlier", createdAt: earlierDay),
-                         day: earlierDay),
-            .dayFile(day: earlierDay, taskCount: 1),
+            earlier(Todo(id: "t_e1", text: "match earlier", createdAt: earlierDay),
+                    day: earlierDay),
+            dayFile(day: earlierDay, taskCount: 1),
         ], generation: model.generation)
 
         model.query = "match"
@@ -145,10 +145,10 @@ final class CommandBarModelTests: XCTestCase {
         var historical: [CommandItem] = []
         for i in 1...10 {
             let day = makeDate(2026, 5, i, h: 9)
-            historical.append(.earlierTask(
+            historical.append(earlier(
                 Todo(id: String(format: "t_e%02d", i), text: "2026 earlier \(i)",
                      createdAt: day), day: day))
-            historical.append(.dayFile(day: day, taskCount: 1))
+            historical.append(dayFile(day: day, taskCount: 1))
         }
         model.merge(historical: historical, generation: model.generation)
 
@@ -370,9 +370,9 @@ final class CommandBarModelTests: XCTestCase {
         let earlierDay = makeDate(2026, 3, 5, h: 9)
         let fileDay = makeDate(2026, 3, 4, h: 9)
         model.merge(historical: [
-            .earlierTask(Todo(id: "t_v", text: "vintage ledger", createdAt: earlierDay),
-                         day: earlierDay),
-            .dayFile(day: fileDay, taskCount: 3),
+            earlier(Todo(id: "t_v", text: "vintage ledger", createdAt: earlierDay),
+                    day: earlierDay),
+            dayFile(day: fileDay, taskCount: 3),
         ], generation: model.generation)
 
         // Live store swap AFTER the corpus was built.
@@ -435,7 +435,7 @@ final class CommandBarModelTests: XCTestCase {
         model.query = "vintage"
         let day = makeDate(2026, 3, 5, h: 9)
         let items: [CommandItem] = [
-            .earlierTask(Todo(id: "t_v", text: "vintage ledger", createdAt: day), day: day),
+            earlier(Todo(id: "t_v", text: "vintage ledger", createdAt: day), day: day),
         ]
 
         model.merge(historical: items, generation: staleGeneration)
@@ -555,5 +555,20 @@ final class CommandBarModelTests: XCTestCase {
         c.year = y; c.month = m; c.day = d; c.hour = h; c.minute = min
         c.timeZone = tz
         return Calendar(identifier: .gregorian).date(from: c)!
+    }
+
+    /// The precomputed `yyyy-MM-dd` day key for the suite timezone (I4 payloads).
+    private func dk(_ day: Date) -> String { DailyFile.dayFormatter(timezone: tz).string(from: day) }
+    /// The precomputed human day label for the suite timezone (I4 payloads).
+    private func dl(_ day: Date) -> String {
+        CommandItem.dayLabelFormatter(timezone: tz).string(from: day)
+    }
+    /// `.earlierTask` with its day strings precomputed in the suite timezone.
+    private func earlier(_ todo: Todo, day: Date) -> CommandItem {
+        .earlierTask(todo, day: day, dayKey: dk(day))
+    }
+    /// `.dayFile` with its day strings precomputed in the suite timezone.
+    private func dayFile(day: Date, taskCount: Int) -> CommandItem {
+        .dayFile(day: day, taskCount: taskCount, dayKey: dk(day), dayLabel: dl(day))
     }
 }

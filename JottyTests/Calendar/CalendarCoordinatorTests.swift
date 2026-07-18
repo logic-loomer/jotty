@@ -139,6 +139,24 @@ final class CalendarCoordinatorTests: XCTestCase {
         XCTAssertTrue(fake.createdEvents.isEmpty, "a non-notFound error never recreates")
     }
 
+    // MARK: - updateEvent (roadmap 2.3 task-wins per-pair push)
+
+    /// Mirrors `testUpdateOrRecreateOtherErrorIsFailedWithoutRecreate`: a generic/
+    /// `.underlying` service error (NOT `.eventNotFound`) must produce `.failed`, distinct
+    /// from `.notFound` — review finding 1 (misleading notice copy) depends on the
+    /// coordinator keeping these two outcomes separate. Task-wins `updateEvent` never
+    /// recreates on ANY error, unlike `updateOrRecreate`'s `.eventNotFound` branch.
+    func testUpdateEventOtherErrorIsFailedWithoutRecreate() async {
+        let fake = FakeCalendarService()
+        fake.errorToThrow = .underlying(message: "network")
+        let block = TimeBlock(start: makeDate(2026, 6, 12, h: 14),
+                              end: makeDate(2026, 6, 12, h: 15))
+        let outcome = await CalendarCoordinator(calendar: fake)
+            .updateEvent(eventID: "evt-1", title: "review", block: block, context: "test")
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertTrue(fake.createdEvents.isEmpty, "task-wins updateEvent never recreates, on any error")
+    }
+
     // MARK: - firstConflictTitle (SC5 gate query)
 
     func testFirstConflictTitleExcludesOwnEvent() async {

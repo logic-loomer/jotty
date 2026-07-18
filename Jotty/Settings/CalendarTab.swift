@@ -178,6 +178,17 @@ struct CalendarTab: View {
 
                 PersistFailureNotice(visible: persistFailed)
             }
+
+            Section(header: Text("Timezones")) {
+                // Verbatim semantics statement (roadmap 3.3 slice 2 design doc): the "(a)
+                // half" of the timezone contract, kept identical to the README copy.
+                Text("Time blocks are wall-clock times in your Mac's current timezone. "
+                     + "If your timezone changes, blocks keep their wall-clock times "
+                     + "(\"7am gym\" stays 7am). Calendar-linked blocks are anchored by "
+                     + "their calendar event; after a timezone change Jotty asks once "
+                     + "whether linked times should move with you or stay pinned to the event.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 560, height: 640)

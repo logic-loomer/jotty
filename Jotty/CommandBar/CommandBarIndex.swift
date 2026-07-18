@@ -15,25 +15,32 @@ import Foundation
 /// - `recency` (section-internal ranking key): todayTask → createdAt;
 ///   earlierTask/dayFile → their ORIGIN day; action/inbox → nil.
 ///
-/// Day strings format in `TimeZone.current`, matching how every production Store
-/// is constructed (`Store(folder:timezone: .current)`, AppDelegate) — the same
-/// zone `buildHistorical` callers pass, so the id round-trips the on-disk file
-/// name exactly. The formatter builder is the shared POSIX/Gregorian-pinned
-/// `DailyFile.dayFormatter` — never a hand-rolled `yyyy-MM-dd` (WR-05 idiom).
+/// Day strings (`dayKey` = the `yyyy-MM-dd` file name, `dayLabel` = the human
+/// "EEE MMM d yyyy" form) are PRECOMPUTED at corpus-build time in the builder's
+/// passed timezone (I4) and carried in the `.earlierTask` / `.dayFile` payloads.
+/// They previously came from a process-static formatter pinned to the LAUNCH zone
+/// (`TimeZone.current` at first access); once a live zone change moved the render
+/// stack east, every historical key/label shifted one day back — a date search hit
+/// the adjacent day and Enter opened a file one day off its label. Precomputing in
+/// `buildHistorical`'s timezone makes the id round-trip the on-disk file name in the
+/// CURRENT zone, and — since `rescore()` evaluates `searchText` per keystroke — also
+/// keeps the re-rank budget: zero formatters are constructed while ranking. The
+/// build-time formatter is the shared POSIX/Gregorian-pinned `DailyFile.dayFormatter`
+/// (never a hand-rolled `yyyy-MM-dd`, WR-05 idiom).
 enum CommandItem: Identifiable, Equatable {
     case action(CommandAction)
     case todayTask(Todo)
     case inbox(InboxItem)
-    case earlierTask(Todo, day: Date)
-    case dayFile(day: Date, taskCount: Int)
+    case earlierTask(Todo, day: Date, dayKey: String)
+    case dayFile(day: Date, taskCount: Int, dayKey: String, dayLabel: String)
 
     var id: String {
         switch self {
         case .action(let a): return "action:\(a.action.rawValue)"
         case .todayTask(let t): return "today:\(t.id)"
         case .inbox(let i): return "inbox:\(i.id)"
-        case .earlierTask(let t, let day): return "earlier:\(t.id):\(Self.dayKey(day))"
-        case .dayFile(let day, _): return "day:\(Self.dayKey(day))"
+        case .earlierTask(let t, _, let dayKey): return "earlier:\(t.id):\(dayKey)"
+        case .dayFile(_, _, let dayKey, _): return "day:\(dayKey)"
         }
     }
 
@@ -42,8 +49,8 @@ enum CommandItem: Identifiable, Equatable {
         case .action(let a): return a.label
         case .todayTask(let t): return t.text
         case .inbox(let i): return i.title.isEmpty ? i.rawText : i.title
-        case .earlierTask(let t, _): return t.text
-        case .dayFile(let day, _): return "\(Self.dayKey(day)) \(Self.dayLabel(day))"
+        case .earlierTask(let t, _, _): return t.text
+        case .dayFile(_, _, let dayKey, let dayLabel): return "\(dayKey) \(dayLabel)"
         }
     }
 
@@ -51,38 +58,21 @@ enum CommandItem: Identifiable, Equatable {
         switch self {
         case .action, .inbox: return nil
         case .todayTask(let t): return t.createdAt
-        case .earlierTask(_, let day): return day
-        case .dayFile(let day, _): return day
+        case .earlierTask(_, let day, _): return day
+        case .dayFile(let day, _, _, _): return day
         }
     }
 
-    /// Cached formatters (review IN-02): `rescore()` evaluates `searchText` for
-    /// every corpus item on EVERY keystroke — constructing a formatter per call
-    /// (well over a thousand per keystroke at multi-year scale) undercut the
-    /// documented sub-ms re-rank budget. DateFormatter is `Sendable`, and both are
-    /// fully configured at init and never mutated afterwards, so a plain `static let`
-    /// is concurrency-safe — no `nonisolated(unsafe)` needed.
-    private static let dayKeyFormatter =
-        DailyFile.dayFormatter(timezone: .current)
-    private static let dayLabelFormatter: DateFormatter = {
+    /// The human day label builder ("Mon Jun 15 2026"), pinned to `timezone` and to
+    /// en_US_POSIX/Gregorian so the label — and every test asserting it — is
+    /// independent of the machine's region settings. Built ONCE per corpus build.
+    static func dayLabelFormatter(timezone: TimeZone) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = DailyFile.calendar(timezone: .current)
+        f.calendar = DailyFile.calendar(timezone: timezone)
         f.dateFormat = "EEE MMM d yyyy"
-        f.timeZone = .current
+        f.timeZone = timezone
         return f
-    }()
-
-    /// The machine day key ("2026-06-15") — the raw file-name form.
-    private static func dayKey(_ day: Date) -> String {
-        dayKeyFormatter.string(from: day)
-    }
-
-    /// The human day label ("Mon Jun 15 2026"). Locale/calendar pinned exactly
-    /// like `DailyFile.dayFormatter` so the label — and every test asserting it —
-    /// is independent of the machine's region settings.
-    private static func dayLabel(_ day: Date) -> String {
-        dayLabelFormatter.string(from: day)
     }
 }
 
@@ -127,6 +117,9 @@ enum CommandBarIndex {
                                             excludingDay today: Date) -> [CommandItem] {
         let store = Store(folder: folder, timezone: timezone)
         let formatter = DailyFile.dayFormatter(timezone: timezone)
+        // I4: the label formatter is pinned to the SAME passed timezone (built once here,
+        // not a launch-zone static), so precomputed day strings follow a live zone change.
+        let labelFormatter = CommandItem.dayLabelFormatter(timezone: timezone)
         let todayKey = formatter.string(from: today)
 
         // Strictly BEFORE today (review IN-03): `allDayDates()` documents that
@@ -148,10 +141,13 @@ enum CommandBarIndex {
                 continue
             }
             let surviving = doc.tasks.filter { $0.rolledTo == nil }
+            let dayKey = formatter.string(from: day)
+            let dayLabel = labelFormatter.string(from: day)
             for todo in surviving {
-                items.append(.earlierTask(todo, day: day))
+                items.append(.earlierTask(todo, day: day, dayKey: dayKey))
             }
-            items.append(.dayFile(day: day, taskCount: surviving.count))
+            items.append(.dayFile(day: day, taskCount: surviving.count,
+                                  dayKey: dayKey, dayLabel: dayLabel))
         }
         return items
     }

@@ -91,6 +91,10 @@ struct MenubarListView: View {
             // (quarantined to a `.corrupt-*` sidecar before a write).
             corruptQuarantineBanner
 
+            // roadmap 2.3: transient, dismissible banner when a task-wins "Update
+            // event" push could not update one or more linked events.
+            driftUpdateSkipNoticeBanner
+
             // Suggested section (Phase 7, SC2): external inbox items offered for
             // Accept/Dismiss, ABOVE the task list. Renders only when the inbox service
             // is wired AND has suggestions; nothing on the default/unconfigured config.
@@ -276,15 +280,35 @@ struct MenubarListView: View {
         } message: {
             Text("Your choice is remembered for future deletions.")
         }
-        // SC4: open-time drift sync prompt (calendar wins on confirm).
+        // SC4: open-time drift sync prompt. "Sync" = calendar wins (rewrite the task
+        // from the event); "Update event" = task wins (roadmap 2.3 — push the task's
+        // own fields to the event); "Keep mine" dismisses, leaving both sides as-is.
         .alert("Sync from Calendar?",
                isPresented: Binding(
                    get: { model.driftPrompt != nil },
                    set: { if !$0 { model.driftPrompt = nil } })) {
             Button("Sync") { model.confirmDriftSync() }
+            Button("Update event") { model.confirmDriftUpdateEvent() }
             Button("Keep mine", role: .cancel) { model.dismissDriftPrompt() }
         } message: {
             Text(driftMessage)
+        }
+        // Roadmap 3.3 slice 2: the ONE-SHOT bulk re-anchor prompt after a live timezone
+        // change. "Times moved with you" pushes each task's re-anchored wall-clock onto its
+        // event (2.3 push-mine, in bulk); "Keep appointment times" pins each task back to its
+        // event's absolute instants (SC4 calendar-wins, in bulk); dismiss decides later (the
+        // shift re-detects on the next open). Fires only when the per-block partition found
+        // pairs that moved by exactly the zone-offset delta — genuine drift stays on the
+        // normal "Sync from Calendar?" prompt above.
+        .alert("Your timezone changed",
+               isPresented: Binding(
+                   get: { model.reanchorPrompt != nil },
+                   set: { if !$0 { model.reanchorPrompt = nil } })) {
+            Button("Times moved with you") { model.confirmReanchorMoveWithMe() }
+            Button("Keep appointment times") { model.confirmReanchorKeepTimes() }
+            Button("Decide later", role: .cancel) { model.dismissReanchorPrompt() }
+        } message: {
+            Text(reanchorMessage)
         }
         // SC5 parity for menubar-initiated moves ("Move +30 min" runs the same overlap
         // gate as capture/drop). Mirrors the canvas alert: the isPresented setter is
@@ -717,13 +741,39 @@ struct MenubarListView: View {
             + "The task keeps its time either way; Cancel skips creating the calendar event."
     }
 
-    /// Human-readable summary of the drifted tasks for the SC4 prompt.
+    /// Human-readable summary of the drifted tasks for the SC4 prompt (M3): the copy
+    /// names BOTH resolution directions, since the alert offers three buttons — "Sync"
+    /// (calendar wins) AND "Update event" (task wins) — not just the one-way sync the old
+    /// single-direction copy implied.
     private var driftMessage: String {
         let titles = model.driftPrompt?.drifted.map { $0.event.title } ?? []
         if titles.count == 1 {
-            return "“\(titles[0])” changed in Calendar. Sync the task to match?"
+            return "“\(titles[0])” changed in Calendar. "
+                + "Sync the task to match, or update the event from the task?"
         }
-        return "\(titles.count) tasks changed in Calendar. Sync them to match?"
+        return "\(titles.count) tasks changed in Calendar. "
+            + "Sync them to match, or update the events from the tasks?"
+    }
+
+    /// Human-readable summary for the one-shot bulk re-anchor prompt (roadmap 3.3).
+    /// M1: beyond the count, a SMALL set (≤3) lists each affected title with its old→new
+    /// times — the wall-clock the block kept (what the user always typed) → where the
+    /// untouched event now displays in the new zone — so the choice is concrete rather than
+    /// an opaque number. Times use the model's zone-pinned HH:mm formatter.
+    private var reanchorMessage: String {
+        let pairs = model.reanchorPrompt?.tzShift ?? []
+        let count = pairs.count
+        let subject = count == 1 ? "1 calendar-linked block" : "\(count) calendar-linked blocks"
+        let base = "\(subject) kept their wall-clock times when your timezone changed. "
+            + "Move the events to match, or keep them pinned to the original appointment times?"
+        guard count > 0, count <= 3 else { return base }
+        let f = model.timeFormatter
+        let lines = pairs.map { pair -> String in
+            let kept = pair.task.timeBlock.map { f.string(from: $0.start) } ?? "?"
+            let appointment = f.string(from: pair.event.start)
+            return "• “\(pair.event.title)”: \(kept) → \(appointment)"
+        }
+        return base + "\n\n" + lines.joined(separator: "\n")
     }
 
     // MARK: - Missing-link notice (CR-02)
@@ -778,6 +828,36 @@ struct MenubarListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss recovery notice")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            Divider()
+        }
+    }
+
+    // MARK: - "Update event" skip notice (roadmap 2.3)
+
+    /// A brief, dismissible banner shown when a task-wins "Update event" push could
+    /// not update one or more linked events (deleted in Calendar, or a foreign event
+    /// the WR-05 marker guard refused). Mirrors `corruptQuarantineBanner`'s pattern.
+    @ViewBuilder
+    private var driftUpdateSkipNoticeBanner: some View {
+        if let notice = model.driftUpdateSkipNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(action: { model.dismissDriftUpdateSkipNotice() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss update-event notice")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

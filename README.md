@@ -147,6 +147,7 @@ Time-blocked tasks can become real macOS Calendar events, and today's events rea
 - **Overlap warning.** Before writing, Jotty checks for a conflicting event and asks "overlaps with 'Standup' — commit anyway?"
 - **Two-way sync.** Editing a task's time updates its event in place; editing the event in Calendar.app prompts Jotty to sync the markdown (Calendar wins) next time it comes forward; deleting a linked task asks once whether to also delete the event.
 - **Today's events** appear in a read-only section in the menubar popover; clicking one opens Calendar.app at that date.
+- **Timezones.** Time blocks are wall-clock times in your Mac's current timezone. If your timezone changes, blocks keep their wall-clock times ("7am gym" stays 7am). Calendar-linked blocks are anchored by their calendar event; after a timezone change Jotty asks once whether linked times should move with you or stay pinned to the event.
 
 **Calendar power-UX** adds recurring tasks, snooze, and a drag-to-schedule canvas — all additive `recur:` / `recur_src:` / `snooze:` tokens on the task line, so older files parse unchanged:
 
