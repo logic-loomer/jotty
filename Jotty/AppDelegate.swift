@@ -65,6 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (roadmap 3.3 slice 2). Retained for the app's lifetime; its `deinit` removes
     /// the observer from the injected notification center. nil until launch wires it.
     private var timeZoneMonitor: TimeZoneMonitor?
+    /// Watches the storage folder for external day-file changes — Obsidian/iCloud
+    /// edits — and drives a debounced `menubar.listModel.reload()` (roadmap 3.4
+    /// phase 2, Task 7, design Phase 2.4). Restarted (never just re-pointed) on a
+    /// Settings storage-folder change and on a live TZ rebuild — see
+    /// `rebuildForTimeZoneChange` and the Settings-close handler in `openSettings`.
+    /// nil until launch wires it.
+    private var folderWatcher: FolderWatcher?
 
     /// Debounced store-changed calendar reload (CR-02): EventKit posts `EKEventStoreChanged`
     /// in bursts (CalDAV sync, and for Jotty's OWN saves), so each notification cancels the
@@ -220,6 +227,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.rebuildForTimeZoneChange(to: newTZ)
                 }
             })
+
+        // Roadmap 3.4 phase 2, Task 7: watch the storage folder for external
+        // day-file changes (Obsidian/iCloud edits) and drive a debounced reload —
+        // same cancel-prior/re-arm shape as `storeChangedReload` above, owned
+        // internally by `FolderWatcher` so it stays test-driven through its
+        // `FolderEventStreaming` seam. `reload()` never itself writes, so a
+        // Jotty-authored save reaching this watcher cannot start a feedback loop
+        // (see `FolderWatcher`'s doc for the full self-write-suppression mechanism).
+        folderWatcher = FolderWatcher(onReload: { [weak self] in
+            self?.menubar.listModel.reload()
+        })
+        folderWatcher?.start(folder: configStore.config.storageFolder)
 
         scheduleMidnightRollover()
         // Opt-in periodic inbox refresh (SC3): OFF by default, so this is a no-op
@@ -424,6 +443,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // zone change moves the wall-clock midnight, so re-arm the one-shot timer against
         // the new zone — otherwise the rollover fires at the pre-change local midnight.
         scheduleMidnightRollover()
+        // Task 7: restart the folder watcher too, matching every other stack member
+        // rebuilt above — the watched PATH is unchanged by a TZ rebuild, but the
+        // restart still tears down + recreates the stream (bumping FolderWatcher's
+        // generation guard) so no stale pre-rebuild callback can survive into the
+        // rebuilt stack.
+        folderWatcher?.start(folder: configStore.config.storageFolder)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -743,6 +768,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.store = Store(folder: self.configStore.config.storageFolder,
                                        timezone: .current)
                     self.menubar.listModel.replaceStore(self.store)
+                    // Task 7: follow a Storage folder change — restart the watcher on
+                    // the (possibly new) folder so it never keeps watching a stale path.
+                    self.folderWatcher?.start(folder: self.configStore.config.storageFolder)
                 }
             }
         }

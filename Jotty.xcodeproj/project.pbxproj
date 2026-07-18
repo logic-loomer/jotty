@@ -33,6 +33,7 @@
 		2E76E6F3A2403048842D6BC3 /* OllamaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F0F64D39F30DCE8A137C2B /* OllamaDownloader.swift */; };
 		301D7DE0721CFF1C4D5E7116 /* GitHubInboxSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EED0E3C7424401826B837A /* GitHubInboxSourceTests.swift */; };
 		32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */; };
+		245D6F5D22041311CA8F6E92 /* FolderWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CFFC1D4070EBF89F13B927 /* FolderWatcher.swift */; };
 		3477567BEFA4C82E03320B2E /* SMAppLaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF369BD5FB25AF56FD74547 /* SMAppLaunchAtLoginService.swift */; };
 		36F69507A5A803E7930A23D0 /* CalendarTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7848E15C8ADD403E88B9C3 /* CalendarTab.swift */; };
 		396E4752AEA2CF5CB27513E8 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49657BD3B4A790B6E76F2286 /* Store.swift */; };
@@ -81,6 +82,7 @@
 		69D3EB61F32C3DFEB6990560 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D93F9D0664E78E14B656E7D /* CaptureView.swift */; };
 		6A34ACDBA9F78E078E70E54D /* InboxServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D258ED7D377FA81D9B65BC /* InboxServiceTests.swift */; };
 		6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C10305FCA786584DA748E1 /* DailyFileTests.swift */; };
+		25B31654A1DB4602924B3AF5 /* FolderWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CFA430412E32CF39CD593E3 /* FolderWatcherTests.swift */; };
 		6C8B6BB56D9C152161280221 /* KeybindingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED63FE9E1470161665CA7AC /* KeybindingsStore.swift */; };
 		6F88CB448B54A859C52F5AAD /* TaskBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD4F7231C515D0F74EE4D3E /* TaskBadge.swift */; };
 		6FBC2FAAA7AF4FEAD6C3D190 /* cross-provider-tolerances.json in Resources */ = {isa = PBXBuildFile; fileRef = 710A6F66A2A74516838B1E0E /* cross-provider-tolerances.json */; };
@@ -213,6 +215,7 @@
 		0C9C26C070750595C1262771 /* CommandActionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandActionRegistry.swift; sourceTree = "<group>"; };
 		11BC412A4E5D78AE9A4ACD24 /* ISOTaskMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapper.swift; sourceTree = "<group>"; };
 		148B21D1DAB6F848A9FB9099 /* ExtractionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionResult.swift; sourceTree = "<group>"; };
+		41CFFC1D4070EBF89F13B927 /* FolderWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcher.swift; sourceTree = "<group>"; };
 		1779948226E7290A4141189D /* ExtractedTaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractedTaskAI.swift; sourceTree = "<group>"; };
 		18377DDC107B9C57993CF7A0 /* IntegrationsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsTab.swift; sourceTree = "<group>"; };
 		18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionDispatcherTests.swift; sourceTree = "<group>"; };
@@ -350,6 +353,7 @@
 		C8DC934F8F6E3BDE39C8F4B6 /* GeminiProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProviderTests.swift; sourceTree = "<group>"; };
 		C9B0844ABB3F780D1F2CE515 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		C9C10305FCA786584DA748E1 /* DailyFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyFileTests.swift; sourceTree = "<group>"; };
+		1CFA430412E32CF39CD593E3 /* FolderWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcherTests.swift; sourceTree = "<group>"; };
 		CBAA7C09D190CEB5B344366C /* MenubarListModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenubarListModel.swift; sourceTree = "<group>"; };
 		CC431D8C924B8BA580A75990 /* ProviderFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderFactoryTests.swift; sourceTree = "<group>"; };
 		CC7AE914A5C39C5B5DE845A9 /* ISOTaskMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOTaskMapperTests.swift; sourceTree = "<group>"; };
@@ -414,6 +418,7 @@
 				F90225AE2C63DF61A6F7879A /* CommandBarModelTests.swift */,
 				006FA2D88232464A90253AFC /* ConfigStoreTests.swift */,
 				C9C10305FCA786584DA748E1 /* DailyFileTests.swift */,
+				1CFA430412E32CF39CD593E3 /* FolderWatcherTests.swift */,
 				461305D26D2DA2E7299E14EF /* FuzzyScorerTests.swift */,
 				C086338D15373A532D6D952A /* HotkeyManagerTests.swift */,
 				1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */,
@@ -663,6 +668,7 @@
 			children = (
 				EA53C34769A54D7083E6D3DC /* ConflictSiblingProbe.swift */,
 				3CDA0A15DCF13E839E64C340 /* DailyFile.swift */,
+				41CFFC1D4070EBF89F13B927 /* FolderWatcher.swift */,
 				49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */,
 				5BCE4FA2000ED7DDB85CB0DF /* MarkdownSpan.swift */,
 				49657BD3B4A790B6E76F2286 /* Store.swift */,
@@ -951,6 +957,7 @@
 				5594C88B64D1A22FE8E2F940 /* ConflictDetectionTests.swift in Sources */,
 				67E329EEFDB75C4A0B4DD8A3 /* CrossProviderTests.swift in Sources */,
 				6B983A5A784A70DFE33E566D /* DailyFileTests.swift in Sources */,
+				25B31654A1DB4602924B3AF5 /* FolderWatcherTests.swift in Sources */,
 				8AADC54766A06985B82814B2 /* DriftDetectionTests.swift in Sources */,
 				D971F5201F1F3D2EBEC2CB46 /* DurationGuardrailTests.swift in Sources */,
 				682CF1C7B61F0A2A68752E9D /* ExtractedTaskTests.swift in Sources */,
@@ -1052,6 +1059,7 @@
 				B31C6DCE478F193D31575510 /* ExtractedTaskAI.swift in Sources */,
 				458BFDF704114F3E49691844 /* ExtractionPrompt.swift in Sources */,
 				32E2A878C6D5F3FB61F4E22A /* ExtractionResult.swift in Sources */,
+				245D6F5D22041311CA8F6E92 /* FolderWatcher.swift in Sources */,
 				948E50313C3B69ABC96D185E /* FuzzyScorer.swift in Sources */,
 				D2A3A7C12C3C6198C6476A30 /* GeminiProvider.swift in Sources */,
 				9016E4F39ED8C2B4BA08CBB6 /* GeneralTab.swift in Sources */,
