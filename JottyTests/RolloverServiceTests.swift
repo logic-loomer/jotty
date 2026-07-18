@@ -110,6 +110,43 @@ final class RolloverServiceTests: XCTestCase {
                        "state must not advance past an unread origin day")
     }
 
+    /// Review finding (roadmap 3.4 phase 2): `run()`'s lookback collect loop reads
+    /// through a SEPARATE `scanStore` with a short coordination timeout, not the
+    /// write-path `store`'s timeout — because `run()` executes synchronously on the
+    /// main actor (`AppDelegate.runRolloverCatchUp`), a wedged file provider would
+    /// otherwise compound N reads at the full interactive timeout into a long
+    /// beachball. Injects a `HangingCoordinator` as the scan store to prove: (a) the
+    /// scan store's short timeout is what fires (not `store`'s, which is never even
+    /// reached — the hang aborts before any write), and (b) the run still surfaces
+    /// the typed `coordinationTimedOut` failure rather than hanging.
+    func testRolloverScanReadUsesScanStoreShortTimeoutNotWriteStoreTimeout() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let yesterday = makeDate(2026, 5, 7, h: 9, m: 0)
+        let today = makeDate(2026, 5, 8)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_a", text: "leftover", createdAt: yesterday)],
+                                at: yesterday)
+        try statePath.write(string: "2026-05-07")
+
+        let hang = HangingCoordinator(hangReads: true)
+        let scanStore = Store(folder: folder, timezone: tz, coordinator: hang, coordinationTimeout: 0.2)
+        let svc = RolloverService(store: store, statePath: statePath, timezone: tz, scanStore: scanStore)
+
+        let start = Date()
+        XCTAssertThrowsError(try svc.run(now: today)) { error in
+            guard case StoreError.coordinationTimedOut = error else {
+                return XCTFail("expected coordinationTimedOut, got \(error)")
+            }
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 2.0,
+                          "must use the scan store's short timeout, not stall for anywhere near store's default")
+        XCTAssertGreaterThanOrEqual(elapsed, 0.2, "must wait out the injected scan timeout")
+
+        // Nothing advanced: the run aborted before any write.
+        XCTAssertEqual(try String(contentsOf: statePath, encoding: .utf8), "2026-05-07")
+    }
+
     // MARK: - Recurrence instancing (Phase 8 SC2 / CALX-02)
 
     /// A .daily template due on the new day produces exactly one FRESH instance

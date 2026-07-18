@@ -113,13 +113,34 @@ final class Store {
     /// How long the funnel waits for a coordinated read/write before giving up and
     /// failing through the notice channel. The coordination itself runs on a
     /// background executor, so a wedged `fileproviderd` costs at most this long a
-    /// stall — never a permanent main-actor beachball.
+    /// stall — never a permanent main-actor beachball. Default is 2.0s (review
+    /// finding, roadmap 3.4 phase 2): the original 5s default guaranteed a long
+    /// VISIBLE beachball on any main-actor caller when the file provider wedges;
+    /// 2.0s is still generous for a coordinated local read/write but caps the
+    /// worst-case single-call stall to something a user reads as a hiccup, not a
+    /// hang.
+    ///
+    /// Scan-loop compounding: a caller that loops over many day files (one
+    /// `readDoc` per file) pays up to N × this timeout on a wedge, since every
+    /// funnel read is independently coordinated and bounded — this default is a
+    /// PER-CALL bound, not a per-operation one. `CommandBarIndex.buildHistorical`'s
+    /// day-file scan is unaffected: it always runs inside `Task.detached` off the
+    /// main actor (`CommandBarModel.prepareForOpen`), so the compounding bound only
+    /// delays a background merge, never the UI. `RolloverService.run` calls ITS scan
+    /// loops synchronously from the main actor (`AppDelegate.runRolloverCatchUp`), so
+    /// it reads through a separate, short-timeout `Store` (`RolloverService.scanStore`)
+    /// instead of this default — bounding the worst-case main-actor stall without
+    /// changing this seam's concurrency model.
     private let coordinationTimeout: TimeInterval
     /// Concurrent executor the coordinated I/O hops onto, off whatever (possibly
     /// main) actor called the funnel. Concurrent so one wedged coordination cannot
-    /// serialize-block later operations.
+    /// serialize-block later operations. QoS is `.userInteractive` (review finding,
+    /// roadmap 3.4 phase 2): the parked caller is often a `.userInteractive` main-
+    /// actor UI action (menubar toggle/rename/…), and a semaphore wait does not
+    /// priority-boost the queue it is waiting on — `.userInitiated` here would be a
+    /// mild, avoidable priority inversion under system contention.
     private let coordinationQueue = DispatchQueue(
-        label: "com.jotty.store.coordination", qos: .userInitiated, attributes: .concurrent)
+        label: "com.jotty.store.coordination", qos: .userInteractive, attributes: .concurrent)
 
     /// #4: invoked with the `.corrupt-*` sidecar URL right after a
     /// present-but-unparseable day file's raw bytes are quarantined (before its
@@ -130,7 +151,7 @@ final class Store {
 
     init(folder: URL, timezone: TimeZone = .current,
          coordinator: FileCoordinating = RealFileCoordinator(),
-         coordinationTimeout: TimeInterval = 5) {
+         coordinationTimeout: TimeInterval = 2.0) {
         self.folder = folder
         self.timezone = timezone
         self.coordinator = coordinator

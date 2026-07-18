@@ -266,6 +266,12 @@ final class StoreSyncSafetyTests: XCTestCase {
         XCTAssertTrue(writes.allSatisfy {
             NSFileCoordinator.WritingOptions(rawValue: $0.writeOptionsRaw ?? 0).contains(.forReplacing)
         }, "coordinated writes must use .forReplacing")
+        // This test method runs on the main thread (XCTest default for a
+        // synchronous test), so `!isMainThread` here proves the off-actor +
+        // timeout structure via the seam itself, not just via HangingCoordinator's
+        // separate thread-identity check in the never-returning-coordinator test.
+        XCTAssertTrue(calls.allSatisfy { !$0.isMainThread },
+                      "coordination must run off the caller's (main) thread")
         // Pass-through coordinator still does the real I/O — the capture landed.
         XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("coordinated capture"))
     }
