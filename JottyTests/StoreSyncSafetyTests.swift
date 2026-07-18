@@ -515,12 +515,15 @@ final class StoreSyncSafetyTests: XCTestCase {
         XCTAssertTrue(try conflictSidecarFiles().isEmpty)
     }
 
-    /// The initial construction-time-equivalent probe now fires the moment
-    /// `onUnresolvedConflict` is FIRST assigned a non-nil listener (its
-    /// `didSet`), not inside `init`. This is what preserves launch-time
-    /// self-heal detection for the primary store — `MenubarListModel`
-    /// attaches its listener immediately after construction.
-    func testAttachingListenerPerformsTheInitialCheck() throws {
+    /// I2 (final review): attaching a listener no longer probes — the `didSet`
+    /// auto-check is gone, so `checkForUnresolvedConflicts` has a single trigger
+    /// (a caller-driven "reload"). Attaching alone must perform ZERO probe calls;
+    /// an explicit check is what surfaces + resolves the conflict. Launch-time
+    /// self-heal is preserved in production by the reload the model runs
+    /// immediately after attaching (exercised at the model level in
+    /// `MenubarListModelTests.testReloadProbesForConflictsAndSurfacesMenubarNotice`).
+    func testAttachingListenerDoesNotProbeUntilExplicitCheck() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
         let v1 = FakeConflictVersion(content: Data("losing content\n".utf8))
         let probe = FakeConflictSiblingProbe(hasConflicts: true, versions: [v1])
         let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
@@ -529,9 +532,18 @@ final class StoreSyncSafetyTests: XCTestCase {
         var fired: [URL] = []
         s.onUnresolvedConflict = { fired.append($0) }
 
-        XCTAssertFalse(probe.calls.isEmpty, "attaching the listener must trigger the initial check")
-        XCTAssertEqual(fired.count, 1, "the initial check surfaces the already-present conflict")
-        XCTAssertTrue(v1.isResolved, "the initial check materializes + resolves today's conflict")
+        // Attach alone → zero probe calls, zero side effects (didSet removed).
+        XCTAssertTrue(probe.calls.isEmpty, "attaching the listener must NOT probe on its own")
+        XCTAssertTrue(fired.isEmpty)
+        XCTAssertFalse(v1.isResolved)
+        XCTAssertTrue(try conflictSidecarFiles().isEmpty)
+
+        // The explicit check (what reload() drives) is the sole trigger → one probe.
+        s.checkForUnresolvedConflicts(on: date)
+
+        XCTAssertEqual(probe.calls.count, 1, "the explicit check performs exactly one probe")
+        XCTAssertEqual(fired.count, 1, "the check surfaces the already-present conflict")
+        XCTAssertTrue(v1.isResolved, "the check materializes + resolves today's conflict")
         let sidecars = try conflictSidecarFiles()
         XCTAssertEqual(sidecars.count, 1)
         XCTAssertEqual(try String(contentsOf: sidecars[0], encoding: .utf8), "losing content\n")

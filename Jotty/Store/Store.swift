@@ -236,28 +236,20 @@ final class Store {
     /// detected conflict is itself always worth surfacing. nil in tests and
     /// headless contexts that don't observe it.
     ///
-    /// `didSet` runs the initial probe the moment a non-nil listener is
-    /// attached (review finding, roadmap 3.4 phase 2) — NOT unconditionally
-    /// inside `init` as originally built. Every `Store()` construction used to
-    /// pay the probe's off-actor-plus-timeout round trip regardless of whether
-    /// anyone could ever observe the result: `RolloverService.scanStore` is
-    /// reconstructed on every foreground activation on the MAIN actor and
-    /// never attaches this listener, and `CommandBarIndex`'s per-build Store
-    /// never does either. Moving the trigger here means those listenerless
-    /// stores pay nothing, while the PRIMARY store still gets launch-time
-    /// self-heal detection with no observable delay — `MenubarListModel`
-    /// attaches its listener (`hookUnresolvedConflict`) immediately after
-    /// construction, before its own first `reload()`. Setting the listener
-    /// back to nil does not re-trigger anything (guarded below); reassigning
-    /// a non-nil listener (e.g. `replace(store:...)`'s re-hook) re-runs the
-    /// check against `Date()`, which is harmless — it is the same self-heal
-    /// probe a fresh construction would have paid.
-    var onUnresolvedConflict: ((URL) -> Void)? {
-        didSet {
-            guard onUnresolvedConflict != nil else { return }
-            checkForUnresolvedConflicts()
-        }
-    }
+    /// A PLAIN stored property — attaching a listener runs no probe of its own
+    /// (I2, final review). The check now has a SINGLE trigger: a caller-driven
+    /// `checkForUnresolvedConflicts(on:)`, which `MenubarListModel.reload()` calls
+    /// on every reload. Every production hook site attaches this listener and then
+    /// IMMEDIATELY reloads (`MenubarListModel.init` and `replace(store:...)` both
+    /// end in `reload(promptIfUndetermined: false)`), so the primary store still
+    /// gets launch-time self-heal detection — the reload right after the attach IS
+    /// the trigger. The earlier `didSet` that probed on attach was redundant with
+    /// that reload: it merely duplicated the notice set and added up to one
+    /// coordination-timeout of worst-case launch stall before the reload's own
+    /// check. Listenerless secondary stores (`RolloverService.scanStore`,
+    /// `CommandBarIndex`'s per-build Store) never call the check and so still pay
+    /// nothing.
+    var onUnresolvedConflict: ((URL) -> Void)?
 
     init(folder: URL, timezone: TimeZone = .current,
          coordinator: FileCoordinating = RealFileCoordinator(),
@@ -270,12 +262,14 @@ final class Store {
         self.coordinationTimeout = coordinationTimeout
         self.probe = probe
         self.conflictProbe = conflictProbe
-        // Design Phase 2.3 (Task 6): the construction-time self-heal probe now
-        // fires from `onUnresolvedConflict`'s `didSet` (review finding,
-        // roadmap 3.4 phase 2) rather than unconditionally here — see that
-        // property's doc for why. A caller that never attaches a listener
-        // (a listenerless secondary store, e.g. `RolloverService.scanStore`)
-        // pays nothing at construction.
+        // Design Phase 2.3 (Task 6): no self-heal probe fires at construction.
+        // The unresolved-conflict check has a single trigger — a caller-driven
+        // `checkForUnresolvedConflicts(on:)` (I2, final review); the primary
+        // store's `MenubarListModel` reloads immediately after attaching its
+        // listener, and that reload is what runs the launch-time check. A
+        // listenerless secondary store (`RolloverService.scanStore`,
+        // `CommandBarIndex`'s per-build Store) never calls the check and pays
+        // nothing. See `onUnresolvedConflict`'s doc.
     }
 
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
@@ -819,16 +813,15 @@ final class Store {
     /// `.conflict-<stamp>.md` sidecar (mirrors `quarantine(_:of:)`) and marks
     /// the conflict versions resolved so the file provider can clean them up.
     ///
-    /// Called once when `onUnresolvedConflict` is first attached (its `didSet`
-    /// — today's file, using this method's `Date()` default; see that
-    /// property's doc) and once per caller-driven "reload": Store has no
-    /// reload concept or injected clock of its own, so `MenubarListModel.
+    /// The SOLE trigger is a caller-driven "reload" (I2, final review): Store has
+    /// no reload concept or injected clock of its own, so `MenubarListModel.
     /// reload()` is the one that calls this, passing its OWN `now()` snapshot
     /// rather than letting Store call `Date()` on every check — that keeps
-    /// "today" the SAME instant the caller's own snapshot uses (a
-    /// test-injected clock stays authoritative) while `date`'s default still
-    /// makes sense for the listener-attach call, which has no such snapshot
-    /// to share.
+    /// "today" the SAME instant the caller's own snapshot uses (a test-injected
+    /// clock stays authoritative). The launch-time self-heal check is just the
+    /// reload the model runs immediately after attaching its listener; attaching
+    /// the listener itself no longer probes. `date`'s `Date()` default still
+    /// serves a caller with no snapshot of its own to share.
     ///
     /// Resolution ordering (review finding, roadmap 3.4 phase 2 — PER-VERSION,
     /// not whole-batch): each losing version is marked resolved independently,

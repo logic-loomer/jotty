@@ -1430,26 +1430,32 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.unresolvedConflictNotice, "notice is dismissible")
     }
 
-    /// The model hooks `Store.onUnresolvedConflict` and calls
-    /// `store.checkForUnresolvedConflicts(on:)` from `reload()` — this proves
-    /// BOTH: the reload hook actually invokes the store check (a conflict
-    /// wired up only AFTER construction still surfaces on the model's own
-    /// launch-time reload), and the callback routes to the transient notice.
+    /// I2 (final review): the model's `reload()` is the SOLE trigger for
+    /// `store.checkForUnresolvedConflicts(on:)` — the `didSet` auto-check is
+    /// gone. This exercises the reload→check wiring DIRECTLY: construct with no
+    /// conflict (init's reload sees none → no notice), THEN arm the probe and
+    /// call `reload()` explicitly. The notice must appear only because the
+    /// reload drives the store check and its callback routes to the notice.
+    /// Deleting the `store.checkForUnresolvedConflicts(on:)` line from `reload()`
+    /// now makes this fail (no `didSet` to mask the missing hook).
     func testReloadProbesForConflictsAndSurfacesMenubarNotice() throws {
         let today = makeDate(2026, 6, 12, h: 8)
         let probe = FakeConflictSiblingProbe(hasConflicts: false)
         let store = Store(folder: folder, timezone: tz, conflictProbe: probe)
 
-        // Arm the fake AFTER construction (construction's own check already ran
-        // harmlessly), so the very first reload triggered by the model's own
-        // `init` is what's under test.
+        // Construct with NO conflict: the model's init-time reload runs the check
+        // against an unarmed probe, so no notice yet.
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.unresolvedConflictNotice, "no conflict at construction → no notice")
+
+        // Now arm the probe and reload explicitly — the reload→check wiring is
+        // what must surface the notice.
         probe.hasConflicts = true
         probe.versions = [FakeConflictVersion(content: Data("losing\n".utf8))]
-
-        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        model.reload()
 
         XCTAssertNotNil(model.unresolvedConflictNotice,
-                        "the model's own init-time reload must probe for conflicts and surface the notice")
+                        "reload() must drive the store conflict check and surface the notice")
     }
 
     // MARK: - Reload read-failure keeps stale list visible (I1, final review)

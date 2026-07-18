@@ -6,9 +6,16 @@ final class RolloverService {
     /// (below) call this synchronously from the main actor
     /// (`AppDelegate.runRolloverCatchUp`, called from `applicationDidFinishLaunching`,
     /// `applicationDidBecomeActive`, and the midnight `Timer` — all main-actor,
-    /// un-`Task`-wrapped), so on a wedged file provider the stall is N × timeout,
-    /// not just timeout — a short per-call bound is the mitigation available without
-    /// restructuring `Store`'s off-actor-plus-semaphore model.
+    /// un-`Task`-wrapped). Each scanned file's `readDay` makes TWO independently
+    /// bounded provider calls (the dataless-file probe, then the coordinated read),
+    /// so the per-file worst case is 2 × timeout, not one. But the FIRST thrown
+    /// timeout aborts the whole run: a wedged coordinated read throws
+    /// `coordinationTimedOut`, which propagates out of the scan loop and ends
+    /// `run()`. The full N × 2 × timeout compounding therefore materializes only in
+    /// the narrow case where the probe stays wedged (each probe times out → nil,
+    /// the loop continues) WHILE the reads keep succeeding — otherwise the run
+    /// stops at the first read that wedges. A short per-call bound is the mitigation
+    /// available without restructuring `Store`'s off-actor-plus-semaphore model.
     static let scanCoordinationTimeout: TimeInterval = 1.0
 
     let store: Store
