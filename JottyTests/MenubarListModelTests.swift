@@ -1452,6 +1452,39 @@ final class MenubarListModelTests: XCTestCase {
                         "the model's own init-time reload must probe for conflicts and surface the notice")
     }
 
+    // MARK: - Reload read-failure keeps stale list visible (I1, final review)
+
+    /// A `reload()` whose store read THROWS must keep the previously loaded list
+    /// on screen (stale-but-visible) and surface a transient notice — never empty
+    /// the visible list silently. A subsequent SUCCESSFUL reload refreshes the
+    /// list and clears the notice.
+    func testReloadReadFailureKeepsStaleListVisibleAndSurfacesNotice() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        // Seed today's file so the model's init-time reload populates the list.
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_visible", text: "stays visible", createdAt: today)],
+                                at: today)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"])
+        XCTAssertNil(model.reloadFailureNotice)
+
+        // Make today's file unreadable, then reload: the read throws dayFileUnreadable.
+        let url = DailyFile.url(in: folder, on: today, timezone: tz)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        model.reload()
+
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"],
+                       "a read failure must keep the previous list visible, not empty it")
+        XCTAssertNotNil(model.reloadFailureNotice, "a read failure surfaces a transient notice")
+
+        // Recovery: restore readability and reload → list refreshes, notice clears.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        model.reload()
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"])
+        XCTAssertNil(model.reloadFailureNotice, "a successful reload clears the notice")
+    }
+
     /// After `replaceStore`, the NEW store's quarantine still surfaces (the hook is
     /// re-installed on swap, not left on the old store).
     func testCorruptQuarantineHookReinstalledOnReplaceStore() throws {

@@ -97,6 +97,10 @@ struct MenubarListView: View {
             // own conflict list was cleared).
             unresolvedConflictBanner
 
+            // I1 (final review): transient banner when a reload could not READ
+            // today's file — the list on screen may be stale, not empty.
+            reloadFailureBanner
+
             // roadmap 2.3: transient, dismissible banner when a task-wins "Update
             // event" push could not update one or more linked events.
             driftUpdateSkipNoticeBanner
@@ -868,6 +872,37 @@ struct MenubarListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss conflict notice")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            Divider()
+        }
+    }
+
+    // MARK: - Reload read-failure banner (I1, final review)
+
+    /// A brief, dismissible banner shown when a `reload()` could not read today's
+    /// file (I1): the visible list is the previous, stale-but-visible one rather
+    /// than an empty popover. Mirrors `corruptQuarantineBanner`'s style/dismiss
+    /// idiom; additionally, a later successful reload clears the notice on its own.
+    @ViewBuilder
+    private var reloadFailureBanner: some View {
+        if let notice = model.reloadFailureNotice {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(action: { model.dismissReloadFailureNotice() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss reload notice")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

@@ -222,6 +222,16 @@ final class MenubarListModel: ObservableObject {
     /// mirroring `corruptQuarantineNotice`'s #7 wire-up exactly). A FIXED
     /// string only, same T-07.1-16 discipline. nil = nothing.
     @Published var unresolvedConflictNotice: String?
+
+    /// Transient, dismissible menubar notice shown when a `reload()` could not
+    /// READ today's file (I1, final review): a wedged provider or an unreadable
+    /// day file must NOT silently empty the visible list. On a read failure the
+    /// previous list stays on screen (stale-but-visible) and this notice explains
+    /// why it may be out of date; a subsequent SUCCESSFUL reload clears it
+    /// automatically (distinct from the corrupt/conflict notices, which persist
+    /// until the user dismisses them). A FIXED string only, same T-07.1-16
+    /// discipline. nil = nothing.
+    @Published var reloadFailureNotice: String?
     /// In-flight calendar refresh spawned by `reload()`, so tests (and reload callers) can
     /// await it deterministically. Kept distinct from `editTask` (WR-03) so an edit and a
     /// concurrent refresh never overwrite each other's handle and drop in-flight work.
@@ -310,6 +320,20 @@ final class MenubarListModel: ObservableObject {
         unresolvedConflictNotice = nil
     }
 
+    // MARK: - Reload read-failure notice (I1, final review, wire-up)
+
+    /// Publishes the transient reload-read-failure notice. Shared entry point for
+    /// `reload()`'s catch and tests — mirrors `showCorruptQuarantineNotice`.
+    func showReloadFailureNotice() {
+        reloadFailureNotice = "Couldn't refresh the list — showing the last version. Check iCloud or the Jotty folder."
+    }
+
+    /// Dismisses the reload-read-failure notice (non-blocking, user-dismissible;
+    /// also cleared automatically by the next successful reload).
+    func dismissReloadFailureNotice() {
+        reloadFailureNotice = nil
+    }
+
     /// Routes the store's `onUnresolvedConflict` (fired when
     /// `checkForUnresolvedConflicts` found today's file had an unresolved
     /// iCloud sync conflict) to the transient menubar notice. Every Store
@@ -358,8 +382,15 @@ final class MenubarListModel: ObservableObject {
         do {
             let doc = try store.readDoc(on: snapshot)
             tasks = doc.tasks
+            // A successful read is the recovery signal: clear any stale-list notice.
+            reloadFailureNotice = nil
         } catch {
-            tasks = []
+            // I1 (final review): a read failure must NOT empty the visible list.
+            // A watcher-driven reload during a provider wedge (or an unreadable
+            // day file) would otherwise show an empty popover with no explanation.
+            // Keep the previous `tasks` (stale-but-visible) and surface a transient
+            // notice; the partitions below re-derive from the retained list.
+            showReloadFailureNotice()
         }
         // Phase 8 SC3 (CALX-03): a task snoozed to a FUTURE date is hidden from
         // BOTH partitions until that date. The @Published `tasks` array stays the
