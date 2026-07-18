@@ -1,6 +1,59 @@
 import CryptoKit
 import Foundation
 
+/// Injectable file-coordination seam (roadmap 3.4 phase 2). The write funnel runs
+/// its day-file read and write through this instead of touching disk directly, so
+/// the coordination call can be faked in tests (record calls, simulate a hang) and
+/// so the real one can be driven off the main actor with a timeout. Tasks 5–6
+/// (dataless-file probe, conflict-sibling probe) reuse the same seam.
+///
+/// What coordination is FOR: correct interplay with `fileproviderd`/iCloud Drive —
+/// a coordinated read waits out an in-flight sync write; a `.forReplacing` write is
+/// fenced against the sync daemon's upload snapshot. It is advisory: it serializes
+/// ONLY writers that also coordinate. Obsidian writes with plain `fs` and does not
+/// coordinate, so this buys NOTHING against the Obsidian lost-update race — that
+/// race is closed by the optimistic-concurrency funnel (phase 1), not by this seam.
+protocol FileCoordinating: Sendable {
+    /// Coordinated read. `accessor` receives the URL the coordinator hands back
+    /// (normally the same URL) and does the actual byte read; whatever it throws
+    /// (e.g. `CocoaError.fileReadNoSuchFile` for an absent file) propagates so the
+    /// funnel keeps its absent-vs-unreadable discipline.
+    func coordinateReading(at url: URL, _ accessor: (URL) throws -> Void) throws
+    /// Coordinated write. The funnel always passes `.forReplacing` (whole-file
+    /// replace). `accessor` does the actual atomic write to the handed-back URL.
+    func coordinateWriting(at url: URL,
+                           options: NSFileCoordinator.WritingOptions,
+                           _ accessor: (URL) throws -> Void) throws
+}
+
+/// Production seam: a real `NSFileCoordinator` per call (they are cheap and are not
+/// meant to be reused across unrelated accesses). The accessor's own throw is
+/// captured and re-raised after the coordinator returns, so an absent/unreadable
+/// file surfaces the exact I/O error the funnel classifies on.
+struct RealFileCoordinator: FileCoordinating {
+    func coordinateReading(at url: URL, _ accessor: (URL) throws -> Void) throws {
+        var accessorError: Error?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { handedBack in
+            do { try accessor(handedBack) } catch { accessorError = error }
+        }
+        if let accessorError { throw accessorError }
+        if let coordError { throw coordError }
+    }
+
+    func coordinateWriting(at url: URL,
+                           options: NSFileCoordinator.WritingOptions,
+                           _ accessor: (URL) throws -> Void) throws {
+        var accessorError: Error?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: options, error: &coordError) { handedBack in
+            do { try accessor(handedBack) } catch { accessorError = error }
+        }
+        if let accessorError { throw accessorError }
+        if let coordError { throw coordError }
+    }
+}
+
 /// Errors surfaced by day-file operations (roadmap 3.4 phase 1). Distinct from
 /// the quarantine path: these mean the operation did NOT complete and nothing
 /// was written — callers surface them through the failure-notice channel.
@@ -13,6 +66,12 @@ enum StoreError: Error {
     /// The optimistic-concurrency funnel lost the race to an external writer on
     /// every bounded attempt. Nothing was written; the caller surfaces a notice.
     case conflictRetryExhausted(URL)
+    /// Coordinated access ran off the main actor but the file coordinator did not
+    /// return within the timeout — a stuck `fileproviderd` (iCloud). The operation
+    /// did NOT complete and nothing was written; the caller surfaces a notice
+    /// instead of the menubar beachballing on the wedged file provider. Treated as
+    /// unreadable, never as an absent file.
+    case coordinationTimedOut(URL)
 }
 
 extension StoreError: LocalizedError {
@@ -26,6 +85,8 @@ extension StoreError: LocalizedError {
             return "Couldn't read \(url.lastPathComponent): \(underlying.localizedDescription)"
         case .conflictRetryExhausted(let url):
             return "Couldn't save \(url.lastPathComponent): another app kept changing it (conflict retries exhausted)"
+        case .coordinationTimedOut(let url):
+            return "Couldn't access \(url.lastPathComponent): iCloud (the file provider) didn't respond in time"
         }
     }
 }
@@ -44,6 +105,22 @@ final class Store {
     let folder: URL
     let timezone: TimeZone
 
+    /// File-coordination seam (roadmap 3.4 phase 2). The funnel runs its day-file
+    /// read and write through this; default is a real `NSFileCoordinator`, tests
+    /// inject a double. See `FileCoordinating` for what coordination does and does
+    /// NOT buy (it is an iCloud/fileproviderd measure, not Obsidian protection).
+    private let coordinator: FileCoordinating
+    /// How long the funnel waits for a coordinated read/write before giving up and
+    /// failing through the notice channel. The coordination itself runs on a
+    /// background executor, so a wedged `fileproviderd` costs at most this long a
+    /// stall — never a permanent main-actor beachball.
+    private let coordinationTimeout: TimeInterval
+    /// Concurrent executor the coordinated I/O hops onto, off whatever (possibly
+    /// main) actor called the funnel. Concurrent so one wedged coordination cannot
+    /// serialize-block later operations.
+    private let coordinationQueue = DispatchQueue(
+        label: "com.jotty.store.coordination", qos: .userInitiated, attributes: .concurrent)
+
     /// #4: invoked with the `.corrupt-*` sidecar URL right after a
     /// present-but-unparseable day file's raw bytes are quarantined (before its
     /// content is clobbered by a new write). The app layer hooks this to surface
@@ -51,9 +128,13 @@ final class Store {
     /// tests and headless contexts that don't observe it.
     var onCorruptQuarantine: ((URL) -> Void)?
 
-    init(folder: URL, timezone: TimeZone = .current) {
+    init(folder: URL, timezone: TimeZone = .current,
+         coordinator: FileCoordinating = RealFileCoordinator(),
+         coordinationTimeout: TimeInterval = 5) {
         self.folder = folder
         self.timezone = timezone
+        self.coordinator = coordinator
+        self.coordinationTimeout = coordinationTimeout
     }
 
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
@@ -331,6 +412,13 @@ final class Store {
     /// Stamp of what is on disk RIGHT NOW — compared against the stamp captured
     /// at read time to detect an interleaved external write. Same absent-vs-
     /// unreadable discipline as `readDay`.
+    ///
+    /// Deliberately an UNCOORDINATED direct re-stat: it only runs after a
+    /// coordinated `readDay` already succeeded for this url in the same attempt, so
+    /// the bytes are local and cannot re-block on the file provider; the
+    /// authoritative fence against the sync daemon is the coordinated `.forReplacing`
+    /// write that follows. Coordinating it too would double the off-actor hop on the
+    /// hot path for no correctness gain.
     private func currentStamp(at url: URL) throws -> DayStamp {
         do {
             return DayStamp(contentHash: SHA256.hash(data: try Data(contentsOf: url)))
@@ -339,6 +427,57 @@ final class Store {
         } catch {
             throw StoreError.dayFileUnreadable(url, underlying: error)
         }
+    }
+
+    /// Reads `url`'s bytes through the coordinator, off-actor and time-bounded.
+    /// Propagates the accessor's own error (so `CocoaError.fileReadNoSuchFile` still
+    /// means "absent" upstream) or `StoreError.coordinationTimedOut` on a wedged
+    /// provider. Only the Sendable `coordinator` + `url` cross onto the executor.
+    private func coordinatedReadData(at url: URL) throws -> Data {
+        let coordinator = self.coordinator
+        return try runOffActorWithTimeout(url) { () throws -> Data in
+            var out = Data()
+            try coordinator.coordinateReading(at: url) { handedBack in
+                out = try Data(contentsOf: handedBack)
+            }
+            return out
+        }
+    }
+
+    /// Writes `bytes` to `url` through the coordinator with `.forReplacing`,
+    /// off-actor and time-bounded. `.atomic` = write-to-temp + rename (unchanged
+    /// from phase 1); coordination fences that rename against the sync daemon.
+    private func coordinatedWrite(_ bytes: Data, to url: URL) throws {
+        let coordinator = self.coordinator
+        try runOffActorWithTimeout(url) {
+            try coordinator.coordinateWriting(at: url, options: .forReplacing) { handedBack in
+                try bytes.write(to: handedBack, options: .atomic)
+            }
+        }
+    }
+
+    /// Runs `work` on the concurrent coordination executor and blocks the caller on
+    /// a semaphore until it finishes OR `coordinationTimeout` elapses. On timeout it
+    /// throws `coordinationTimedOut` and abandons the (possibly permanently wedged)
+    /// background work — so a stuck `fileproviderd` can hang a throwaway executor
+    /// thread but NEVER the caller past the timeout. This is the Risk-4 off-actor +
+    /// timeout structure: the potentially-never-returning `coordinate()` call
+    /// executes on the background executor, not on whatever actor called the funnel.
+    private func runOffActorWithTimeout<T: Sendable>(
+        _ url: URL, _ work: @escaping @Sendable () throws -> T) throws -> T {
+        let sem = DispatchSemaphore(value: 0)
+        // Heap-boxed by capture; the escaping closure keeps it alive even if we
+        // return (throw) first. `wait()` returning establishes happens-before with
+        // the `signal()` that follows the store, so the read below sees the write.
+        nonisolated(unsafe) var result: Result<T, Error>?
+        coordinationQueue.async {
+            result = Result(catching: work)
+            sem.signal()
+        }
+        if sem.wait(timeout: .now() + coordinationTimeout) == .timedOut {
+            throw StoreError.coordinationTimedOut(url)
+        }
+        return try result!.get()
     }
 
     /// Outcome of reading a day file: the doc to work with, plus the raw on-disk
@@ -369,11 +508,18 @@ final class Store {
     private func readDay(at url: URL, on date: Date) throws -> DayRead {
         let data: Data
         do {
-            data = try Data(contentsOf: url)
+            data = try coordinatedReadData(at: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            // Genuinely absent: fresh doc, nothing to quarantine.
+            // Genuinely absent: fresh doc, nothing to quarantine. (A coordinated
+            // read still invokes the accessor for a missing file, so ENOENT
+            // reaches us here exactly as an uncoordinated read did.)
             return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil,
                            stamp: DayStamp(contentHash: nil))
+        } catch let error as StoreError {
+            // A coordination timeout is already a notice-channel failure — surface
+            // it as-is; do NOT rewrap it as `dayFileUnreadable` (it is not absent
+            // either, so no clobber can follow).
+            throw error
         } catch {
             // Present but unreadable at the I/O layer (permissions, evicted
             // iCloud file offline). NOT absent — writing a fresh doc here would
@@ -408,7 +554,12 @@ final class Store {
         if let corruptRaw {
             quarantine(corruptRaw, of: url)
         }
-        try doc.serialize(timezone: timezone).write(to: url, atomically: true, encoding: .utf8)
+        // Coordinated, `.forReplacing` (whole-file replace), off-actor with a
+        // timeout. `Data(_.utf8)` + `.atomic` reproduces the previous
+        // `String.write(atomically:encoding:.utf8)` byte-for-byte (write-to-temp +
+        // rename); coordination only fences the rename against the sync daemon.
+        let bytes = Data(doc.serialize(timezone: timezone).utf8)
+        try coordinatedWrite(bytes, to: url)
     }
 
     /// Copies `raw` to a `<name>.corrupt-<timestamp>.md` sidecar next to `url`,
