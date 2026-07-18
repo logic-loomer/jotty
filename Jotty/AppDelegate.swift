@@ -232,11 +232,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // day-file changes (Obsidian/iCloud edits) and drive a debounced reload —
         // same cancel-prior/re-arm shape as `storeChangedReload` above, owned
         // internally by `FolderWatcher` so it stays test-driven through its
-        // `FolderEventStreaming` seam. `reload()` never itself writes, so a
-        // Jotty-authored save reaching this watcher cannot start a feedback loop
-        // (see `FolderWatcher`'s doc for the full self-write-suppression mechanism).
+        // `FolderEventStreaming` seam. A folder-change is passive — no user action
+        // drove it — exactly like `calendar.onStoreChanged` above and
+        // `applicationDidBecomeActive` below, so it takes the SAME two guards those
+        // call sites pass:
+        //   - `promptIfUndetermined: false` — must never pop the system Calendar TCC
+        //     dialog while access is `.notDetermined` (WR-06).
+        //   - `clearMissingLinks: false` — guards the same CR-02 race: `reload()` can
+        //     itself write a `.conflict-*` sidecar (via
+        //     `store.checkForUnresolvedConflicts`), and that self-write landing
+        //     mid-flow must not run the missing-link self-heal. (That write can't
+        //     loop back into THIS watcher — see `FolderWatcher`'s doc for why.)
         folderWatcher = FolderWatcher(onReload: { [weak self] in
-            self?.menubar.listModel.reload()
+            self?.menubar.listModel.reload(clearMissingLinks: false, promptIfUndetermined: false)
         })
         folderWatcher?.start(folder: configStore.config.storageFolder)
 

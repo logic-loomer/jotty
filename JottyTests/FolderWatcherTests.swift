@@ -122,8 +122,11 @@ final class FolderWatcherTests: XCTestCase {
 
     /// Jotty's own atomic write (`Data.write(options:.atomic)`) lands as a
     /// temp-create-then-rename pair — model that as two rapid events for the SAME
-    /// day-file path. `reload()` (the recorder here) never itself writes, so there
-    /// is no possible feedback loop: after the debounce settles, the count must stay
+    /// day-file path. `reload()` (the recorder here) CAN itself write (a
+    /// `.conflict-*` sidecar via `checkForUnresolvedConflicts`, see
+    /// `testConflictSidecarWriteThroughWatcherCausesNoReload` below), but that write
+    /// never lands on the day-file path this burst is modeling, so there is still no
+    /// possible feedback loop here: after the debounce settles, the count must stay
     /// at exactly one and never grow on its own.
     func testSelfWriteBurstCausesExactlyOneReloadAndNoLoop() async {
         let fake = FakeFolderEventStream()
@@ -140,12 +143,42 @@ final class FolderWatcherTests: XCTestCase {
         var count = await recorder.count
         XCTAssertEqual(count, 1, "a self-write burst must coalesce to one reload")
 
-        // No further external stimulus (mirrors reload() never writing, so it can
-        // never produce a NEW FS event) — the count must NOT keep growing on its own.
+        // No further external stimulus, and even a `.conflict-*` sidecar reload()
+        // might write can't produce a NEW FS event THIS watcher reacts to (path
+        // filtering, see below) — the count must NOT keep growing on its own.
         await settle()
         count = await recorder.count
         XCTAssertEqual(count, 1,
                        "with no further events, the reload count must never grow by itself (no feedback loop)")
+    }
+
+    /// Review fix (roadmap 3.4 phase 2, Task 7): locks in the ACTUAL no-loop
+    /// mechanism. `reload()` is not write-free — it drives
+    /// `Store.checkForUnresolvedConflicts(on:)`, which can itself write a
+    /// `.conflict-*` sidecar (Task 6, `Store.writeSidecar`, Store.swift:827-836)
+    /// when iCloud surfaces a losing sync version. That write can't loop back into
+    /// this watcher because `isRelevantDayFile` requires an exact `yyyy-MM-dd.md`
+    /// stem, which the sidecar's `.conflict-<stamp>` suffix always fails — NOT
+    /// because reload() never writes. Drives a real sidecar-shaped path (matching
+    /// `writeSidecar`'s "<day>.<kind>-<stamp>.md" naming) through the FULL watcher
+    /// pipeline (start → fire → debounce → recorder), not just the static filter,
+    /// so a future regression in the filter — not just in `isRelevantDayFile`'s
+    /// unit test below — fails here too.
+    func testConflictSidecarWriteThroughWatcherCausesNoReload() async {
+        let fake = FakeFolderEventStream()
+        let recorder = ReloadRecorder()
+        let watcher = makeWatcher(eventSource: fake, recorder: recorder)
+        let folder = URL(fileURLWithPath: "/tmp/jotty-store")
+        let conflictSidecar = folder
+            .appendingPathComponent("2026-07-18.conflict-20260718T101010123.md").path
+
+        watcher.start(folder: folder)
+        fake.fire([conflictSidecar])
+        await settle()
+
+        let count = await recorder.count
+        XCTAssertEqual(count, 0,
+                       "a .conflict-* sidecar write must never re-trigger the watcher")
     }
 
     // MARK: - (d) watcher follows folder change AND TZ rebuild; old path stops triggering

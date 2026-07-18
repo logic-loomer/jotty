@@ -98,11 +98,15 @@ final class RealFolderEventStream: FolderEventStreaming {
 ///   1. DEBOUNCE-ABSORBED: a self-write's rename event cancels/re-arms the same
 ///      pending-reload task as any other event, so it costs at most one extra,
 ///      coalesced reload — never a dedicated one per write.
-///   2. NO FEEDBACK LOOP BY CONSTRUCTION: `reload()` is documented to never itself
-///      write (design constraint carried over this task), so a self-triggered
-///      reload cannot produce a NEW FS event for this watcher to react to. There is
-///      no amplifying cycle to suppress — only the bounded "one harmless extra
-///      reload per Jotty write" cost, which the debounce already minimizes.
+///   2. NO FEEDBACK LOOP, BUT NOT BECAUSE `reload()` IS WRITE-FREE: `reload()` DOES
+///      drive `Store.checkForUnresolvedConflicts(on:)`, which can itself write a
+///      `.conflict-*` sidecar (Task 6, `Store.writeSidecar`) when iCloud surfaces a
+///      losing sync version. That write still cannot loop back into this watcher —
+///      `isRelevantDayFile` below requires an exact `yyyy-MM-dd.md` stem, and the
+///      sidecar's extra `.conflict-<stamp>` suffix always fails that match (same as
+///      the `.corrupt-*` quarantine sidecar). There is no amplifying cycle to
+///      suppress — only the bounded "one harmless extra reload per Jotty write"
+///      cost from point 1, which the debounce already minimizes.
 ///
 /// Path filtering: `isRelevantDayFile` accepts ONLY the exact `yyyy-MM-dd.md`
 /// day-file shape (mirrors `DailyFile`'s strict formatter) — `.corrupt-*`/
