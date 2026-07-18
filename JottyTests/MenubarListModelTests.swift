@@ -1417,6 +1417,80 @@ final class MenubarListModelTests: XCTestCase {
                         "quarantine surfaces a transient menubar notice")
     }
 
+    // MARK: - iCloud conflict-sibling notice (roadmap 3.4 phase 2, Task 6)
+
+    func testUnresolvedConflictNoticeStateMachine() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.unresolvedConflictNotice)
+        model.showUnresolvedConflictNotice()
+        XCTAssertNotNil(model.unresolvedConflictNotice)
+        model.dismissUnresolvedConflictNotice()
+        XCTAssertNil(model.unresolvedConflictNotice, "notice is dismissible")
+    }
+
+    /// I2 (final review): the model's `reload()` is the SOLE trigger for
+    /// `store.checkForUnresolvedConflicts(on:)` — the `didSet` auto-check is
+    /// gone. This exercises the reload→check wiring DIRECTLY: construct with no
+    /// conflict (init's reload sees none → no notice), THEN arm the probe and
+    /// call `reload()` explicitly. The notice must appear only because the
+    /// reload drives the store check and its callback routes to the notice.
+    /// Deleting the `store.checkForUnresolvedConflicts(on:)` line from `reload()`
+    /// now makes this fail (no `didSet` to mask the missing hook).
+    func testReloadProbesForConflictsAndSurfacesMenubarNotice() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let store = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        // Construct with NO conflict: the model's init-time reload runs the check
+        // against an unarmed probe, so no notice yet.
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.unresolvedConflictNotice, "no conflict at construction → no notice")
+
+        // Now arm the probe and reload explicitly — the reload→check wiring is
+        // what must surface the notice.
+        probe.hasConflicts = true
+        probe.versions = [FakeConflictVersion(content: Data("losing\n".utf8))]
+        model.reload()
+
+        XCTAssertNotNil(model.unresolvedConflictNotice,
+                        "reload() must drive the store conflict check and surface the notice")
+    }
+
+    // MARK: - Reload read-failure keeps stale list visible (I1, final review)
+
+    /// A `reload()` whose store read THROWS must keep the previously loaded list
+    /// on screen (stale-but-visible) and surface a transient notice — never empty
+    /// the visible list silently. A subsequent SUCCESSFUL reload refreshes the
+    /// list and clears the notice.
+    func testReloadReadFailureKeepsStaleListVisibleAndSurfacesNotice() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let store = Store(folder: folder, timezone: tz)
+        // Seed today's file so the model's init-time reload populates the list.
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_visible", text: "stays visible", createdAt: today)],
+                                at: today)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"])
+        XCTAssertNil(model.reloadFailureNotice)
+
+        // Make today's file unreadable, then reload: the read throws dayFileUnreadable.
+        let url = DailyFile.url(in: folder, on: today, timezone: tz)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        model.reload()
+
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"],
+                       "a read failure must keep the previous list visible, not empty it")
+        XCTAssertNotNil(model.reloadFailureNotice, "a read failure surfaces a transient notice")
+
+        // Recovery: restore readability and reload → list refreshes, notice clears.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        model.reload()
+        XCTAssertEqual(model.tasks.map(\.id), ["t_visible"])
+        XCTAssertNil(model.reloadFailureNotice, "a successful reload clears the notice")
+    }
+
     /// After `replaceStore`, the NEW store's quarantine still surfaces (the hook is
     /// re-installed on swap, not left on the old store).
     func testCorruptQuarantineHookReinstalledOnReplaceStore() throws {

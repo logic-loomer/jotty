@@ -1,16 +1,45 @@
 import Foundation
 
 final class RolloverService {
+    /// Short scan-store coordination timeout (review finding, roadmap 3.4 phase 2):
+    /// half of `Store`'s interactive default. `run()`'s two day-file scan loops
+    /// (below) call this synchronously from the main actor
+    /// (`AppDelegate.runRolloverCatchUp`, called from `applicationDidFinishLaunching`,
+    /// `applicationDidBecomeActive`, and the midnight `Timer` — all main-actor,
+    /// un-`Task`-wrapped). Each scanned file's `readDay` makes TWO independently
+    /// bounded provider calls (the dataless-file probe, then the coordinated read),
+    /// so the per-file worst case is 2 × timeout, not one. But the FIRST thrown
+    /// timeout aborts the whole run: a wedged coordinated read throws
+    /// `coordinationTimedOut`, which propagates out of the scan loop and ends
+    /// `run()`. The full N × 2 × timeout compounding therefore materializes only in
+    /// the narrow case where the probe stays wedged (each probe times out → nil,
+    /// the loop continues) WHILE the reads keep succeeding — otherwise the run
+    /// stops at the first read that wedges. A short per-call bound is the mitigation
+    /// available without restructuring `Store`'s off-actor-plus-semaphore model.
+    static let scanCoordinationTimeout: TimeInterval = 1.0
+
     let store: Store
     let statePath: URL
     let timezone: TimeZone
     let maxLookbackDays: Int
+    /// A second `Store` — same folder/timezone as `store`, but with the short
+    /// `scanCoordinationTimeout` — used ONLY for the day-file scan reads in `run()`
+    /// (the lookback collect loop) and `recurrenceInstances` (the unbounded
+    /// template scan). Writes (today's merge, origin `rolled_to` stamping) still go
+    /// through `store` at its normal timeout: those calls are few (bounded by
+    /// `maxLookbackDays`) and correctness-sensitive, unlike the scan reads.
+    /// Test-injectable so a test can prove the scan path uses this timeout, not
+    /// `store`'s.
+    private let scanStore: Store
 
-    init(store: Store, statePath: URL, timezone: TimeZone = .current, maxLookbackDays: Int = 14) {
+    init(store: Store, statePath: URL, timezone: TimeZone = .current, maxLookbackDays: Int = 14,
+         scanStore: Store? = nil) {
         self.store = store
         self.statePath = statePath
         self.timezone = timezone
         self.maxLookbackDays = maxLookbackDays
+        self.scanStore = scanStore ?? Store(folder: store.folder, timezone: store.timezone,
+                                            coordinationTimeout: Self.scanCoordinationTimeout)
     }
 
     func run(now: Date) throws {
@@ -33,8 +62,11 @@ final class RolloverService {
         while cursor >= lookbackStart {
             // Unreadable origin day ABORTS the run (throw) before any write —
             // the old try?-skip advanced lastRollover past the day and stranded
-            // its leftovers forever (finding 2).
-            let doc = try store.readDoc(on: cursor)
+            // its leftovers forever (finding 2). Reads through `scanStore` (short
+            // timeout, review finding roadmap 3.4 phase 2): this loop runs
+            // synchronously on the main actor, so a wedged provider must not
+            // compound N reads at the full interactive timeout.
+            let doc = try scanStore.readDoc(on: cursor)
             var stampIDs: Set<String> = []
             for task in doc.tasks {
                 // A recurring TEMPLATE (recur set, no recur_src marker) is never
@@ -163,7 +195,11 @@ final class RolloverService {
         var seenIDs = Set<String>()
         let days = store.allDayDates().filter { $0 < today }.sorted(by: >)
         for day in days {
-            let doc = try store.readDoc(on: day)
+            // Unbounded by `maxLookbackDays` (CR-01, doc above) — the day-file
+            // count this loop reads only grows with app lifetime, so it is the
+            // main compounding risk on the main-actor `run()` call path; hence
+            // `scanStore`'s short timeout (review finding, roadmap 3.4 phase 2).
+            let doc = try scanStore.readDoc(on: day)
             for task in doc.tasks where task.recur != nil && task.recurSrc == nil {
                 if seenIDs.insert(task.id).inserted { templates.append(task) }
             }
