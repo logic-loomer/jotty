@@ -243,8 +243,8 @@ private extension CommandBarView {
         case .action(let a): return a.label
         case .todayTask(let t): return t.text
         case .inbox(let i): return i.title.isEmpty ? i.rawText : i.title
-        case .earlierTask(let t, _): return t.text
-        case .dayFile(let day, _): return Self.dayTitle(day)
+        case .earlierTask(let t, _, _): return t.text
+        case .dayFile(let day, _, _, _): return Self.dayTitle(day)
         }
     }
 
@@ -278,7 +278,7 @@ private extension CommandBarView {
 
     @ViewBuilder
     func inlineMetadata(for item: CommandItem) -> some View {
-        if case .dayFile(_, let taskCount) = item, taskCount > 0 {
+        if case .dayFile(_, let taskCount, _, _) = item, taskCount > 0 {
             Text("· \(taskCount) tasks")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -295,7 +295,7 @@ private extension CommandBarView {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
-        case .earlierTask(_, let day):
+        case .earlierTask(_, let day, _):
             Text(Self.originLabel(day))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -316,9 +316,9 @@ private extension CommandBarView {
             return label
         case .inbox(let i):
             return "Inbox suggestion from \(i.sourceID): \(i.title.isEmpty ? i.rawText : i.title)"
-        case .earlierTask(let t, let day):
+        case .earlierTask(let t, let day, _):
             return "Earlier task from \(Self.originLabel(day)): \(t.text)"
-        case .dayFile(let day, _):
+        case .dayFile(let day, _, _, _):
             return "Day file: \(Self.dayTitle(day))"
         }
     }
