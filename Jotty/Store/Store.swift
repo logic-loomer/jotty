@@ -5,10 +5,10 @@ import Foundation
 /// its day-file read and write through this instead of touching disk directly, so
 /// the coordination call can be faked in tests (record calls, simulate a hang) and
 /// so the real one can be driven off the main actor with a timeout. A coordinated
-/// read with no `.withoutChanges` already asks the file provider to materialize a
-/// dataless iCloud file — Task 5's `UbiquitousStatusProbing` leans on that instead
-/// of a manual download loop; Task 6 (conflict-sibling probe) follows the same
-/// protocol-seam idiom (real impl + fake) as its own, separate type.
+/// read with no `.immediatelyAvailableMetadataOnly` already asks the file provider
+/// to materialize a dataless iCloud file — Task 5's `UbiquitousStatusProbing` leans
+/// on that instead of a manual download loop; Task 6 (conflict-sibling probe)
+/// follows the same protocol-seam idiom (real impl + fake) as its own, separate type.
 ///
 /// What coordination is FOR: correct interplay with `fileproviderd`/iCloud Drive —
 /// a coordinated read waits out an in-flight sync write; a `.forReplacing` write is
@@ -63,12 +63,14 @@ struct RealFileCoordinator: FileCoordinating {
 /// `url` is a ubiquitous (iCloud) placeholder whose bytes are not local yet; the
 /// coordinated read that follows already asks the file provider to materialize
 /// it (`RealFileCoordinator`'s `NSFileCoordinator.ReadingOptions` deliberately
-/// omit `.withoutChanges`), so there is no separate manual-download loop here.
-/// If that read still fails (download failed, or offline), `readDay` must treat
-/// it as unreadable (phase 1 rule) and never as absent — even when the
-/// underlying error happens to look ENOENT-shaped, which a failed-download
-/// placeholder can. `nil` (a regular, non-ubiquitous file — or the probe call
-/// itself throwing) short-circuits straight to the unchanged fast path.
+/// omit `.immediatelyAvailableMetadataOnly`), so there is no separate
+/// manual-download loop here. If that read still fails (download failed, or
+/// offline), `readDay` must treat it as unreadable (phase 1 rule) and never as
+/// absent — even when the underlying error happens to look ENOENT-shaped, which
+/// a failed-download placeholder can. `nil` (a regular, non-ubiquitous file, the
+/// probe call itself throwing, or the probe call timing out — see
+/// `Store.probeDownloadingStatus`) short-circuits straight to the unchanged
+/// fast path.
 protocol UbiquitousStatusProbing: Sendable {
     func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus?
 }
@@ -152,8 +154,11 @@ final class Store {
     /// hang.
     ///
     /// Scan-loop compounding: a caller that loops over many day files (one
-    /// `readDoc` per file) pays up to N × this timeout on a wedge, since every
-    /// funnel read is independently coordinated and bounded — this default is a
+    /// `readDoc` per file) pays up to N × 2 × this timeout on a wedge — each
+    /// `readDay` makes two independently coordinated-and-bounded provider calls
+    /// (the dataless-file probe, then the coordinated read; review finding 1,
+    /// roadmap 3.4 phase 2, closed the probe's own unbounded gap), so a stuck
+    /// provider costs at most two timeouts per file, not one. This default is a
     /// PER-CALL bound, not a per-operation one. `CommandBarIndex.buildHistorical`'s
     /// day-file scan is unaffected: it always runs inside `Task.detached` off the
     /// main actor (`CommandBarModel.prepareForOpen`), so the compounding bound only
@@ -489,6 +494,23 @@ final class Store {
         }
     }
 
+    /// Consults the dataless-file probe, off-actor and time-bounded through the
+    /// same `runOffActorWithTimeout` envelope every other provider-touching call
+    /// in this file uses (review finding 1, roadmap 3.4 phase 2). Without this,
+    /// `probe.downloadingStatus(of:)` ran synchronously on the caller's (possibly
+    /// main) actor with no bound at all — a wedged provider could hang the caller
+    /// unboundedly, worst on the rollover scan loop (main-actor, up to 14 files),
+    /// silently invalidating `coordinationTimeout`'s documented per-file bound.
+    /// A timeout here collapses to `nil`, same as a probe throw (see
+    /// `UbiquitousStatusProbing`): the coordinated read that follows still
+    /// provides the real protection — it either times out too (unreadable) or
+    /// hits ENOENT (absent) on its own terms.
+    private func probeDownloadingStatus(of url: URL) -> URLUbiquitousItemDownloadingStatus? {
+        let probe = self.probe
+        return (try? runOffActorWithTimeout(url) { try probe.downloadingStatus(of: url) })
+            .flatMap { $0 }
+    }
+
     /// Reads `url`'s bytes through the coordinator, off-actor and time-bounded.
     /// Propagates the accessor's own error (so `CocoaError.fileReadNoSuchFile` still
     /// means "absent" upstream) or `StoreError.coordinationTimedOut` on a wedged
@@ -571,7 +593,7 @@ final class Store {
         // itself meaningful, so it collapses to `nil` (unchanged fast path);
         // `readDay` never gates the read on this, it only changes what a
         // subsequent read failure MEANS.
-        let isDatalessNotDownloaded = (try? probe.downloadingStatus(of: url)) == .notDownloaded
+        let isDatalessNotDownloaded = probeDownloadingStatus(of: url) == .notDownloaded
 
         let data: Data
         do {
@@ -583,6 +605,17 @@ final class Store {
             // `!isDatalessNotDownloaded`: a dataless file whose download failed
             // must never take this branch, even when the underlying error looks
             // ENOENT-shaped — it falls through to `dayFileUnreadable` below.
+            //
+            // Accepted, undocumented-until-now race: the probe and the read are
+            // two separate provider round-trips, not one atomic operation. A file
+            // that is genuinely deleted elsewhere BETWEEN the (stale) probe
+            // reporting `.notDownloaded` and the read landing on ENOENT takes the
+            // `dayFileUnreadable` branch below instead of this one — a real
+            // absence misclassified as unreadable. This fails SAFE (throws, no
+            // clobber of a file that no longer exists) and self-heals on the next
+            // read once the stale `.notDownloaded` stops being reported, so it is
+            // left as-is rather than papered over with a second probe call that
+            // would just narrow, not close, the same window.
             return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil,
                            stamp: DayStamp(contentHash: nil))
         } catch let error as StoreError {

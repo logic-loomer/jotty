@@ -428,6 +428,63 @@ final class StoreSyncSafetyTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
         XCTAssertEqual(try Data(contentsOf: url), originalBytes)
     }
+
+    /// (d) Review finding 1 (roadmap 3.4 phase 2): a wedged provider on the PROBE
+    /// call itself — not just the coordinated read — must not hang the caller past
+    /// the probe's own timeout. A hanging probe + a healthy underlying file: the
+    /// probe times out and is classified as `nil` (same as a probe throw), and the
+    /// coordinated read that follows still succeeds normally, using the real bytes.
+    func testHangingProbeWithHealthyFileSucceedsWithinTimeout() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendNote(text: "already on disk", at: date, id: "n_hp1")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+
+        let probe = HangingUbiquitousStatusProbe()
+        let s = Store(folder: folder, timezone: tz, coordinationTimeout: 0.2, probe: probe)
+
+        let start = Date()
+        try s.appendNote(text: "second capture", at: makeDate(2026, 5, 8, h: 10, m: 0), id: "n_hp2")
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 5.0, "a hanging probe must not block the caller unboundedly")
+        XCTAssertTrue(probe.didEnter, "the probe must have been invoked")
+        let body = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(body.contains("already on disk"))
+        XCTAssertTrue(body.contains("second capture"),
+                      "op must proceed once the probe times out (nil classification), same as a probe throw")
+    }
+
+    /// (e) A hanging probe AND a hanging coordinated read together must still fail
+    /// within the SUM of their two independent timeouts, never hang unboundedly —
+    /// each leg (probe, read) runs through its own `runOffActorWithTimeout` bound.
+    /// The probe having timed out collapses to `nil` (unchanged classification), so
+    /// the subsequent read's own timeout is what surfaces: `coordinationTimedOut`,
+    /// never rewrapped as `dayFileUnreadable`.
+    func testHangingProbeAndHangingCoordinatorFailsWithinSummedTimeouts() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let probe = HangingUbiquitousStatusProbe()
+        let hangingCoordinator = HangingCoordinator(hangReads: true)
+        let timeout: TimeInterval = 0.2
+        let s = Store(folder: folder, timezone: tz, coordinator: hangingCoordinator,
+                     coordinationTimeout: timeout, probe: probe)
+
+        let start = Date()
+        XCTAssertThrowsError(
+            try s.appendNote(text: "x", at: date, id: "n_hp3")
+        ) { error in
+            guard case StoreError.coordinationTimedOut = error else {
+                return XCTFail("expected StoreError.coordinationTimedOut, got \(error)")
+            }
+        }
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertGreaterThanOrEqual(elapsed, timeout * 2 - 0.05,
+                                    "must wait out BOTH the probe timeout and the read timeout")
+        XCTAssertLessThan(elapsed, 5.0, "must NOT block unboundedly for the doubly-wedged provider")
+        XCTAssertTrue(probe.didEnter, "the probe must have been invoked")
+        XCTAssertTrue(hangingCoordinator.didEnter,
+                      "the coordinated read must have been attempted after the probe timed out")
+    }
 }
 
 // MARK: - Coordinator test doubles
@@ -532,5 +589,24 @@ final class FakeUbiquitousStatusProbe: UbiquitousStatusProbing, @unchecked Senda
     func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus? {
         lock.lock(); _calls.append(url); lock.unlock()
         return status
+    }
+}
+
+/// Probe that never returns, simulating a wedged provider on the PROBE call
+/// itself — distinct from `HangingCoordinator`, which hangs the coordinated
+/// read (review finding 1, roadmap 3.4 phase 2). Blocks on a semaphore that is
+/// never signaled; records whether it was entered. `@unchecked Sendable`: only
+/// mutable state is `_entered`, guarded by `lock` (the `HangingCoordinator`
+/// idiom).
+final class HangingUbiquitousStatusProbe: UbiquitousStatusProbing, @unchecked Sendable {
+    private let neverSignaled = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var _entered = false
+    var didEnter: Bool { lock.lock(); defer { lock.unlock() }; return _entered }
+
+    func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus? {
+        lock.lock(); _entered = true; lock.unlock()
+        neverSignaled.wait()  // never returns
+        return nil
     }
 }
