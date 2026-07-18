@@ -669,6 +669,99 @@ final class StoreSyncSafetyTests: XCTestCase {
                        "v1's already-resolved sidecar must never be re-materialized/duplicated by the retry")
     }
 
+    // MARK: - Abandoned-on-timeout coordinated write (roadmap 3.4 phase 2, final review C1)
+
+    /// C1: a coordinated write ABANDONED on timeout must land NO bytes when the
+    /// wedged provider unwedges after the caller already gave up. The coordinator
+    /// blocks inside `coordinateWriting` (a wedged `fileproviderd`) until the test
+    /// releases it — AFTER the caller has timed out AND an external writer has
+    /// landed the authoritative bytes. The abandoned closure, when it finally runs,
+    /// must leave the external bytes intact (the cancellation flag makes it inert),
+    /// not clobber them with its stale serialized doc.
+    ///
+    /// RED against HEAD (pre-C1): the abandoned accessor writes unconditionally, so
+    /// the stale zombie doc overwrites the external writer's bytes.
+    func testAbandonedWriteClosureLandsNoBytesAfterTimeout() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        // Seed a valid day file so the funnel's read + pre-write stamp succeed.
+        try store.appendNote(text: "seed", at: date, id: "n_seed")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+
+        let coord = DelayedReleaseWriteCoordinator()
+        let s = Store(folder: folder, timezone: tz, coordinator: coord, coordinationTimeout: 0.3)
+
+        let callerDone = expectation(description: "caller times out")
+        Thread.detachNewThread {
+            do {
+                try s.appendNote(text: "ZOMBIE stale bytes", at: date, id: "n_zombie")
+                XCTFail("expected the wedged write to time out, not return")
+            } catch StoreError.coordinationTimedOut {
+                // expected: the caller gives up on the wedged provider
+            } catch {
+                XCTFail("expected coordinationTimedOut, got \(error)")
+            }
+            callerDone.fulfill()
+        }
+
+        // Wait until the write has wedged inside the coordinator, then land the
+        // authoritative external bytes on disk while the caller is parked.
+        coord.waitUntilWriteEntered()
+        let authoritative = "AUTHORITATIVE EXTERNAL CONTENT\n"
+        try authoritative.write(to: url, atomically: true, encoding: .utf8)
+
+        // Let the caller time out and give up.
+        wait(for: [callerDone], timeout: 5.0)
+
+        // Unwedge the provider: the abandoned closure now runs to completion.
+        coord.release()
+        coord.waitUntilWriteFinished()
+
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(onDisk, authoritative,
+                       "an abandoned-on-timeout write must not clobber the external writer's bytes")
+        XCTAssertFalse(onDisk.contains("ZOMBIE"), "the stale zombie bytes must never land")
+    }
+
+    /// C1: the coordinated-write accessor re-verifies the stamp against the on-disk
+    /// bytes IMMEDIATELY before writing, INSIDE the coordinated fence — closing the
+    /// window between the funnel's caller-side pre-check and the off-actor write. An
+    /// external writer that lands VALID new content in exactly that window is
+    /// detected: the write aborts as a stamp conflict, the funnel re-reads and
+    /// re-applies, and the external content survives (never clobbered).
+    ///
+    /// RED against HEAD (pre-C1): with no in-accessor re-verify the first write
+    /// clobbers the injected external content, `t_external` is lost, and there is
+    /// no retry (one write attempt).
+    func testCoordinatedWriteReVerifiesStampInsideAccessor() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendCapture(noteText: "", noteId: nil,
+                                tasks: [Todo(id: "t_mine", text: "seed task", createdAt: date)],
+                                at: date)
+        let url = folder.appendingPathComponent("2026-05-08.md")
+
+        // A VALID external doc to inject INSIDE the coordinated write, after the
+        // funnel's caller-side pre-check has already passed.
+        var external = try MarkdownDoc.parse(String(contentsOf: url, encoding: .utf8), timezone: tz)
+        external.appendTodo(Todo(id: "t_external", text: "obsidian task", createdAt: date))
+        let externalBytes = Data(external.serialize(timezone: tz).utf8)
+
+        let coord = InjectBeforeFirstWriteCoordinator(inject: externalBytes, to: url)
+        let s = Store(folder: folder, timezone: tz, coordinator: coord)
+
+        try s.mutateDay(on: date) { doc in
+            doc.appendTodo(Todo(id: "t_funnel", text: "funnel task", createdAt: date))
+            return true
+        }
+
+        let ids = try MarkdownDoc.parse(String(contentsOf: url, encoding: .utf8), timezone: tz).tasks.map(\.id)
+        XCTAssertTrue(ids.contains("t_external"),
+                      "external content landing inside the off-actor window must survive the re-verify retry")
+        XCTAssertTrue(ids.contains("t_funnel"), "the mutation must be re-applied on retry")
+        XCTAssertEqual(ids.filter { $0 == "t_funnel" }.count, 1, "retry must not double-apply")
+        XCTAssertEqual(coord.writeAttempts, 2,
+                       "first coordinated write's re-verify aborts; the retry's write lands")
+    }
+
     private func url(for date: Date) -> URL {
         DailyFile.url(in: folder, on: date, timezone: tz)
     }
@@ -833,6 +926,64 @@ final class FailingReadCoordinator: FileCoordinating, @unchecked Sendable {
     }
     func coordinateWriting(at url: URL, options: NSFileCoordinator.WritingOptions,
                            _ accessor: (URL) throws -> Void) throws {
+        try accessor(url)
+    }
+}
+
+/// Coordinator whose WRITE blocks inside `coordinateWriting` (a wedged
+/// `fileproviderd`) until the test explicitly releases it — the C1 abandoned-write
+/// scenario. Reads are pass-through. Signals when the write is entered (so the test
+/// can act while the caller is parked) and when it finishes (so the test can await
+/// the abandoned closure running to completion). `@unchecked Sendable`: the only
+/// state is the semaphores, themselves thread-safe.
+final class DelayedReleaseWriteCoordinator: FileCoordinating, @unchecked Sendable {
+    private let writeEntered = DispatchSemaphore(value: 0)
+    private let releaseWrite = DispatchSemaphore(value: 0)
+    private let writeFinished = DispatchSemaphore(value: 0)
+
+    func coordinateReading(at url: URL, _ accessor: (URL) throws -> Void) throws {
+        try accessor(url)
+    }
+    func coordinateWriting(at url: URL, options: NSFileCoordinator.WritingOptions,
+                           _ accessor: (URL) throws -> Void) throws {
+        writeEntered.signal()
+        releaseWrite.wait()             // block like a wedged fileproviderd
+        defer { writeFinished.signal() }
+        try accessor(url)               // unwedged: the (abandoned) write attempt
+    }
+    func waitUntilWriteEntered() { writeEntered.wait() }
+    func release() { releaseWrite.signal() }
+    func waitUntilWriteFinished() { writeFinished.wait() }
+}
+
+/// Coordinator that, on the FIRST coordinated write only, lands `inject` at
+/// `target` BEFORE invoking the accessor — simulating an external writer that
+/// races valid content into the window between the funnel's caller-side pre-check
+/// and the off-actor coordinated write (C1 in-accessor re-verify). Reads are
+/// pass-through. `@unchecked Sendable`: mutable state guarded by `lock`.
+final class InjectBeforeFirstWriteCoordinator: FileCoordinating, @unchecked Sendable {
+    private let inject: Data
+    private let target: URL
+    private let lock = NSLock()
+    private var _writeAttempts = 0
+    private var injected = false
+    var writeAttempts: Int { lock.lock(); defer { lock.unlock() }; return _writeAttempts }
+
+    init(inject: Data, to target: URL) { self.inject = inject; self.target = target }
+
+    func coordinateReading(at url: URL, _ accessor: (URL) throws -> Void) throws {
+        try accessor(url)
+    }
+    func coordinateWriting(at url: URL, options: NSFileCoordinator.WritingOptions,
+                           _ accessor: (URL) throws -> Void) throws {
+        lock.lock()
+        _writeAttempts += 1
+        let doInject = !injected
+        injected = true
+        lock.unlock()
+        if doInject {
+            try? inject.write(to: target, options: .atomic)
+        }
         try accessor(url)
     }
 }

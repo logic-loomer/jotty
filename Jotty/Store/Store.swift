@@ -134,7 +134,33 @@ struct DayStamp: Equatable {
     let contentHash: SHA256Digest?
 }
 
+/// One-shot cancellation flag for a `runOffActorWithTimeout` envelope (roadmap
+/// 3.4 phase 2, final review C1). The timeout path sets it; the enqueued closure
+/// consults it immediately before any side effect so a closure ABANDONED on
+/// timeout — one still parked inside a wedged `fileproviderd` when the caller has
+/// already thrown `coordinationTimedOut` — lands NO write, sidecar, or
+/// `markResolved` when the provider finally unwedges seconds/minutes later. A
+/// plain thread-safe bool: the only mutation is the single `cancel()` the timeout
+/// path makes, read by the closure. `@unchecked Sendable` (the `RecordingCoordinator`
+/// lock idiom) so it can cross onto the coordination executor.
+final class CoordinationCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
+    func cancel() { lock.lock(); _cancelled = true; lock.unlock() }
+}
+
 final class Store {
+    /// Thrown by the coordinated-write accessor's in-place stamp re-verify (C1)
+    /// when the on-disk bytes changed between the funnel's pre-write stamp check
+    /// and the actual coordinated write — an external writer that raced into the
+    /// off-actor window (worst case: a write closure abandoned on timeout that
+    /// unwedges long after the disk moved on). PRIVATE and never surfaced to a
+    /// caller: `mutateDay` catches it and routes it straight back into its existing
+    /// bounded stamp-conflict retry (`continue`), identical to the pre-write
+    /// `currentStamp` mismatch path — so it needs no new public `StoreError` case.
+    private struct StampConflict: Error {}
+
     let folder: URL
     let timezone: TimeZone
 
@@ -518,7 +544,15 @@ final class Store {
             // (or a pure read) must not materialize the storage folder as a side
             // effect (adversarial-review nit 5).
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try persist(doc, to: url, quarantining: read.corruptRaw)
+            do {
+                try persist(doc, to: url, quarantining: read.corruptRaw, expecting: read.stamp)
+            } catch is StampConflict {
+                // The coordinated write's in-accessor re-verify (C1) caught an
+                // external writer that raced into the off-actor window AFTER the
+                // pre-check above passed. Same treatment as that pre-check's own
+                // mismatch: re-read and re-apply, bounded by `attempts`.
+                continue
+            }
             return
         }
         throw StoreError.conflictRetryExhausted(url)
@@ -557,7 +591,9 @@ final class Store {
     /// hits ENOENT (absent) on its own terms.
     private func probeDownloadingStatus(of url: URL) -> URLUbiquitousItemDownloadingStatus? {
         let probe = self.probe
-        return (try? runOffActorWithTimeout(url) { try probe.downloadingStatus(of: url) })
+        // A pure read has no side effect to gate — the cancellation token is
+        // accepted (C1's uniform envelope signature) and ignored.
+        return (try? runOffActorWithTimeout(url) { _ in try probe.downloadingStatus(of: url) })
             .flatMap { $0 }
     }
 
@@ -567,7 +603,9 @@ final class Store {
     /// provider. Only the Sendable `coordinator` + `url` cross onto the executor.
     private func coordinatedReadData(at url: URL) throws -> Data {
         let coordinator = self.coordinator
-        return try runOffActorWithTimeout(url) { () throws -> Data in
+        // A pure read has no side effect to gate — the cancellation token is
+        // accepted (C1's uniform envelope signature) and ignored.
+        return try runOffActorWithTimeout(url) { _ throws -> Data in
             var out = Data()
             try coordinator.coordinateReading(at: url) { handedBack in
                 out = try Data(contentsOf: handedBack)
@@ -579,12 +617,45 @@ final class Store {
     /// Writes `bytes` to `url` through the coordinator with `.forReplacing`,
     /// off-actor and time-bounded. `.atomic` = write-to-temp + rename (unchanged
     /// from phase 1); coordination fences that rename against the sync daemon.
-    private func coordinatedWrite(_ bytes: Data, to url: URL) throws {
+    ///
+    /// Two C1 guards fence the delayed-zombie clobber (a write closure abandoned
+    /// on timeout that a wedged provider runs long after the caller gave up):
+    ///  - the `cancellation` flag: a closure abandoned by the timeout path returns
+    ///    without touching disk;
+    ///  - an in-accessor stamp RE-VERIFY: `expected` is the stamp the funnel saw
+    ///    before this write; immediately before the atomic write we re-hash the
+    ///    on-disk bytes and, on any mismatch, throw `StampConflict` instead of
+    ///    clobbering. This restores the µs-class TOCTOU window the off-actor hop
+    ///    otherwise widened to the whole wedge duration. `mutateDay` routes the
+    ///    throw back into its bounded stamp-conflict retry.
+    private func coordinatedWrite(_ bytes: Data, to url: URL, expecting expected: DayStamp) throws {
         let coordinator = self.coordinator
-        try runOffActorWithTimeout(url) {
+        try runOffActorWithTimeout(url) { cancellation in
+            // Abandoned-on-timeout closure: do nothing observable.
+            guard !cancellation.isCancelled else { return }
             try coordinator.coordinateWriting(at: url, options: .forReplacing) { handedBack in
+                guard !cancellation.isCancelled else { return }
+                // Re-verify the stamp against what is on disk RIGHT NOW, inside the
+                // coordinated fence — not the caller-side pre-check that ran before
+                // the off-actor hop. A mismatch means an external writer landed in
+                // the window; abort as a stamp conflict rather than clobber.
+                guard try Self.onDiskStamp(at: handedBack) == expected else {
+                    throw StampConflict()
+                }
                 try bytes.write(to: handedBack, options: .atomic)
             }
+        }
+    }
+
+    /// Hash of the bytes on disk at `url` RIGHT NOW, for the coordinated-write
+    /// re-verify (C1). Absent file → nil hash (matches `currentStamp`/`readDay`'s
+    /// absent-vs-present discipline). Any OTHER read failure rethrows so the write
+    /// aborts rather than silently proceeding on an unknowable disk state.
+    private static func onDiskStamp(at url: URL) throws -> DayStamp {
+        do {
+            return DayStamp(contentHash: SHA256.hash(data: try Data(contentsOf: url)))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return DayStamp(contentHash: nil)
         }
     }
 
@@ -595,18 +666,29 @@ final class Store {
     /// thread but NEVER the caller past the timeout. This is the Risk-4 off-actor +
     /// timeout structure: the potentially-never-returning `coordinate()` call
     /// executes on the background executor, not on whatever actor called the funnel.
+    ///
+    /// Cancellation (C1): the timeout path sets a `CoordinationCancellation` the
+    /// enqueued `work` receives and consults before every side effect, so a closure
+    /// abandoned here is INERT — an unwedging `fileproviderd` that finally runs it
+    /// minutes later lands no stale bytes. Cancellation neutralizes side effects but
+    /// does NOT unpark the parked thread: the abandoned closure still occupies a
+    /// throwaway executor thread until the underlying provider call returns (the
+    /// accumulation cost `coordinationQueue`'s concurrency already absorbs), it
+    /// merely does nothing observable when it does.
     private func runOffActorWithTimeout<T: Sendable>(
-        _ url: URL, _ work: @escaping @Sendable () throws -> T) throws -> T {
+        _ url: URL, _ work: @escaping @Sendable (CoordinationCancellation) throws -> T) throws -> T {
         let sem = DispatchSemaphore(value: 0)
+        let cancellation = CoordinationCancellation()
         // Heap-boxed by capture; the escaping closure keeps it alive even if we
         // return (throw) first. `wait()` returning establishes happens-before with
         // the `signal()` that follows the store, so the read below sees the write.
         nonisolated(unsafe) var result: Result<T, Error>?
         coordinationQueue.async {
-            result = Result(catching: work)
+            result = Result(catching: { try work(cancellation) })
             sem.signal()
         }
         if sem.wait(timeout: .now() + coordinationTimeout) == .timedOut {
+            cancellation.cancel()
             throw StoreError.coordinationTimedOut(url)
         }
         return try result!.get()
@@ -703,7 +785,8 @@ final class Store {
     /// `.corrupt-*` sidecar, THEN writes the new content — the broken file is
     /// preserved AND the new capture still lands. The happy path (corruptRaw nil)
     /// is byte-identical to a plain `write(atomically:)`.
-    private func persist(_ doc: MarkdownDoc, to url: URL, quarantining corruptRaw: Data?) throws {
+    private func persist(_ doc: MarkdownDoc, to url: URL, quarantining corruptRaw: Data?,
+                         expecting stamp: DayStamp) throws {
         if let corruptRaw {
             quarantine(corruptRaw, of: url)
         }
@@ -711,8 +794,9 @@ final class Store {
         // timeout. `Data(_.utf8)` + `.atomic` reproduces the previous
         // `String.write(atomically:encoding:.utf8)` byte-for-byte (write-to-temp +
         // rename); coordination only fences the rename against the sync daemon.
+        // `stamp` is re-verified inside the coordinated fence (C1).
         let bytes = Data(doc.serialize(timezone: timezone).utf8)
-        try coordinatedWrite(bytes, to: url)
+        try coordinatedWrite(bytes, to: url, expecting: stamp)
     }
 
     /// Copies `raw` to a `<name>.corrupt-<timestamp>.md` sidecar next to `url`
@@ -778,12 +862,18 @@ final class Store {
         let conflictProbe = self.conflictProbe
         let folder = self.folder
         let timezone = self.timezone
-        let found = (try? runOffActorWithTimeout(url) { () throws -> Bool in
+        let found = (try? runOffActorWithTimeout(url) { cancellation throws -> Bool in
             guard try conflictProbe.hasUnresolvedConflicts(at: url) else { return false }
             // A conflict WAS found — everything below is best-effort archival;
             // its success or failure must never un-set this `true` result.
+            // Abandoned-on-timeout closure (C1/M3): skip the archival side effects
+            // (sidecar write + markResolved) entirely — a zombie must not materialize
+            // sidecars or mutate iCloud's conflict list minutes after the caller,
+            // whose `found` is already `false` (the envelope threw), moved on.
+            guard !cancellation.isCancelled else { return true }
             if let versions = try? conflictProbe.unresolvedConflictVersions(at: url), !versions.isEmpty {
                 for version in versions {
+                    guard !cancellation.isCancelled else { break }
                     do {
                         // Per-version resolve (review finding, roadmap 3.4 phase
                         // 2): materialize + resolve THIS version alone. A
