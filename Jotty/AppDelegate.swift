@@ -404,8 +404,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Sites that converge WITHOUT wiring here: `RolloverService` is reconstructed per
     /// run from the (now-rebuilt) `self.store` reading `.current` fresh; `CommandBarIndex`
-    /// rebuilds its Store from the model's rebuilt timezone on its next per-open build;
-    /// the capture path resolves `TimeZone.current` fresh per submit.
+    /// rebuilds its Store from the model's rebuilt timezone on its next per-open build.
+    ///
+    /// An OPEN capture window is NOT reconstructed here — it is not torn down on a zone
+    /// change. It stays correct because its `storeProvider` seam (I2) resolves `self.store`
+    /// at COMMIT time, so a commit after a mid-window rebuild serializes + day-resolves
+    /// through the just-rebuilt (new-zone) store, not the stale one captured at open. The
+    /// draft text and TimeZone.current re-resolution alone were NOT enough — the STORE
+    /// carries the zone that resolves the day file and serializes cross-midnight blocks.
     func rebuildForTimeZoneChange(to newTZ: TimeZone) {
         // Re-pin the delegate's Store (rollover + "Open Today's File" read it) and
         // rebuild the timezone-pinned inbox service, then hand both to the model's
@@ -635,10 +641,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : ProviderFactory.make(config: configStore.config)
         let fallback: (any AIProvider)? = usingAppleFM ? nil : appleFM
 
+        // I2: resolve the store at COMMIT time. A live timezone change mid-capture rebuilds
+        // `self.store` onto the new zone without tearing down the window; the seam reads that
+        // live store so the commit serializes + day-resolves through the current zone, not the
+        // stale one captured at open. Falls back to the open-time store if self is gone.
+        let openStore = store!
         let vm = CaptureViewModel(store: store, draftURL: draftURL,
                                   provider: provider,
                                   fallbackProvider: fallback,
-                                  calendar: calendar)
+                                  calendar: calendar,
+                                  storeProvider: { [weak self] in self?.store ?? openStore })
         let controller = CaptureWindowController(vm: vm)
         captureController = controller
         controller.showCenteredOnActiveDisplay()

@@ -235,6 +235,35 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(task.calEventID, "fake-event-1", "cal_event:<id> must be written back")
     }
 
+    /// I2 (final review): a live timezone change mid-capture rebuilds the delegate's Store
+    /// without tearing down the window. The commit must serialize + day-resolve through the
+    /// SWAPPED (new-zone) store, not the stale one captured at open. Fails on d8a9166 (the
+    /// store was `let`-captured at construction, so the commit landed in the old zone's file).
+    func testMidWindowStoreSwapSerializesThroughNewStore() async throws {
+        // 02:00 UTC resolves to DIFFERENT day files per zone: 2026-07-12 (Sydney +10) but
+        // 2026-07-11 (LA −7) — so which store commits is observable from which file gets it.
+        let now = dateFor("2026-07-12T02:00:00+00:00")
+        let storeSyd = Store(folder: folder, timezone: TimeZone(identifier: "Australia/Sydney")!)
+        let storeLA = Store(folder: folder, timezone: TimeZone(identifier: "America/Los_Angeles")!)
+
+        var liveStore = storeSyd
+        let vm = CaptureViewModel(store: storeSyd, draftURL: draftURL,
+                                  provider: makeNoOpProvider(),
+                                  storeProvider: { liveStore }, clock: { now })
+        vm.text = "- [ ] buy milk"
+
+        // A live TZ rebuild swaps the delegate store onto the new zone mid-window.
+        liveStore = storeLA
+        await vm.submitAndWait()
+
+        let laDoc = try storeLA.readDoc(on: now)
+        XCTAssertEqual(laDoc.tasks.map(\.text), ["buy milk"],
+                       "commit serializes + day-resolves through the swapped (new-zone) store (I2)")
+        let sydDoc = try storeSyd.readDoc(on: now)
+        XCTAssertTrue(sydDoc.tasks.isEmpty,
+                      "the stale open-time store's day file must be untouched")
+    }
+
     // SC1: a task WITHOUT a timeBlock → createEvent NOT called, no cal_event.
     func testNonTimeBlockedCommitDoesNotCreateEvent() async throws {
         let now = dateFor("2026-06-13T08:00:00+10:00")

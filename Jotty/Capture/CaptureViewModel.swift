@@ -96,7 +96,19 @@ final class CaptureViewModel: ObservableObject {
     /// Pending overlap confirm; non-nil pauses the time-blocked write until the user decides (SC5).
     @Published var pendingConflict: CalendarConflict?
 
-    private let store: Store
+    /// The store built when the capture window OPENED. Used only as the fallback when no
+    /// live `storeProvider` is wired (every existing test/caller).
+    private let initialStore: Store
+    /// I2 seam (roadmap 3.3 slice 2): resolves the CURRENT store at COMMIT time. A live
+    /// timezone change mid-capture rebuilds the delegate's `Store` (a new zone), but the
+    /// capture window is not torn down — without this, `commitFromReview`/`submitManual`
+    /// would serialize the note + day-resolve the file through the STALE-zone store captured
+    /// at open, landing a cross-midnight capture in the wrong day file. AppDelegate wires this
+    /// to read its live `self.store`; nil (existing callers) falls back to `initialStore`.
+    private let storeProvider: (() -> Store)?
+    /// The store to serialize through, resolved fresh on every access so a mid-window zone
+    /// rebuild reaches an already-open capture window (I2).
+    private var store: Store { storeProvider?() ?? initialStore }
     private let draftURL: URL
     private let provider: any AIProvider
     /// Apple FM fallback for the failure toast (ROADMAP Phase 4 SC4).
@@ -141,8 +153,10 @@ final class CaptureViewModel: ObservableObject {
          provider: any AIProvider,
          fallbackProvider: (any AIProvider)? = nil,
          calendar: (any CalendarService)? = nil,
+         storeProvider: (() -> Store)? = nil,
          clock: @escaping () -> Date = Date.init) {
-        self.store = store
+        self.initialStore = store
+        self.storeProvider = storeProvider
         self.draftURL = draftURL
         self.provider = provider
         self.fallbackProvider = fallbackProvider
