@@ -97,6 +97,7 @@
 		8301027F870AB1CA868276A8 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFE86FB51D82B8400FC8132 /* CaptureViewModelTests.swift */; };
 		8399D513FDA08BCCC8E17D47 /* ActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */; };
 		86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */; };
+		E1EA2578288A4632BA2B09B2 /* ConflictSiblingProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA53C34769A54D7083E6D3DC /* ConflictSiblingProbe.swift */; };
 		8831234639E3E4BE5F29541E /* CommandBarModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90225AE2C63DF61A6F7879A /* CommandBarModelTests.swift */; };
 		8873431849F067B1D97A6983 /* MarkdownDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */; };
 		887ECC5682D5BF6A0DF1CBF5 /* KeychainAPIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BC99E14A3D4F50E532C30C /* KeychainAPIKeyStoreTests.swift */; };
@@ -217,6 +218,7 @@
 		18E38205AEB20627C5AA68C1 /* ActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionDispatcherTests.swift; sourceTree = "<group>"; };
 		1921AFB4C88E85C1D132EE3F /* KeybindingConflictsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingConflictsTests.swift; sourceTree = "<group>"; };
 		1A0DF5E61B7CF1638617E711 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
+		EA53C34769A54D7083E6D3DC /* ConflictSiblingProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictSiblingProbe.swift; sourceTree = "<group>"; };
 		1D087F7C4C36FD1D57DAD33D /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		23C090ADF66A94D4A73E9BD8 /* CalendarDrift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDrift.swift; sourceTree = "<group>"; };
 		2445FCD973A4E9EF9E319F23 /* DriftDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriftDetectionTests.swift; sourceTree = "<group>"; };
@@ -659,6 +661,7 @@
 		97D58AA03E8D457406DE7991 /* Store */ = {
 			isa = PBXGroup;
 			children = (
+				EA53C34769A54D7083E6D3DC /* ConflictSiblingProbe.swift */,
 				3CDA0A15DCF13E839E64C340 /* DailyFile.swift */,
 				49CDC4DAE3F1AA9A01F4FA30 /* MarkdownDoc.swift */,
 				5BCE4FA2000ED7DDB85CB0DF /* MarkdownSpan.swift */,
@@ -1040,6 +1043,7 @@
 				A2C208140F0695624710DADF /* CommandBarPanel.swift in Sources */,
 				4B84A29B9FEA820961120F83 /* CommandBarView.swift in Sources */,
 				86918642CBA8980F05DAC8B1 /* ConfigStore.swift in Sources */,
+				E1EA2578288A4632BA2B09B2 /* ConflictSiblingProbe.swift in Sources */,
 				78933ADCEAA592EF6142A50D /* DailyFile.swift in Sources */,
 				06937A8820325D8E363D26FE /* DiskSpace.swift in Sources */,
 				AF9616D6B8C9325C4CC1B91C /* DurationGuardrail.swift in Sources */,

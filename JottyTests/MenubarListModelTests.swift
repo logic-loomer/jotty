@@ -1417,6 +1417,41 @@ final class MenubarListModelTests: XCTestCase {
                         "quarantine surfaces a transient menubar notice")
     }
 
+    // MARK: - iCloud conflict-sibling notice (roadmap 3.4 phase 2, Task 6)
+
+    func testUnresolvedConflictNoticeStateMachine() throws {
+        let store = Store(folder: folder, timezone: tz)
+        let today = makeDate(2026, 6, 12, h: 8)
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+        XCTAssertNil(model.unresolvedConflictNotice)
+        model.showUnresolvedConflictNotice()
+        XCTAssertNotNil(model.unresolvedConflictNotice)
+        model.dismissUnresolvedConflictNotice()
+        XCTAssertNil(model.unresolvedConflictNotice, "notice is dismissible")
+    }
+
+    /// The model hooks `Store.onUnresolvedConflict` and calls
+    /// `store.checkForUnresolvedConflicts(on:)` from `reload()` — this proves
+    /// BOTH: the reload hook actually invokes the store check (a conflict
+    /// wired up only AFTER construction still surfaces on the model's own
+    /// launch-time reload), and the callback routes to the transient notice.
+    func testReloadProbesForConflictsAndSurfacesMenubarNotice() throws {
+        let today = makeDate(2026, 6, 12, h: 8)
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let store = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        // Arm the fake AFTER construction (construction's own check already ran
+        // harmlessly), so the very first reload triggered by the model's own
+        // `init` is what's under test.
+        probe.hasConflicts = true
+        probe.versions = [FakeConflictVersion(content: Data("losing\n".utf8))]
+
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults, now: { today })
+
+        XCTAssertNotNil(model.unresolvedConflictNotice,
+                        "the model's own init-time reload must probe for conflicts and surface the notice")
+    }
+
     /// After `replaceStore`, the NEW store's quarantine still surfaces (the hook is
     /// re-installed on swap, not left on the old store).
     func testCorruptQuarantineHookReinstalledOnReplaceStore() throws {

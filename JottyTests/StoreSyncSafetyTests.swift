@@ -485,6 +485,217 @@ final class StoreSyncSafetyTests: XCTestCase {
         XCTAssertTrue(hangingCoordinator.didEnter,
                       "the coordinated read must have been attempted after the probe timed out")
     }
+
+    // MARK: - iCloud conflict-sibling detection (roadmap 3.4 phase 2, Task 6)
+
+    /// Sidecars matching `<name>.conflict-*.md` in the store folder, name-sorted.
+    private func conflictSidecarFiles() throws -> [URL] {
+        try FileManager.default
+            .contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.contains(".conflict-") && $0.pathExtension == "md" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Design requirement: Store must probe today's file for an unresolved
+    /// iCloud conflict ON CONSTRUCTION. There is no point before construction
+    /// completes to hook `onUnresolvedConflict`, so this test observes
+    /// construction's SIDE EFFECTS (sidecar + resolved flag) rather than the
+    /// callback — the callback path is covered by the explicit-call tests
+    /// below, which mirror the model's reload hook.
+    func testConstructionProbesTodayAndMaterializesLosingVersions() throws {
+        let v1 = FakeConflictVersion(content: Data("losing content\n".utf8))
+        let probe = FakeConflictSiblingProbe(hasConflicts: true, versions: [v1])
+
+        _ = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        XCTAssertTrue(v1.isResolved, "construction must probe + materialize + resolve today's conflict")
+        let sidecars = try conflictSidecarFiles()
+        XCTAssertEqual(sidecars.count, 1)
+        XCTAssertEqual(try String(contentsOf: sidecars[0], encoding: .utf8), "losing content\n")
+    }
+
+    /// (a) probe-true → the banner (`onUnresolvedConflict`) fires exactly ONCE
+    /// regardless of how many losing versions there are, and EACH losing
+    /// version is materialized as its own `.conflict-<stamp>.md` sidecar
+    /// holding that version's own content. The probe starts `false` so
+    /// construction itself is a no-op, then flips true before the explicit
+    /// call — isolating this test from the construction-time check exercised
+    /// above.
+    func testUnresolvedConflictFiresBannerOnceAndMaterializesEachLosingVersionAsSidecar() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let v1 = FakeConflictVersion(content: Data("losing version A\n".utf8))
+        let v2 = FakeConflictVersion(content: Data("losing version B\n".utf8))
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        var fired: [URL] = []
+        s.onUnresolvedConflict = { fired.append($0) }
+
+        probe.hasConflicts = true
+        probe.versions = [v1, v2]
+        s.checkForUnresolvedConflicts(on: date)
+
+        XCTAssertEqual(fired.count, 1, "banner fires exactly once regardless of losing-version count")
+        XCTAssertEqual(fired.first?.lastPathComponent, "2026-05-08.md")
+
+        let sidecars = try conflictSidecarFiles()
+        XCTAssertEqual(sidecars.count, 2, "one sidecar per losing version")
+        let contents = Set(try sidecars.map { try String(contentsOf: $0, encoding: .utf8) })
+        XCTAssertEqual(contents, ["losing version A\n", "losing version B\n"])
+        XCTAssertTrue(sidecars.allSatisfy { $0.lastPathComponent.contains(".conflict-") })
+
+        XCTAssertTrue(v1.isResolved, "sidecar landed → version marked resolved")
+        XCTAssertTrue(v2.isResolved)
+    }
+
+    /// (b) probe-false → nothing: no banner, no sidecar.
+    func testNoUnresolvedConflictFiresNothing() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        var fired: [URL] = []
+        s.onUnresolvedConflict = { fired.append($0) }
+
+        s.checkForUnresolvedConflicts(on: date)
+
+        XCTAssertTrue(fired.isEmpty, "no conflict → banner must not fire")
+        XCTAssertTrue(try conflictSidecarFiles().isEmpty, "no conflict → no sidecar")
+        XCTAssertTrue(probe.calls.contains(url(for: date)), "the probe seam is still consulted")
+    }
+
+    /// (c) Sidecar naming is collision-safe (two losing versions never collide
+    /// on a filename) and is NEVER parsed as a day file — the same strict
+    /// `yyyy-MM-dd` discipline that already excludes `.corrupt-*` sidecars from
+    /// `allDayDates()`.
+    func testConflictSidecarNamingIsCollisionSafeAndExcludedFromDayFileParsing() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let v1 = FakeConflictVersion(content: Data("A\n".utf8))
+        let v2 = FakeConflictVersion(content: Data("B\n".utf8))
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
+        probe.hasConflicts = true
+        probe.versions = [v1, v2]
+
+        s.checkForUnresolvedConflicts(on: date)
+
+        let sidecars = try conflictSidecarFiles()
+        XCTAssertEqual(sidecars.count, 2, "two losing versions must not collide onto one filename")
+        XCTAssertEqual(Set(sidecars.map(\.lastPathComponent)).count, 2, "filenames must be distinct")
+        for sidecar in sidecars {
+            XCTAssertTrue(sidecar.lastPathComponent.hasPrefix("2026-05-08.conflict-"))
+            XCTAssertEqual(sidecar.pathExtension, "md")
+        }
+
+        // Never parsed as a day file: the strict yyyy-MM-dd formatter must
+        // reject every sidecar's stem.
+        let dayFormatter = DailyFile.dayFormatter(timezone: tz)
+        for sidecar in sidecars {
+            let stem = String(sidecar.lastPathComponent.dropLast(3))   // drop ".md"
+            XCTAssertNil(dayFormatter.date(from: stem),
+                         "a conflict sidecar name must never parse as a day key")
+        }
+        XCTAssertTrue(s.allDayDates().isEmpty, "sidecars are never counted as day files")
+    }
+
+    /// Partial-failure ordering (verbatim design requirement): if materializing
+    /// ANY losing version's sidecar fails, NONE of the versions are marked
+    /// resolved — but the banner still fires, since a conflict WAS found.
+    func testPartialSidecarMaterializationFailureLeavesVersionsUnresolvedButStillFiresBanner() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        let v1 = FakeConflictVersion(content: Data("ok content\n".utf8))
+        let v2 = FakeConflictVersion(content: Data("unreachable".utf8),
+                                     contentsError: CocoaError(.fileReadUnknown))
+        let probe = FakeConflictSiblingProbe(hasConflicts: false)
+        let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
+
+        var fired: [URL] = []
+        s.onUnresolvedConflict = { fired.append($0) }
+
+        probe.hasConflicts = true
+        probe.versions = [v1, v2]
+        s.checkForUnresolvedConflicts(on: date)
+
+        XCTAssertEqual(fired.count, 1, "the banner must fire even though materialization partially failed")
+        XCTAssertFalse(v1.isResolved, "no version is resolved unless ALL sidecars landed")
+        XCTAssertFalse(v2.isResolved)
+    }
+
+    private func url(for date: Date) -> URL {
+        DailyFile.url(in: folder, on: date, timezone: tz)
+    }
+}
+
+// MARK: - Conflict-sibling probe test doubles (roadmap 3.4 phase 2, Task 6)
+
+/// Fake losing `NSFileVersion`: fixed content plus an observable resolved flag.
+/// `NSFileVersion` itself has no public initializer and only exists for a
+/// genuinely conflicted ubiquitous item, so this fake is how conflict-sibling
+/// content is simulated in tests — mirrors why `FakeUbiquitousStatusProbe`
+/// exists instead of exercising real iCloud. `@unchecked Sendable`: only
+/// mutable state is `_isResolved`, guarded by `lock` (the `RecordingCoordinator`
+/// idiom).
+final class FakeConflictVersion: ConflictVersionMaterializing, @unchecked Sendable {
+    private let lock = NSLock()
+    let content: Data
+    private let contentsError: Error?
+    private let resolveError: Error?
+    private var _isResolved = false
+    var isResolved: Bool { lock.lock(); defer { lock.unlock() }; return _isResolved }
+
+    init(content: Data, contentsError: Error? = nil, resolveError: Error? = nil) {
+        self.content = content
+        self.contentsError = contentsError
+        self.resolveError = resolveError
+    }
+
+    func materializedContents() throws -> Data {
+        if let contentsError { throw contentsError }
+        return content
+    }
+
+    func markResolved() throws {
+        if let resolveError { throw resolveError }
+        lock.lock(); _isResolved = true; lock.unlock()
+    }
+}
+
+/// Fake conflict-sibling probe: `hasConflicts`/`versions` are settable AFTER
+/// construction (unlike `FakeUbiquitousStatusProbe`'s fixed answer) so a test
+/// can construct a `Store` with a harmless `false` answer (a no-op construction-
+/// time check) and only THEN flip to `true` before calling
+/// `checkForUnresolvedConflicts` explicitly — isolating the explicit-call tests
+/// from the construction-time check every `Store(conflictProbe:)` call also
+/// performs. `@unchecked Sendable`: mutable state guarded by `lock`.
+final class FakeConflictSiblingProbe: ConflictSiblingProbing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [URL] = []
+    var calls: [URL] { lock.lock(); defer { lock.unlock() }; return _calls }
+    private var _hasConflicts: Bool
+    var hasConflicts: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _hasConflicts }
+        set { lock.lock(); _hasConflicts = newValue; lock.unlock() }
+    }
+    private var _versions: [ConflictVersionMaterializing]
+    var versions: [ConflictVersionMaterializing] {
+        get { lock.lock(); defer { lock.unlock() }; return _versions }
+        set { lock.lock(); _versions = newValue; lock.unlock() }
+    }
+
+    init(hasConflicts: Bool, versions: [ConflictVersionMaterializing] = []) {
+        self._hasConflicts = hasConflicts
+        self._versions = versions
+    }
+
+    func hasUnresolvedConflicts(at url: URL) throws -> Bool {
+        lock.lock(); _calls.append(url); let has = _hasConflicts; lock.unlock()
+        return has
+    }
+
+    func unresolvedConflictVersions(at url: URL) throws -> [ConflictVersionMaterializing] {
+        lock.lock(); defer { lock.unlock() }
+        return _versions
+    }
 }
 
 // MARK: - Coordinator test doubles

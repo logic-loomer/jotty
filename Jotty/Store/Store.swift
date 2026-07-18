@@ -184,6 +184,15 @@ final class Store {
     /// real iCloud never appears in tests. See `UbiquitousStatusProbing`.
     private let probe: UbiquitousStatusProbing
 
+    /// Conflict-sibling probe seam (roadmap 3.4 phase 2, Task 6). Default is
+    /// the real `NSURLUbiquitousItemHasUnresolvedConflictsKey` +
+    /// `NSFileVersion` wrapper; tests inject a fake reporting an unresolved
+    /// conflict with fixed-content losing versions — real iCloud conflict
+    /// siblings never appear in tests (no public `NSFileVersion` initializer).
+    /// Its own, separate protocol-seam type from `UbiquitousStatusProbing` —
+    /// see `ConflictSiblingProbing`.
+    private let conflictProbe: ConflictSiblingProbing
+
     /// #4: invoked with the `.corrupt-*` sidecar URL right after a
     /// present-but-unparseable day file's raw bytes are quarantined (before its
     /// content is clobbered by a new write). The app layer hooks this to surface
@@ -191,15 +200,34 @@ final class Store {
     /// tests and headless contexts that don't observe it.
     var onCorruptQuarantine: ((URL) -> Void)?
 
+    /// #6 (roadmap 3.4 phase 2, Task 6): invoked with the day-file URL when
+    /// `checkForUnresolvedConflicts` found an unresolved iCloud sync conflict —
+    /// mirrors `onCorruptQuarantine`'s shape exactly, but for iCloud's OWN
+    /// conflict mechanism rather than a parse failure. Fires even when
+    /// materializing a losing version's sidecar failed partway (the versions
+    /// are then left unresolved so the next check retries) — a detected
+    /// conflict is itself always worth surfacing. nil in tests and headless
+    /// contexts that don't observe it.
+    var onUnresolvedConflict: ((URL) -> Void)?
+
     init(folder: URL, timezone: TimeZone = .current,
          coordinator: FileCoordinating = RealFileCoordinator(),
          coordinationTimeout: TimeInterval = 2.0,
-         probe: UbiquitousStatusProbing = RealUbiquitousStatusProbe()) {
+         probe: UbiquitousStatusProbing = RealUbiquitousStatusProbe(),
+         conflictProbe: ConflictSiblingProbing = RealConflictSiblingProbe()) {
         self.folder = folder
         self.timezone = timezone
         self.coordinator = coordinator
         self.coordinationTimeout = coordinationTimeout
         self.probe = probe
+        self.conflictProbe = conflictProbe
+        // Design Phase 2.3 (Task 6): probe TODAY's file for an unresolved
+        // iCloud conflict at construction time, not just on a later reload —
+        // self-heals a conflict left over from before the app was last
+        // launched. See `checkForUnresolvedConflicts` for why the callback
+        // itself is not observable from THIS particular call (nothing has
+        // hooked `onUnresolvedConflict` yet at this point in construction).
+        checkForUnresolvedConflicts()
     }
 
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
@@ -665,35 +693,126 @@ final class Store {
         try coordinatedWrite(bytes, to: url)
     }
 
-    /// Copies `raw` to a `<name>.corrupt-<timestamp>.md` sidecar next to `url`,
-    /// NEVER overwriting an existing sidecar: a millisecond-precision stamp plus a
-    /// counter suffix guarantee uniqueness across rapid successive quarantines of
-    /// the same day. Best-effort — a sidecar-write failure is logged, never thrown,
-    /// so losing the corrupt copy can't also block the user's new capture. On
-    /// success the sidecar URL is surfaced via `onCorruptQuarantine`.
+    /// Copies `raw` to a `<name>.corrupt-<timestamp>.md` sidecar next to `url`
+    /// via `writeSidecar` (best-effort — a sidecar-write failure is logged,
+    /// never thrown, so losing the corrupt copy can't also block the user's
+    /// new capture). On success the sidecar URL is surfaced via
+    /// `onCorruptQuarantine`.
     private func quarantine(_ raw: Data, of url: URL) {
-        let base = url.deletingPathExtension().lastPathComponent   // e.g. "2026-05-08"
-        let stamp = Self.corruptStamp(Date(), timezone: timezone)
-        var candidate = folder.appendingPathComponent("\(base).corrupt-\(stamp).md")
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(base).corrupt-\(stamp)-\(counter).md")
-            counter += 1
-        }
         do {
-            // Raw bytes, verbatim: a non-UTF8 original must survive un-transcoded.
-            try raw.write(to: candidate, options: .atomic)
+            let candidate = try Store.writeSidecar(raw, of: url, in: folder, kind: "corrupt", timezone: timezone)
             onCorruptQuarantine?(candidate)
         } catch {
             NSLog("[Jotty] failed to quarantine corrupt day file \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
-    /// Filename-safe ISO8601 basic timestamp (`yyyyMMdd'T'HHmmssSSS`) for corrupt
-    /// sidecars. Colons are deliberately avoided — the Cocoa file layer treats `:`
-    /// as a path separator. Pinned POSIX/Gregorian like every other machine key the
-    /// app writes (DailyFile discipline).
-    private static func corruptStamp(_ date: Date, timezone: TimeZone) -> String {
+    /// Probes `date`'s file (default `Date()`, i.e. "today") for an unresolved
+    /// iCloud sync conflict (roadmap 3.4 phase 2, design Phase 2.3) and, if
+    /// found, materializes each losing `NSFileVersion` as a
+    /// `.conflict-<stamp>.md` sidecar (mirrors `quarantine(_:of:)`) and marks
+    /// the conflict versions resolved so the file provider can clean them up.
+    ///
+    /// Called once from `init` (today's file AT CONSTRUCTION time — see the
+    /// init comment for why that call's OWN `onUnresolvedConflict` firing is
+    /// unobservable) and once per caller-driven "reload": Store has no reload
+    /// concept or injected clock of its own, so `MenubarListModel.reload()` is
+    /// the one that calls this, passing its OWN `now()` snapshot rather than
+    /// letting Store call `Date()` on every check — that keeps "today" the
+    /// SAME instant the caller's own snapshot uses (a test-injected clock
+    /// stays authoritative) while `date`'s default still makes sense for the
+    /// construction-time call, which has no such snapshot to share.
+    ///
+    /// Resolution ordering (partial-failure safety): a losing version is
+    /// marked resolved ONLY AFTER EVERY losing version's sidecar is confirmed
+    /// on disk. If ANY sidecar write fails, NONE of the versions are marked
+    /// resolved — the conflict is left exactly as iCloud reported it, so the
+    /// next check (the next reload) retries materializing it rather than
+    /// silently losing a losing version's content. The banner fires
+    /// regardless of that failure: a detected conflict is itself always worth
+    /// surfacing, independent of how cleanly it was archived.
+    ///
+    /// Off-actor + timeout, ONE envelope wraps the whole probe + enumerate +
+    /// materialize + resolve sequence (review lesson, Task 5: no un-timeboxed
+    /// provider calls, anywhere) — day files are a few KB and conflict
+    /// siblings are rare and few, so one bounded round trip for the whole
+    /// sequence is deliberately simpler than a separate envelope per losing
+    /// version. A probe failure, a versions-enumeration failure, or a timeout
+    /// on the whole sequence collapses to "no conflict detected" — silent,
+    /// matching `probeDownloadingStatus`'s fail-safe discipline: this is
+    /// best-effort awareness, never a gate on the read/write funnel.
+    func checkForUnresolvedConflicts(on date: Date = Date()) {
+        let url = DailyFile.url(in: folder, on: date, timezone: timezone)
+        let conflictProbe = self.conflictProbe
+        let folder = self.folder
+        let timezone = self.timezone
+        let found = (try? runOffActorWithTimeout(url) { () throws -> Bool in
+            guard try conflictProbe.hasUnresolvedConflicts(at: url) else { return false }
+            // A conflict WAS found — everything below is best-effort archival;
+            // its success or failure must never un-set this `true` result.
+            if let versions = try? conflictProbe.unresolvedConflictVersions(at: url), !versions.isEmpty {
+                var allMaterialized = true
+                for version in versions {
+                    do {
+                        let data = try version.materializedContents()
+                        _ = try Store.writeSidecar(data, of: url, in: folder, kind: "conflict", timezone: timezone)
+                    } catch {
+                        allMaterialized = false
+                    }
+                }
+                if allMaterialized {
+                    for version in versions {
+                        // Best-effort: a resolve failure leaves iCloud's own
+                        // conflict list untouched (the sidecar copy already
+                        // safely landed either way) rather than throwing and
+                        // losing the `true` result above.
+                        try? version.markResolved()
+                    }
+                }
+            }
+            return true
+        }) ?? false
+
+        if found {
+            onUnresolvedConflict?(url)
+        }
+    }
+
+    /// Copies `raw` to a `<name>.<kind>-<timestamp>[-N].md` sidecar next to
+    /// `url` inside `folder`, NEVER overwriting an existing sidecar: a
+    /// millisecond-precision stamp plus a counter suffix guarantee uniqueness
+    /// across rapid successive sidecar writes for the same day file. Shared by
+    /// the `.corrupt-*` quarantine idiom (#4) and the `.conflict-*` iCloud
+    /// sidecar idiom (Task 6) — one naming routine so the two sidecar families
+    /// can never diverge in shape, and both are excluded from day-file parsing
+    /// the same way (`DailyFile`'s strict `yyyy-MM-dd` formatter simply fails
+    /// to parse either suffix). Throws on a write failure — `quarantine`
+    /// swallows it (best-effort, unchanged #4 contract);
+    /// `checkForUnresolvedConflicts` does NOT swallow it, since a failed
+    /// sidecar write there must block marking the conflict resolved.
+    private static func writeSidecar(_ raw: Data, of url: URL, in folder: URL,
+                                     kind: String, timezone: TimeZone) throws -> URL {
+        let base = url.deletingPathExtension().lastPathComponent   // e.g. "2026-05-08"
+        let stamp = Self.sidecarStamp(Date(), timezone: timezone)
+        var candidate = folder.appendingPathComponent("\(base).\(kind)-\(stamp).md")
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(base).\(kind)-\(stamp)-\(counter).md")
+            counter += 1
+        }
+        // Raw bytes, verbatim: non-UTF8 corrupt-quarantine content must survive
+        // un-transcoded; conflict-sidecar content is whatever the losing
+        // NSFileVersion held.
+        try raw.write(to: candidate, options: .atomic)
+        return candidate
+    }
+
+    /// Filename-safe ISO8601 basic timestamp (`yyyyMMdd'T'HHmmssSSS`) for
+    /// `.corrupt-*`/`.conflict-*` sidecars. Colons are deliberately avoided —
+    /// the Cocoa file layer treats `:` as a path separator. Pinned
+    /// POSIX/Gregorian like every other machine key the app writes (DailyFile
+    /// discipline).
+    private static func sidecarStamp(_ date: Date, timezone: TimeZone) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.calendar = DailyFile.calendar(timezone: timezone)

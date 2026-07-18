@@ -214,6 +214,14 @@ final class MenubarListModel: ObservableObject {
     /// the menubar wire-up for Cluster A's `Store.onCorruptQuarantine`). A FIXED
     /// string only — never interpolate the path or bytes (T-07.1-16). nil = nothing.
     @Published var corruptQuarantineNotice: String?
+
+    /// Transient, dismissible menubar notice shown when today's file was found
+    /// to have an unresolved iCloud sync conflict, whose losing versions were
+    /// (attempted to be) archived to `.conflict-*` sidecars (roadmap 3.4 phase
+    /// 2, Task 6 — the menubar wire-up for `Store.onUnresolvedConflict`,
+    /// mirroring `corruptQuarantineNotice`'s #7 wire-up exactly). A FIXED
+    /// string only, same T-07.1-16 discipline. nil = nothing.
+    @Published var unresolvedConflictNotice: String?
     /// In-flight calendar refresh spawned by `reload()`, so tests (and reload callers) can
     /// await it deterministically. Kept distinct from `editTask` (WR-03) so an edit and a
     /// concurrent refresh never overwrite each other's handle and drop in-flight work.
@@ -255,6 +263,7 @@ final class MenubarListModel: ObservableObject {
         self.inboxService = inboxService
         self.keybindings = keybindings
         hookCorruptQuarantine()
+        hookUnresolvedConflict()
         // Launch-time load must NOT prompt (WR-06 class): the model is built inside
         // applicationDidFinishLaunching, so a default reload() fired the one-time TCC
         // calendar dialog at app launch with zero user action. The prompt stays
@@ -287,6 +296,33 @@ final class MenubarListModel: ObservableObject {
         }
     }
 
+    // MARK: - iCloud conflict-sibling notice (roadmap 3.4 phase 2, Task 6, wire-up)
+
+    /// Publishes the transient unresolved-conflict recovery notice. Shared
+    /// entry point for the store callback and tests — mirrors
+    /// `showCorruptQuarantineNotice`.
+    func showUnresolvedConflictNotice() {
+        unresolvedConflictNotice = "Found an unresolved iCloud sync conflict — the older version was saved."
+    }
+
+    /// Dismisses the unresolved-conflict notice (non-blocking, user-dismissible).
+    func dismissUnresolvedConflictNotice() {
+        unresolvedConflictNotice = nil
+    }
+
+    /// Routes the store's `onUnresolvedConflict` (fired when
+    /// `checkForUnresolvedConflicts` found today's file had an unresolved
+    /// iCloud sync conflict) to the transient menubar notice. Every Store
+    /// check the model triggers runs on the main actor, so the callback
+    /// assumes main isolation and publishes synchronously — same discipline
+    /// as `hookCorruptQuarantine`. Re-installed by `replace(store:timezone:
+    /// inboxService:)` so a Settings folder change keeps surfacing conflicts.
+    private func hookUnresolvedConflict() {
+        store.onUnresolvedConflict = { [weak self] _ in
+            MainActor.assumeIsolated { self?.showUnresolvedConflictNotice() }
+        }
+    }
+
     // NOTE (CR-03/IN-03): every visible row is loaded from TODAY's doc —
     // `reload()` reads only today's file, and rollover lands leftovers there
     // as copies that keep their origin `createdAt`. "The file the task lives
@@ -312,6 +348,12 @@ final class MenubarListModel: ObservableObject {
         let snapshot = now()
         let cal = DailyFile.calendar(timezone: timezone)
         let todayStart = cal.startOfDay(for: snapshot)
+
+        // Roadmap 3.4 phase 2, Task 6: probe today's file for an unresolved
+        // iCloud sync conflict on EVERY reload — Store has no reload concept
+        // or clock of its own, so this is the hook, using the SAME snapshot
+        // the rest of this reload uses (never a separately-called `Date()`).
+        store.checkForUnresolvedConflicts(on: snapshot)
 
         do {
             let doc = try store.readDoc(on: snapshot)
@@ -431,6 +473,7 @@ final class MenubarListModel: ObservableObject {
         timeFormatter = Self.makeTimeFormatter(timezone: newTimezone)
         inboxService = newInbox
         hookCorruptQuarantine()   // #7: re-hook so the new store's quarantines surface.
+        hookUnresolvedConflict()  // Task 6: re-hook so the new store's conflicts surface.
         reload(promptIfUndetermined: false)
     }
 
