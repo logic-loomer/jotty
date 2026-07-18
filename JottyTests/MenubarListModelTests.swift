@@ -923,6 +923,37 @@ final class MenubarListModelTests: XCTestCase {
         XCTAssertNil(model.driftPrompt)
     }
 
+    /// M4 (final review): a MIXED batch — one `.eventNotFound` pair and one genuine
+    /// `.failed` save — must report the generic "could not be updated" copy over the
+    /// COMBINED count (1+1 → 2). Claiming "not found" would misdescribe the failed pair.
+    func testDriftUpdateNoticeMixedNotFoundAndFailedReportsGenericCount() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_gone", eventID: "evt-gone", text: "gone task",
+                       start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10)),
+            linkedTask(id: "t_bad", eventID: "evt-bad", text: "bad task",
+                       start: makeDate(2026, 6, 12, h: 11), end: makeDate(2026, 6, 12, h: 12))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-gone", title: "drifted gone",
+                          start: makeDate(2026, 6, 12, h: 20), end: makeDate(2026, 6, 12, h: 21), calendarTitle: "Work"),
+            CalendarEvent(eventKitID: "evt-bad", title: "drifted bad",
+                          start: makeDate(2026, 6, 12, h: 22), end: makeDate(2026, 6, 12, h: 23), calendarTitle: "Work"),
+        ]
+        fake.updateErrorsByID = ["evt-gone": .eventNotFound, "evt-bad": .underlying(message: "network")]
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+
+        XCTAssertEqual(Set(fake.updatedEventIDs), ["evt-gone", "evt-bad"], "both pairs attempted")
+        XCTAssertEqual(model.driftUpdateSkipNotice, "2 calendar events could not be updated.",
+                       "a mixed notFound+failed batch reports the generic combined count")
+    }
+
     // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
 
     func testMissingLinkedEventSurfacesPromptOnOpen() async throws {

@@ -16,6 +16,9 @@ final class TimeZoneChangeTests: XCTestCase {
     /// Offset-IDENTICAL to Sydney at every instant (same AEST/AEDT rules) — the
     /// canonical "identifier changed but nothing shifts" silent-rebuild case.
     let melbourne = TimeZone(identifier: "Australia/Melbourne")!
+    /// +10:30 in October (post-Oct-4 DST) — a distinct :30 offset between Brisbane
+    /// (+10) and Sydney (+11), the intermediate zone for the A→B→C partition test.
+    let adelaide = TimeZone(identifier: "Australia/Adelaide")!
 
     private func makeDate(_ y: Int, _ mo: Int, _ d: Int, h: Int = 0, m: Int = 0,
                           tz: TimeZone? = nil) -> Date {
@@ -435,6 +438,134 @@ final class TimeZoneChangeTests: XCTestCase {
         _ = try XCTUnwrap(model.reanchorPrompt, "the prompt displays")
         XCTAssertEqual(folderSnapshot(folder), before,
                        "rebuild + partition + prompt display must write zero bytes")
+    }
+
+    // MARK: - Arm lifecycle (C1 + I1a/b/c, final adversarial review)
+
+    /// Required test 1 (C1 demotion repro): an armed rebuild publishes the bulk prompt,
+    /// then a PLAIN popover-open reload (no arm) must NOT demote the still-unanswered
+    /// prompt into the ordinary per-task drift storm. Fails on d8a9166 (the unarmed
+    /// else-branch nilled `reanchorPrompt`, dropping the pair into `driftPrompt`).
+    @MainActor
+    func testArmedRebuildThenPlainReloadKeepsBulkPromptC1() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt, "armed rebuild arms the bulk prompt")
+
+        // The production culprit: a fresh unarmed reload (popover open) BEFORE the user answers.
+        model.reload()
+        await model.awaitCalendarRefresh()
+
+        let prompt = try XCTUnwrap(model.reanchorPrompt,
+                                   "an unarmed reload before the user answers must keep the bulk prompt (C1)")
+        XCTAssertEqual(prompt.tzShift.map(\.task.id), ["t_a"])
+        XCTAssertEqual(prompt.fromZone.identifier, brisbane.identifier,
+                       "the surviving prompt re-partitions against the ORIGINAL from-zone")
+        XCTAssertNil(model.driftPrompt, "the pair must NOT fall into the per-task drift prompt")
+    }
+
+    /// Required test 2 (I1a): a FAILED armed pass (fetch error) must NOT consume the arm —
+    /// the next classifying open still partitions the shift. Fails on d8a9166 (the arm was
+    /// consumed at reloadCalendar's entry, before the fetch could fail, so it was lost).
+    @MainActor
+    func testFailedArmedPassKeepsArmNextOpenPartitions() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        // The armed pass fails its fetch → early return, no classification.
+        fake.errorToThrow = .underlying(message: "fetch failed")
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        XCTAssertNil(model.reanchorPrompt, "a failed pass classifies nothing")
+
+        // Recover: the arm survived the non-classifying pass, so this open partitions.
+        fake.errorToThrow = nil
+        model.reload()
+        await model.awaitCalendarRefresh()
+        let prompt = try XCTUnwrap(model.reanchorPrompt, "the arm survived the failed pass (I1a)")
+        XCTAssertEqual(prompt.tzShift.map(\.task.id), ["t_a"])
+    }
+
+    /// Required test 3 (I1b): a double change A→B→C partitions against the ORIGINAL
+    /// from-zone (A→C), not the intermediate (B→C). Brisbane(+10)→Adelaide(+10:30)→
+    /// Sydney(+11): the event stays Brisbane-anchored, so only an A→C partition (+1h)
+    /// matches its instant delta; a B→C partition (+0.5h) would misclassify it as
+    /// genuine drift. Fails on d8a9166 (armed from the intermediate zone at :402).
+    @MainActor
+    func testDoubleChangePartitionsFromOriginalZone() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        // A→B: prompt shows, unanswered.
+        model.replace(store: Store(folder: folder, timezone: adelaide), timezone: adelaide)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt, "the first change surfaces the bulk prompt")
+
+        // B→C while the first is unresolved: must arm from the ORIGINAL A, not B.
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+
+        let prompt = try XCTUnwrap(model.reanchorPrompt,
+                                   "A→C partition classifies the Brisbane-anchored event as TZ-shift")
+        XCTAssertEqual(prompt.tzShift.map(\.task.id), ["t_a"])
+        XCTAssertEqual(prompt.fromZone.identifier, brisbane.identifier, "partition pair is (A→C)")
+        XCTAssertNil(model.driftPrompt, "a B→C partition would misclassify it into drift; A→C must not")
+    }
+
+    /// Required test 4 (I1b): a round trip A→B→A yields NO prompt — the origin-zone arm
+    /// makes the partition A→A (per-block delta zero → empty). The block reparses back to
+    /// its original instant, so no ordinary drift surfaces either. Fails on d8a9166 (armed
+    /// from the intermediate B, an A→? partition against the returned-home block drifts).
+    @MainActor
+    func testRoundTripYieldsNoPrompt() async throws {
+        let folder = makeTempFolder(); defer { removeFolder(folder) }
+        let day = makeDate(2026, 10, 10, h: 9, tz: brisbane)
+        let aStart = makeDate(2026, 10, 10, h: 14, tz: brisbane)
+        try seedLinked(folder: folder, zone: brisbane, day: day, tasks: [
+            (id: "t_a", eventID: "ev_a", text: "standup", start: aStart, end: aStart.addingTimeInterval(1800)),
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [event("ev_a", "standup", aStart, aStart.addingTimeInterval(1800))]
+        let model = buildModel(folder: folder, zone: brisbane, fake: fake, now: day)
+        await model.awaitCalendarRefresh()
+
+        model.replace(store: Store(folder: folder, timezone: sydney), timezone: sydney)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.reanchorPrompt, "the outbound change surfaces the bulk prompt")
+
+        // Back home: arm from the ORIGINAL Brisbane → partition Brisbane→Brisbane → empty.
+        model.replace(store: Store(folder: folder, timezone: brisbane), timezone: brisbane)
+        await model.awaitCalendarRefresh()
+
+        XCTAssertNil(model.reanchorPrompt, "A→B→A: origin-zone arm makes the partition empty")
+        XCTAssertNil(model.driftPrompt, "the block reparsed home to its original instant — no drift")
     }
 
     // MARK: - Live rebuild: render-only (zero bytes written)

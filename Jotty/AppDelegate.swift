@@ -413,6 +413,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = Store(folder: configStore.config.storageFolder, timezone: newTZ)
         inboxService = makeInboxService(timezone: newTZ)
         menubar.listModel.replace(store: store, timezone: newTZ, inboxService: inboxService)
+        // I3: the midnight rollover timer's fire interval is computed at schedule time
+        // against the OLD zone's next-midnight (Calendar.current is captured then). A live
+        // zone change moves the wall-clock midnight, so re-arm the one-shot timer against
+        // the new zone — otherwise the rollover fires at the pre-change local midnight.
+        scheduleMidnightRollover()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

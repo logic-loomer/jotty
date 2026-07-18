@@ -109,9 +109,17 @@ final class MenubarListModel: ObservableObject {
 
     /// Carries the TZ-shifted (task, event) pairs awaiting the one-shot bulk re-anchor
     /// decision after a live timezone change (roadmap 3.3 slice 2).
+    ///
+    /// `fromZone` is the zone the shift moved AWAY from (C1 fix): the prompt survives
+    /// unarmed reloads (a popover-open reload with no pending arm) by re-running the
+    /// partition against `pendingReanchorFromZone ?? reanchorPrompt?.fromZone`, so a
+    /// reload before the user answers re-detects the SAME pair set instead of demoting
+    /// them to the ordinary drift storm. Explicit `dismissReanchorPrompt()` is the ONLY
+    /// demotion trigger.
     struct ReanchorPrompt: Identifiable {
         let id = UUID()
         let tzShift: [(task: Todo, event: CalendarEvent)]
+        let fromZone: TimeZone
     }
 
     /// WR-09: `var` (not `let`) — the storage folder can change in Settings → Storage
@@ -396,10 +404,21 @@ final class MenubarListModel: ObservableObject {
                  inboxService newInbox: InboxService?) {
         // Arm the one-shot bulk re-anchor partition for the NEXT reload iff the zone
         // IDENTIFIER changed (roadmap 3.3 slice 2). A folder-only change keeps the same
-        // identifier → no arm → plain reload. The zone PAIR (old, new) must reach the
+        // identifier → no arm → plain reload. The zone PAIR (origin, new) must reach the
         // partition so it computes each block's re-anchor delta at the block's own date.
         let oldTimezone = timezone
-        pendingReanchorFromZone = oldTimezone.identifier == newTimezone.identifier ? nil : oldTimezone
+        if oldTimezone.identifier != newTimezone.identifier {
+            // Arm from the ORIGINAL from-zone when a rebuild is already pending or its
+            // prompt is still unanswered (I1b): a second change A→B→C must partition A→C,
+            // and a round trip A→B→A must partition A→A (empty → no prompt). An unconsumed
+            // arm carries the origin; else a still-open prompt's `fromZone`; else this zone.
+            pendingReanchorFromZone =
+                pendingReanchorFromZone ?? reanchorPrompt?.fromZone ?? oldTimezone
+        }
+        // else: a folder-only / same-identifier rebuild (I1c) leaves any pending arm
+        // UNTOUCHED — the old code nilled it here, clobbering an unresolved re-anchor from
+        // an earlier REAL zone change (openCapture / Settings-close both replaceStore with
+        // the same identifier). The partition is the sole decider of WHICH pairs prompt.
         store = newStore
         timezone = newTimezone
         timeFormatter = Self.makeTimeFormatter(timezone: newTimezone)
@@ -481,14 +500,6 @@ final class MenubarListModel: ObservableObject {
     /// never re-entered once the user has answered).
     func reloadCalendar(promptIfUndetermined: Bool = true,
                         clearMissingLinks: Bool = true) async {
-        // Consume the pending re-anchor arm (roadmap 3.3 slice 2): THIS invocation owns it,
-        // so the FIRST reload after a rebuild partitions drift while every later reload uses
-        // the normal path. On an early return below (no coordinator / denied / superseded /
-        // fetch failure) there is no drift to classify anyway, and the design re-detects the
-        // shift on the next open (idempotent — nothing is persisted about the prompt).
-        let reanchorFrom = pendingReanchorFromZone
-        pendingReanchorFromZone = nil
-
         guard let calendarCoordinator else {
             calendarEvents = []
             allDayEvents = []
@@ -575,23 +586,33 @@ final class MenubarListModel: ObservableObject {
         // the just-written id is never raced against a not-yet-refreshed fetch and the
         // in-progress edit is not fought (CR-02 must not fight the SC3 edit flow).
         if clearMissingLinks {
-            // On the FIRST reload after a rebuild (`reanchorFrom` set), intercept BEFORE
-            // the normal drift prompt: split the drifted pairs into TZ-shift artifacts (the
-            // one-shot bulk re-anchor prompt) and genuine drift (the normal per-set prompt).
-            // The zone PAIR is (reanchorFrom → the now-current `timezone`), so the partition
-            // computes each block's re-anchor delta at that block's own date (DST-safe). A
-            // non-rebuild reload clears any stale bulk prompt — those pairs re-detect as
-            // ordinary drift, so nothing is ever silently stranded.
+            // Consume the pending re-anchor arm HERE (I1a), inside the ONE block where the
+            // partition actually runs — never at reloadCalendar's entry. A superseded/failed
+            // pass or a `clearMissingLinks:false` edit-time reload returns before this and
+            // leaves the arm intact, so the shift still partitions on the next classifying
+            // open (no lost arm).
+            //
+            // The partition zone is `pendingReanchorFromZone ?? reanchorPrompt?.fromZone`
+            // (C1): the arm drives the FIRST post-rebuild pass, and thereafter an already-
+            // published-but-unanswered prompt re-drives every open-time reload with the SAME
+            // from-zone. Without the fallback, a plain popover-open reload (no arm) demoted a
+            // live bulk prompt into the ordinary per-task drift storm before the user saw it.
+            // Membership refreshes each pass (resolved pairs drop; empty → nil); only an
+            // explicit `dismissReanchorPrompt()` demotes to ordinary drift.
+            let reanchorFrom = pendingReanchorFromZone ?? reanchorPrompt?.fromZone
+            pendingReanchorFromZone = nil
             let driftedForPrompt: [(task: Todo, event: CalendarEvent)]
             if let reanchorFrom {
                 let partition = CalendarDrift.partitionForTZShift(
                     result.drifted, from: reanchorFrom, to: timezone)
                 reanchorPrompt = partition.tzShift.isEmpty
                     ? nil
-                    : ReanchorPrompt(tzShift: partition.tzShift)
+                    : ReanchorPrompt(tzShift: partition.tzShift, fromZone: reanchorFrom)
                 driftedForPrompt = partition.other
             } else {
-                reanchorPrompt = nil
+                // No arm and no live prompt → ordinary reload. `reanchorPrompt` is already
+                // nil here (a set prompt would have supplied `reanchorFrom` above), so it is
+                // never demoted implicitly (C1).
                 driftedForPrompt = result.drifted
             }
             driftPrompt = driftedForPrompt.isEmpty
