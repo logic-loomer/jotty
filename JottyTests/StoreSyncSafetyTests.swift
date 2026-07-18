@@ -353,6 +353,81 @@ final class StoreSyncSafetyTests: XCTestCase {
         XCTAssertEqual(recorder.calls.filter { $0.kind == .write }.count, writesBefore,
                        "a declining transform must perform no coordinated write")
     }
+
+    // MARK: - Dataless iCloud file handling (roadmap 3.4 phase 2, Task 5)
+
+    /// (a) `.notDownloaded` + a coordinated read that then succeeds (the file
+    /// provider materialized it) → the op proceeds normally, using the downloaded
+    /// bytes. The probe is consulted but does not gate a read that succeeds.
+    func testNotDownloadedWithSuccessfulCoordinatedReadProceeds() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendNote(text: "already on disk", at: date, id: "n_dl1")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+
+        let probe = FakeUbiquitousStatusProbe(status: .notDownloaded)
+        let recorder = RecordingCoordinator()
+        let s = Store(folder: folder, timezone: tz, coordinator: recorder, probe: probe)
+
+        try s.appendNote(text: "second capture", at: makeDate(2026, 5, 8, h: 10, m: 0), id: "n_dl2")
+
+        XCTAssertTrue(probe.calls.contains(url), "the probe seam must be consulted before the read")
+        let body = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(body.contains("already on disk"))
+        XCTAssertTrue(body.contains("second capture"), "op must proceed once the coordinated read succeeds")
+    }
+
+    /// (b) `.notDownloaded` + the download failing (offline) → the op throws
+    /// `dayFileUnreadable`, never `absent`/fresh-doc, and the file is untouched —
+    /// even when the underlying read failure is ENOENT-shaped (a failed-download
+    /// dataless placeholder can present exactly like a missing file; the probe is
+    /// what tells `readDay` not to collapse that into "absent").
+    func testNotDownloadedWithFailedDownloadThrowsUnreadableNeverAbsent() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendNote(text: "precious existing content", at: date, id: "n_dl3")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let originalBytes = try Data(contentsOf: url)
+
+        let probe = FakeUbiquitousStatusProbe(status: .notDownloaded)
+        let failing = FailingReadCoordinator(readError: CocoaError(.fileReadNoSuchFile))
+        let s = Store(folder: folder, timezone: tz, coordinator: failing, probe: probe)
+
+        XCTAssertThrowsError(
+            try s.appendNote(text: "new capture", at: makeDate(2026, 5, 8, h: 10, m: 0), id: "n_dl4")
+        ) { error in
+            guard case StoreError.dayFileUnreadable = error else {
+                return XCTFail("expected StoreError.dayFileUnreadable (never absent), got \(error)")
+            }
+        }
+        XCTAssertTrue(probe.calls.contains(url))
+        XCTAssertEqual(try Data(contentsOf: url), originalBytes,
+                       "a dataless file whose download failed must never be treated as absent/clobbered")
+    }
+
+    /// (c) A non-ubiquitous file (probe returns nil) keeps the unchanged fast
+    /// path: the probe is consulted (wired in) but does not alter classification —
+    /// an unreadable file is still `dayFileUnreadable`, exactly as pre-Task-5.
+    func testNonUbiquitousProbeNilKeepsUnchangedFastPath() throws {
+        let date = makeDate(2026, 5, 8, h: 9, m: 0)
+        try store.appendNote(text: "precious existing content", at: date, id: "n_dl5")
+        let url = folder.appendingPathComponent("2026-05-08.md")
+        let originalBytes = try Data(contentsOf: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+
+        let probe = FakeUbiquitousStatusProbe(status: nil)
+        let s = Store(folder: folder, timezone: tz, probe: probe)
+
+        XCTAssertThrowsError(
+            try s.appendNote(text: "new capture", at: makeDate(2026, 5, 8, h: 10, m: 0), id: "n_dl6")
+        ) { error in
+            guard case StoreError.dayFileUnreadable = error else {
+                return XCTFail("expected StoreError.dayFileUnreadable, got \(error)")
+            }
+        }
+        XCTAssertTrue(probe.calls.contains(url), "probe seam is still consulted on the fast path")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        XCTAssertEqual(try Data(contentsOf: url), originalBytes)
+    }
 }
 
 // MARK: - Coordinator test doubles
@@ -419,5 +494,43 @@ final class HangingCoordinator: FileCoordinating, @unchecked Sendable {
         mark()
         if hangWrites { neverSignaled.wait() }  // never returns
         try accessor(url)
+    }
+}
+
+/// Coordinator whose coordinated READ always fails with a fixed error — simulates
+/// a dataless iCloud file whose materialization/download failed (offline). Write
+/// is pass-through (never reached in the offline-unreadable scenario, since the
+/// funnel throws before it gets to write).
+final class FailingReadCoordinator: FileCoordinating, @unchecked Sendable {
+    private let readError: Error
+    init(readError: Error) { self.readError = readError }
+
+    func coordinateReading(at url: URL, _ accessor: (URL) throws -> Void) throws {
+        throw readError
+    }
+    func coordinateWriting(at url: URL, options: NSFileCoordinator.WritingOptions,
+                           _ accessor: (URL) throws -> Void) throws {
+        try accessor(url)
+    }
+}
+
+// MARK: - Dataless-file probe test double
+
+/// Fixed-answer probe: returns the same `status` for every URL it's asked about
+/// and records what it was asked (roadmap 3.4 phase 2, Task 5). Real iCloud never
+/// appears in tests — this fake is how `.notDownloaded` is simulated on an
+/// ordinary temp-dir file. `@unchecked Sendable`: only mutable state is `_calls`,
+/// guarded by `lock` (the `RecordingCoordinator` idiom).
+final class FakeUbiquitousStatusProbe: UbiquitousStatusProbing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [URL] = []
+    var calls: [URL] { lock.lock(); defer { lock.unlock() }; return _calls }
+    private let status: URLUbiquitousItemDownloadingStatus?
+
+    init(status: URLUbiquitousItemDownloadingStatus?) { self.status = status }
+
+    func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus? {
+        lock.lock(); _calls.append(url); lock.unlock()
+        return status
     }
 }

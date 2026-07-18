@@ -4,8 +4,11 @@ import Foundation
 /// Injectable file-coordination seam (roadmap 3.4 phase 2). The write funnel runs
 /// its day-file read and write through this instead of touching disk directly, so
 /// the coordination call can be faked in tests (record calls, simulate a hang) and
-/// so the real one can be driven off the main actor with a timeout. Tasks 5–6
-/// (dataless-file probe, conflict-sibling probe) reuse the same seam.
+/// so the real one can be driven off the main actor with a timeout. A coordinated
+/// read with no `.withoutChanges` already asks the file provider to materialize a
+/// dataless iCloud file — Task 5's `UbiquitousStatusProbing` leans on that instead
+/// of a manual download loop; Task 6 (conflict-sibling probe) follows the same
+/// protocol-seam idiom (real impl + fake) as its own, separate type.
 ///
 /// What coordination is FOR: correct interplay with `fileproviderd`/iCloud Drive —
 /// a coordinated read waits out an in-flight sync write; a `.forReplacing` write is
@@ -51,6 +54,34 @@ struct RealFileCoordinator: FileCoordinating {
         }
         if let accessorError { throw accessorError }
         if let coordError { throw coordError }
+    }
+}
+
+/// Injectable dataless-file probe (roadmap 3.4 phase 2, Task 5). `readDay`
+/// consults this BEFORE the coordinated read — purely to CLASSIFY a subsequent
+/// read failure, not to gate or replace the read itself. `.notDownloaded` means
+/// `url` is a ubiquitous (iCloud) placeholder whose bytes are not local yet; the
+/// coordinated read that follows already asks the file provider to materialize
+/// it (`RealFileCoordinator`'s `NSFileCoordinator.ReadingOptions` deliberately
+/// omit `.withoutChanges`), so there is no separate manual-download loop here.
+/// If that read still fails (download failed, or offline), `readDay` must treat
+/// it as unreadable (phase 1 rule) and never as absent — even when the
+/// underlying error happens to look ENOENT-shaped, which a failed-download
+/// placeholder can. `nil` (a regular, non-ubiquitous file — or the probe call
+/// itself throwing) short-circuits straight to the unchanged fast path.
+protocol UbiquitousStatusProbing: Sendable {
+    func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus?
+}
+
+/// Production probe: the real `URLResourceValues.ubiquitousItemDownloadingStatus`
+/// lookup. `nil` for a non-ubiquitous file (the resource value is simply absent
+/// on a plain local file); throws only if the resource-values lookup itself
+/// fails. `readDay` treats a probe failure the same as `nil` — a probe error is
+/// not itself a classification signal, the read that follows still is.
+struct RealUbiquitousStatusProbe: UbiquitousStatusProbing {
+    func downloadingStatus(of url: URL) throws -> URLUbiquitousItemDownloadingStatus? {
+        try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+            .ubiquitousItemDownloadingStatus
     }
 }
 
@@ -142,6 +173,12 @@ final class Store {
     private let coordinationQueue = DispatchQueue(
         label: "com.jotty.store.coordination", qos: .userInteractive, attributes: .concurrent)
 
+    /// Dataless-file probe seam (roadmap 3.4 phase 2, Task 5). Default is the
+    /// real `URLResourceValues.ubiquitousItemDownloadingStatus` lookup; tests
+    /// inject a fake reporting `.notDownloaded` for an ordinary temp-dir file —
+    /// real iCloud never appears in tests. See `UbiquitousStatusProbing`.
+    private let probe: UbiquitousStatusProbing
+
     /// #4: invoked with the `.corrupt-*` sidecar URL right after a
     /// present-but-unparseable day file's raw bytes are quarantined (before its
     /// content is clobbered by a new write). The app layer hooks this to surface
@@ -151,11 +188,13 @@ final class Store {
 
     init(folder: URL, timezone: TimeZone = .current,
          coordinator: FileCoordinating = RealFileCoordinator(),
-         coordinationTimeout: TimeInterval = 2.0) {
+         coordinationTimeout: TimeInterval = 2.0,
+         probe: UbiquitousStatusProbing = RealUbiquitousStatusProbe()) {
         self.folder = folder
         self.timezone = timezone
         self.coordinator = coordinator
         self.coordinationTimeout = coordinationTimeout
+        self.probe = probe
     }
 
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
@@ -527,13 +566,23 @@ final class Store {
     /// so the day's full contents were clobbered with no sidecar) and bytes that
     /// decode but don't parse as a day doc.
     private func readDay(at url: URL, on date: Date) throws -> DayRead {
+        // Dataless-file probe (roadmap 3.4 phase 2, Task 5) — consulted BEFORE
+        // the read, purely to classify a failure below. A probe failure is not
+        // itself meaningful, so it collapses to `nil` (unchanged fast path);
+        // `readDay` never gates the read on this, it only changes what a
+        // subsequent read failure MEANS.
+        let isDatalessNotDownloaded = (try? probe.downloadingStatus(of: url)) == .notDownloaded
+
         let data: Data
         do {
             data = try coordinatedReadData(at: url)
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile && !isDatalessNotDownloaded {
             // Genuinely absent: fresh doc, nothing to quarantine. (A coordinated
             // read still invokes the accessor for a missing file, so ENOENT
-            // reaches us here exactly as an uncoordinated read did.)
+            // reaches us here exactly as an uncoordinated read did.) Gated on
+            // `!isDatalessNotDownloaded`: a dataless file whose download failed
+            // must never take this branch, even when the underlying error looks
+            // ENOENT-shaped — it falls through to `dayFileUnreadable` below.
             return DayRead(doc: MarkdownDoc(date: startOfDay(date)), corruptRaw: nil,
                            stamp: DayStamp(contentHash: nil))
         } catch let error as StoreError {
@@ -543,8 +592,8 @@ final class Store {
             throw error
         } catch {
             // Present but unreadable at the I/O layer (permissions, evicted
-            // iCloud file offline). NOT absent — writing a fresh doc here would
-            // clobber the whole day (design note 2026-07-12, phase 1).
+            // iCloud file offline/download-failed). NOT absent — writing a fresh
+            // doc here would clobber the whole day (design note 2026-07-12, phase 1).
             throw StoreError.dayFileUnreadable(url, underlying: error)
         }
         let stamp = DayStamp(contentHash: SHA256.hash(data: data))
