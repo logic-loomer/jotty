@@ -954,6 +954,48 @@ final class MenubarListModelTests: XCTestCase {
                        "a mixed notFound+failed batch reports the generic combined count")
     }
 
+    /// M2 (final review): a second "Update event" batch must NOT nil-wipe the first
+    /// batch's still-unread skip notice — the two MERGE. A first resolve skips one event
+    /// (.eventNotFound) and shows a notice; a later CLEAN resolve must leave that notice
+    /// intact (tally preserved), and only an explicit dismiss clears it. Fails on d8a9166
+    /// (`driftUpdateSkipNotice = nil` at each batch start wiped the prior notice).
+    func testSecondUpdateBatchDoesNotWipeFirstsSkipNotice() async throws {
+        let (store, today) = try seed(tasks: [
+            linkedTask(id: "t_a", eventID: "evt-a", text: "task a",
+                       start: makeDate(2026, 6, 12, h: 9), end: makeDate(2026, 6, 12, h: 10))
+        ])
+        let fake = FakeCalendarService()
+        fake.cannedEvents = [
+            CalendarEvent(eventKitID: "evt-a", title: "drifted a",
+                          start: makeDate(2026, 6, 12, h: 20), end: makeDate(2026, 6, 12, h: 21), calendarTitle: "Work"),
+        ]
+        fake.updateErrorsByID = ["evt-a": .eventNotFound]   // batch 1 skips it
+        let model = MenubarListModel(store: store, timezone: tz, defaults: defaults,
+                                     now: { today }, calendar: fake)
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt)
+
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "1 calendar event could not be found and was not updated.")
+
+        // A later CLEAN batch (event now updatable) must MERGE, not wipe the earlier notice.
+        fake.updateErrorsByID = [:]
+        model.reload()
+        await model.awaitCalendarRefresh()
+        _ = try XCTUnwrap(model.driftPrompt, "the still-drifted pair re-detects")
+        model.confirmDriftUpdateEvent()
+        await model.awaitCalendarRefresh()
+        XCTAssertEqual(model.driftUpdateSkipNotice,
+                       "1 calendar event could not be found and was not updated.",
+                       "a later clean batch must not wipe the first batch's unread notice (M2)")
+
+        // Only an explicit dismiss clears it (and resets the tally).
+        model.dismissDriftUpdateSkipNotice()
+        XCTAssertNil(model.driftUpdateSkipNotice)
+    }
+
     // MARK: - CR-02: missing event (deleted in Calendar) surfaced + cleared on confirm
 
     func testMissingLinkedEventSurfacesPromptOnOpen() async throws {

@@ -75,10 +75,17 @@ final class MenubarListModel: ObservableObject {
     /// Transient, dismissible notice surfaced when a task-wins "Update event" push
     /// (roadmap 2.3) could not update one or more linked events — deleted in Calendar,
     /// or a foreign/recycled event the WR-05 marker guard refused to touch. Every OTHER
-    /// pair in the same resolve is unaffected (each pair's push is independent). Reset
-    /// to nil at the start of each `confirmDriftUpdateEvent` so a stale notice from a
-    /// prior resolve never bleeds into a clean one. nil = nothing to show.
+    /// pair in the same resolve is unaffected (each pair's push is independent). nil =
+    /// nothing to show. M2: overlapping batches (a drift resolve then a re-anchor resolve
+    /// before dismissal) MERGE into a running tally rather than the second batch nil-wiping
+    /// the first's still-visible notice; the tally resets only on explicit dismissal.
     @Published var driftUpdateSkipNotice: String?
+    /// Cumulative skip tallies backing `driftUpdateSkipNotice` across overlapping/serial
+    /// "Update event" batches (M2): each batch ADDS its skipped counts so a later batch can
+    /// never wipe an earlier notice before the user reads it. Reset by
+    /// `dismissDriftUpdateSkipNotice`. Main-actor confined like the rest of the model.
+    private var driftUpdateNotFoundTally = 0
+    private var driftUpdateFailedTally = 0
     /// Pending drop conflict (Phase 8 SC1 / T-8-10): set when a drop's
     /// `overlappingEvents` gate finds an overlap, mirroring the capture flow's
     /// SC5 semantics — the canvas UI (plan 05) resolves it via
@@ -1016,9 +1023,13 @@ final class MenubarListModel: ObservableObject {
     /// while every OTHER pair is still attempted (review finding 1 — per-pair isolation, no
     /// early return). The combined skip notice is published when the batch finishes.
     private func bulkPushMine(_ pairs: [(task: Todo, event: CalendarEvent)]) {
-        driftUpdateSkipNotice = nil
+        // M2: do NOT nil-wipe the notice here — a second (overlapping) batch would clobber
+        // the first's still-unread notice. Serialize after any in-flight edit/push task, then
+        // MERGE this batch's skips into the running tally so nothing is lost.
+        let previous = editTask
         editTask = Task { [weak self] in
             guard let self else { return }
+            await previous?.value
             var notFoundCount = 0
             var failedCount = 0
             for pair in pairs {
@@ -1031,7 +1042,14 @@ final class MenubarListModel: ObservableObject {
                     failedCount += 1
                 }
             }
-            self.driftUpdateSkipNotice = Self.driftUpdateNotice(notFound: notFoundCount, failed: failedCount)
+            self.driftUpdateNotFoundTally += notFoundCount
+            self.driftUpdateFailedTally += failedCount
+            self.driftUpdateSkipNotice = Self.driftUpdateNotice(
+                notFound: self.driftUpdateNotFoundTally, failed: self.driftUpdateFailedTally)
+            // M2: refresh the section after the bulk push so the events/prompts reflect the
+            // just-pushed changes (mirrors editTime's trailing reload); clearMissingLinks:false
+            // so the just-touched links are never raced by the CR-02 self-heal.
+            await self.reloadOnMain(clearMissingLinks: false)
         }
     }
 
@@ -1082,9 +1100,12 @@ final class MenubarListModel: ObservableObject {
             eventID: eventID, title: title, block: block, context: "driftUpdateEvent")
     }
 
-    /// Dismisses the "Update event" skip notice (non-blocking, user-dismissible).
+    /// Dismisses the "Update event" skip notice (non-blocking, user-dismissible). Resets the
+    /// running tally (M2) so a later batch starts fresh once the user has read this one.
     func dismissDriftUpdateSkipNotice() {
         driftUpdateSkipNotice = nil
+        driftUpdateNotFoundTally = 0
+        driftUpdateFailedTally = 0
     }
 
     private func reloadOnMain(clearMissingLinks: Bool = true) async {

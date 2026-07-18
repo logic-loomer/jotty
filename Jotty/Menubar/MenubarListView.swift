@@ -741,21 +741,39 @@ struct MenubarListView: View {
             + "The task keeps its time either way; Cancel skips creating the calendar event."
     }
 
-    /// Human-readable summary of the drifted tasks for the SC4 prompt.
+    /// Human-readable summary of the drifted tasks for the SC4 prompt (M3): the copy
+    /// names BOTH resolution directions, since the alert offers three buttons — "Sync"
+    /// (calendar wins) AND "Update event" (task wins) — not just the one-way sync the old
+    /// single-direction copy implied.
     private var driftMessage: String {
         let titles = model.driftPrompt?.drifted.map { $0.event.title } ?? []
         if titles.count == 1 {
-            return "“\(titles[0])” changed in Calendar. Sync the task to match?"
+            return "“\(titles[0])” changed in Calendar. "
+                + "Sync the task to match, or update the event from the task?"
         }
-        return "\(titles.count) tasks changed in Calendar. Sync them to match?"
+        return "\(titles.count) tasks changed in Calendar. "
+            + "Sync them to match, or update the events from the tasks?"
     }
 
     /// Human-readable summary for the one-shot bulk re-anchor prompt (roadmap 3.3).
+    /// M1: beyond the count, a SMALL set (≤3) lists each affected title with its old→new
+    /// times — the wall-clock the block kept (what the user always typed) → where the
+    /// untouched event now displays in the new zone — so the choice is concrete rather than
+    /// an opaque number. Times use the model's zone-pinned HH:mm formatter.
     private var reanchorMessage: String {
-        let count = model.reanchorPrompt?.tzShift.count ?? 0
+        let pairs = model.reanchorPrompt?.tzShift ?? []
+        let count = pairs.count
         let subject = count == 1 ? "1 calendar-linked block" : "\(count) calendar-linked blocks"
-        return "\(subject) kept their wall-clock times when your timezone changed. "
+        let base = "\(subject) kept their wall-clock times when your timezone changed. "
             + "Move the events to match, or keep them pinned to the original appointment times?"
+        guard count > 0, count <= 3 else { return base }
+        let f = model.timeFormatter
+        let lines = pairs.map { pair -> String in
+            let kept = pair.task.timeBlock.map { f.string(from: $0.start) } ?? "?"
+            let appointment = f.string(from: pair.event.start)
+            return "• “\(pair.event.title)”: \(kept) → \(appointment)"
+        }
+        return base + "\n\n" + lines.joined(separator: "\n")
     }
 
     // MARK: - Missing-link notice (CR-02)

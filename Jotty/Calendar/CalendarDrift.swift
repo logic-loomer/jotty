@@ -143,9 +143,10 @@ enum CalendarDrift {
     /// genuine, so ordinary drift can never be silently bulk-synced. A pair
     /// without a time block falls through defensively (driftedTasks shouldn't
     /// produce one). Known, accepted misclassifications: a user who genuinely
-    /// moved an event by exactly the zone delta lands in the bulk prompt (the
-    /// prompt shows the times; the user still chooses), and a pair with BOTH a
-    /// TZ shift and a title edit is bulk-handled on time only — the title
+    /// moved an event by exactly the zone delta lands in the bulk prompt (which
+    /// lists the affected titles and their old→new times for small sets, so the
+    /// user still chooses with the times in front of them — M1), and a pair with
+    /// BOTH a TZ shift and a title edit is bulk-handled on time only — the title
     /// drift re-detects on the next open (idempotent).
     static func partitionForTZShift(_ drifted: [(task: Todo, event: CalendarEvent)],
                                     from: TimeZone, to: TimeZone) -> TZShiftPartition {
