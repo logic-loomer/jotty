@@ -204,11 +204,34 @@ final class Store {
     /// `checkForUnresolvedConflicts` found an unresolved iCloud sync conflict —
     /// mirrors `onCorruptQuarantine`'s shape exactly, but for iCloud's OWN
     /// conflict mechanism rather than a parse failure. Fires even when
-    /// materializing a losing version's sidecar failed partway (the versions
-    /// are then left unresolved so the next check retries) — a detected
-    /// conflict is itself always worth surfacing. nil in tests and headless
-    /// contexts that don't observe it.
-    var onUnresolvedConflict: ((URL) -> Void)?
+    /// materializing a losing version's sidecar failed (that ONE version stays
+    /// unresolved so the next check retries just it — see
+    /// `checkForUnresolvedConflicts`'s per-version resolution ordering) — a
+    /// detected conflict is itself always worth surfacing. nil in tests and
+    /// headless contexts that don't observe it.
+    ///
+    /// `didSet` runs the initial probe the moment a non-nil listener is
+    /// attached (review finding, roadmap 3.4 phase 2) — NOT unconditionally
+    /// inside `init` as originally built. Every `Store()` construction used to
+    /// pay the probe's off-actor-plus-timeout round trip regardless of whether
+    /// anyone could ever observe the result: `RolloverService.scanStore` is
+    /// reconstructed on every foreground activation on the MAIN actor and
+    /// never attaches this listener, and `CommandBarIndex`'s per-build Store
+    /// never does either. Moving the trigger here means those listenerless
+    /// stores pay nothing, while the PRIMARY store still gets launch-time
+    /// self-heal detection with no observable delay — `MenubarListModel`
+    /// attaches its listener (`hookUnresolvedConflict`) immediately after
+    /// construction, before its own first `reload()`. Setting the listener
+    /// back to nil does not re-trigger anything (guarded below); reassigning
+    /// a non-nil listener (e.g. `replace(store:...)`'s re-hook) re-runs the
+    /// check against `Date()`, which is harmless — it is the same self-heal
+    /// probe a fresh construction would have paid.
+    var onUnresolvedConflict: ((URL) -> Void)? {
+        didSet {
+            guard onUnresolvedConflict != nil else { return }
+            checkForUnresolvedConflicts()
+        }
+    }
 
     init(folder: URL, timezone: TimeZone = .current,
          coordinator: FileCoordinating = RealFileCoordinator(),
@@ -221,13 +244,12 @@ final class Store {
         self.coordinationTimeout = coordinationTimeout
         self.probe = probe
         self.conflictProbe = conflictProbe
-        // Design Phase 2.3 (Task 6): probe TODAY's file for an unresolved
-        // iCloud conflict at construction time, not just on a later reload —
-        // self-heals a conflict left over from before the app was last
-        // launched. See `checkForUnresolvedConflicts` for why the callback
-        // itself is not observable from THIS particular call (nothing has
-        // hooked `onUnresolvedConflict` yet at this point in construction).
-        checkForUnresolvedConflicts()
+        // Design Phase 2.3 (Task 6): the construction-time self-heal probe now
+        // fires from `onUnresolvedConflict`'s `didSet` (review finding,
+        // roadmap 3.4 phase 2) rather than unconditionally here — see that
+        // property's doc for why. A caller that never attaches a listener
+        // (a listenerless secondary store, e.g. `RolloverService.scanStore`)
+        // pays nothing at construction.
     }
 
     func appendCapture(noteText: String, noteId: String?, tasks: [Todo], at time: Date) throws {
@@ -713,24 +735,34 @@ final class Store {
     /// `.conflict-<stamp>.md` sidecar (mirrors `quarantine(_:of:)`) and marks
     /// the conflict versions resolved so the file provider can clean them up.
     ///
-    /// Called once from `init` (today's file AT CONSTRUCTION time — see the
-    /// init comment for why that call's OWN `onUnresolvedConflict` firing is
-    /// unobservable) and once per caller-driven "reload": Store has no reload
-    /// concept or injected clock of its own, so `MenubarListModel.reload()` is
-    /// the one that calls this, passing its OWN `now()` snapshot rather than
-    /// letting Store call `Date()` on every check — that keeps "today" the
-    /// SAME instant the caller's own snapshot uses (a test-injected clock
-    /// stays authoritative) while `date`'s default still makes sense for the
-    /// construction-time call, which has no such snapshot to share.
+    /// Called once when `onUnresolvedConflict` is first attached (its `didSet`
+    /// — today's file, using this method's `Date()` default; see that
+    /// property's doc) and once per caller-driven "reload": Store has no
+    /// reload concept or injected clock of its own, so `MenubarListModel.
+    /// reload()` is the one that calls this, passing its OWN `now()` snapshot
+    /// rather than letting Store call `Date()` on every check — that keeps
+    /// "today" the SAME instant the caller's own snapshot uses (a
+    /// test-injected clock stays authoritative) while `date`'s default still
+    /// makes sense for the listener-attach call, which has no such snapshot
+    /// to share.
     ///
-    /// Resolution ordering (partial-failure safety): a losing version is
-    /// marked resolved ONLY AFTER EVERY losing version's sidecar is confirmed
-    /// on disk. If ANY sidecar write fails, NONE of the versions are marked
-    /// resolved — the conflict is left exactly as iCloud reported it, so the
-    /// next check (the next reload) retries materializing it rather than
-    /// silently losing a losing version's content. The banner fires
-    /// regardless of that failure: a detected conflict is itself always worth
-    /// surfacing, independent of how cleanly it was archived.
+    /// Resolution ordering (review finding, roadmap 3.4 phase 2 — PER-VERSION,
+    /// not whole-batch): each losing version is marked resolved independently,
+    /// immediately after ITS OWN sidecar is confirmed on disk. A version whose
+    /// materialization or sidecar write fails is simply left unresolved and
+    /// tried again on the next check; it does NOT block its siblings from
+    /// resolving. The earlier whole-batch design (resolve nothing unless
+    /// EVERY version's sidecar landed) made a persistent single-version
+    /// failure re-materialize every ALREADY-SUCCEEDED sibling on every
+    /// subsequent reload — each retry re-runs `writeSidecar`'s wall-clock
+    /// stamp, so a version that already has a sidecar would keep growing new,
+    /// never-cleaned-up ones forever. Per-version resolution means a
+    /// succeeded version's provider-side cleanup (`markResolved`) proceeds
+    /// right away, so a real `NSFileVersion` enumeration on the next check no
+    /// longer surfaces it at all — nothing left to re-materialize. The banner
+    /// fires regardless of any per-version failure: a detected conflict is
+    /// itself always worth surfacing, independent of how cleanly it was
+    /// archived.
     ///
     /// Off-actor + timeout, ONE envelope wraps the whole probe + enumerate +
     /// materialize + resolve sequence (review lesson, Task 5: no un-timeboxed
@@ -751,22 +783,24 @@ final class Store {
             // A conflict WAS found — everything below is best-effort archival;
             // its success or failure must never un-set this `true` result.
             if let versions = try? conflictProbe.unresolvedConflictVersions(at: url), !versions.isEmpty {
-                var allMaterialized = true
                 for version in versions {
                     do {
+                        // Per-version resolve (review finding, roadmap 3.4 phase
+                        // 2): materialize + resolve THIS version alone. A
+                        // sibling's failure never blocks this one, and this
+                        // one's own failure never blocks its siblings — each
+                        // version's fate is independent.
                         let data = try version.materializedContents()
                         _ = try Store.writeSidecar(data, of: url, in: folder, kind: "conflict", timezone: timezone)
-                    } catch {
-                        allMaterialized = false
-                    }
-                }
-                if allMaterialized {
-                    for version in versions {
                         // Best-effort: a resolve failure leaves iCloud's own
                         // conflict list untouched (the sidecar copy already
                         // safely landed either way) rather than throwing and
                         // losing the `true` result above.
                         try? version.markResolved()
+                    } catch {
+                        // Left unresolved: retried on the next check (the next
+                        // reload), same as before — but ONLY this version, not
+                        // every version in the batch.
                     }
                 }
             }

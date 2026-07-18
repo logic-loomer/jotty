@@ -496,19 +496,42 @@ final class StoreSyncSafetyTests: XCTestCase {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Design requirement: Store must probe today's file for an unresolved
-    /// iCloud conflict ON CONSTRUCTION. There is no point before construction
-    /// completes to hook `onUnresolvedConflict`, so this test observes
-    /// construction's SIDE EFFECTS (sidecar + resolved flag) rather than the
-    /// callback — the callback path is covered by the explicit-call tests
-    /// below, which mirror the model's reload hook.
-    func testConstructionProbesTodayAndMaterializesLosingVersions() throws {
+    /// Review finding (roadmap 3.4 phase 2): a `Store` that NEVER attaches an
+    /// `onUnresolvedConflict` listener — the shape of `RolloverService.
+    /// scanStore` (reconstructed on every foreground activation, main actor)
+    /// and `CommandBarIndex`'s per-build Store — must pay ZERO probe calls.
+    /// The old design probed unconditionally inside `init`, charging every
+    /// listenerless secondary store the same off-actor-plus-timeout round
+    /// trip as the one store that could ever observe the result.
+    func testConstructionWithNoListenerAttachedPerformsZeroProbeCalls() throws {
         let v1 = FakeConflictVersion(content: Data("losing content\n".utf8))
         let probe = FakeConflictSiblingProbe(hasConflicts: true, versions: [v1])
 
         _ = Store(folder: folder, timezone: tz, conflictProbe: probe)
 
-        XCTAssertTrue(v1.isResolved, "construction must probe + materialize + resolve today's conflict")
+        XCTAssertTrue(probe.calls.isEmpty,
+                      "a store with no onUnresolvedConflict listener must never probe")
+        XCTAssertFalse(v1.isResolved)
+        XCTAssertTrue(try conflictSidecarFiles().isEmpty)
+    }
+
+    /// The initial construction-time-equivalent probe now fires the moment
+    /// `onUnresolvedConflict` is FIRST assigned a non-nil listener (its
+    /// `didSet`), not inside `init`. This is what preserves launch-time
+    /// self-heal detection for the primary store — `MenubarListModel`
+    /// attaches its listener immediately after construction.
+    func testAttachingListenerPerformsTheInitialCheck() throws {
+        let v1 = FakeConflictVersion(content: Data("losing content\n".utf8))
+        let probe = FakeConflictSiblingProbe(hasConflicts: true, versions: [v1])
+        let s = Store(folder: folder, timezone: tz, conflictProbe: probe)
+        XCTAssertTrue(probe.calls.isEmpty, "no probe call yet — no listener attached")
+
+        var fired: [URL] = []
+        s.onUnresolvedConflict = { fired.append($0) }
+
+        XCTAssertFalse(probe.calls.isEmpty, "attaching the listener must trigger the initial check")
+        XCTAssertEqual(fired.count, 1, "the initial check surfaces the already-present conflict")
+        XCTAssertTrue(v1.isResolved, "the initial check materializes + resolves today's conflict")
         let sidecars = try conflictSidecarFiles()
         XCTAssertEqual(sidecars.count, 1)
         XCTAssertEqual(try String(contentsOf: sidecars[0], encoding: .utf8), "losing content\n")
@@ -598,10 +621,18 @@ final class StoreSyncSafetyTests: XCTestCase {
         XCTAssertTrue(s.allDayDates().isEmpty, "sidecars are never counted as day files")
     }
 
-    /// Partial-failure ordering (verbatim design requirement): if materializing
-    /// ANY losing version's sidecar fails, NONE of the versions are marked
-    /// resolved — but the banner still fires, since a conflict WAS found.
-    func testPartialSidecarMaterializationFailureLeavesVersionsUnresolvedButStillFiresBanner() throws {
+    /// Per-version resolve (review finding, roadmap 3.4 phase 2): a version
+    /// whose sidecar lands is marked resolved IMMEDIATELY — independent of a
+    /// sibling version that keeps failing — and stays resolved with exactly
+    /// ONE sidecar across two reload cycles (the persistent-failure duplicate-
+    /// sidecar bug this replaces: the old whole-batch design left EVERY
+    /// version unresolved on any single failure, so the next reload
+    /// re-materialized the already-succeeded version into a fresh
+    /// wall-clock-stamped file, unboundedly). The still-failing version stays
+    /// unresolved and is genuinely retried (its `materializedContents()` is
+    /// called again) on the next check. The banner still fires each check,
+    /// since a conflict was found each time.
+    func testPartialFailureResolvesSucceededVersionOnceAndRetriesFailedVersionAcrossReloads() throws {
         let date = makeDate(2026, 5, 8, h: 9, m: 0)
         let v1 = FakeConflictVersion(content: Data("ok content\n".utf8))
         let v2 = FakeConflictVersion(content: Data("unreachable".utf8),
@@ -612,13 +643,30 @@ final class StoreSyncSafetyTests: XCTestCase {
         var fired: [URL] = []
         s.onUnresolvedConflict = { fired.append($0) }
 
+        // First reload cycle: v1 succeeds, v2 fails.
         probe.hasConflicts = true
         probe.versions = [v1, v2]
         s.checkForUnresolvedConflicts(on: date)
 
-        XCTAssertEqual(fired.count, 1, "the banner must fire even though materialization partially failed")
-        XCTAssertFalse(v1.isResolved, "no version is resolved unless ALL sidecars landed")
-        XCTAssertFalse(v2.isResolved)
+        XCTAssertEqual(fired.count, 1, "the banner fires — a conflict was found")
+        XCTAssertTrue(v1.isResolved, "the version whose sidecar landed is resolved immediately")
+        XCTAssertFalse(v2.isResolved, "the version that failed to materialize stays unresolved")
+        XCTAssertEqual(v1.materializeCallCount, 1)
+        let sidecarsAfterFirst = try conflictSidecarFiles()
+        XCTAssertEqual(sidecarsAfterFirst.count, 1, "only the succeeded version's sidecar landed")
+
+        // Second reload cycle: v1 is now resolved, so a real NSFileVersion
+        // enumeration would no longer surface it — the fake mirrors that.
+        // v2 keeps failing, exactly as a persistent failure would.
+        probe.versions = [v2]
+        s.checkForUnresolvedConflicts(on: date)
+
+        XCTAssertEqual(fired.count, 2, "still-unresolved conflict keeps firing the banner every check")
+        XCTAssertFalse(v2.isResolved, "the persistently-failing version stays unresolved")
+        XCTAssertEqual(v2.materializeCallCount, 2, "the failed version is genuinely retried, not abandoned")
+        let sidecarsAfterSecond = try conflictSidecarFiles()
+        XCTAssertEqual(sidecarsAfterSecond.count, 1,
+                       "v1's already-resolved sidecar must never be re-materialized/duplicated by the retry")
     }
 
     private func url(for date: Date) -> URL {
@@ -642,6 +690,12 @@ final class FakeConflictVersion: ConflictVersionMaterializing, @unchecked Sendab
     private let resolveError: Error?
     private var _isResolved = false
     var isResolved: Bool { lock.lock(); defer { lock.unlock() }; return _isResolved }
+    /// How many times `materializedContents()` was called — lets a test prove a
+    /// still-failing version is genuinely RETRIED on a subsequent
+    /// `checkForUnresolvedConflicts` call (roadmap 3.4 phase 2, review finding:
+    /// per-version resolve), not just left alone.
+    private var _materializeCallCount = 0
+    var materializeCallCount: Int { lock.lock(); defer { lock.unlock() }; return _materializeCallCount }
 
     init(content: Data, contentsError: Error? = nil, resolveError: Error? = nil) {
         self.content = content
@@ -650,6 +704,7 @@ final class FakeConflictVersion: ConflictVersionMaterializing, @unchecked Sendab
     }
 
     func materializedContents() throws -> Data {
+        lock.lock(); _materializeCallCount += 1; lock.unlock()
         if let contentsError { throw contentsError }
         return content
     }

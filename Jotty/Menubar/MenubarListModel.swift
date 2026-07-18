@@ -302,7 +302,7 @@ final class MenubarListModel: ObservableObject {
     /// entry point for the store callback and tests — mirrors
     /// `showCorruptQuarantineNotice`.
     func showUnresolvedConflictNotice() {
-        unresolvedConflictNotice = "Found an unresolved iCloud sync conflict — the older version was saved."
+        unresolvedConflictNotice = "iCloud found conflicting copies of today's file — the other versions were saved as .conflict files in your Jotty folder."
     }
 
     /// Dismisses the unresolved-conflict notice (non-blocking, user-dismissible).
