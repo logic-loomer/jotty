@@ -17,6 +17,8 @@ import json
 import sys
 from pathlib import Path
 
+import os
+
 import anthropic
 
 MODEL = "claude-opus-5-5"
@@ -90,6 +92,11 @@ def main() -> int:
             f"{MARKER}\n## Claude review\n\nSkipped: the diff is {len(diff):,} characters, over the "
             f"{MAX_DIFF_CHARS:,} limit. Split the PR or review it locally.\n"
         )
+        return 0
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("::warning::ANTHROPIC_API_KEY is not available to this run (fork or bot PR); skipping review")
+        out_path.write_text(f"{MARKER}\n## Claude review\n\nSkipped: no API key available to this run.\n")
         return 0
 
     client = anthropic.Anthropic()

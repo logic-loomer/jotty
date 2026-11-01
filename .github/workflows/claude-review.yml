@@ -27,7 +27,8 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    # Dependabot branches live in this repo but get no Actions secrets, so skip them too.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
