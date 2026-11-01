@@ -1,0 +1,73 @@
+# Claude code review on pull requests (CI-02).
+#
+# One Claude API call reviews the PR diff and returns structured findings; a plain
+# shell step posts them as a single PR comment, updated in place on later pushes.
+#
+# Billing: secrets.ANTHROPIC_API_KEY is a key from Awon's Individual Org, the Console
+# org that receives the Ultra plan's monthly API credits. Those credits cover direct
+# API calls but refuse anthropics/claude-code-action traffic, hence a script, not the action.
+#
+# Trust boundaries: the diff is untrusted PR content. The model has no tools and the
+# review step holds only the Anthropic key; the GitHub token is used only in the
+# fetch and post steps. Fork PRs never run (GitHub withholds secrets from them anyway).
+# Drafts are skipped; the review runs when the PR is marked ready.
+name: claude-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Dependabot branches live in this repo but get no Actions secrets, so skip them too.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr diff "$PR" -R "$REPO" > "$RUNNER_TEMP/pr.diff"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Anthropic SDK
+        run: python -m pip install --quiet "anthropic>=2.3,<3"
+
+      - name: Review with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -I .github/scripts/claude_review.py "$RUNNER_TEMP/pr.diff" "$RUNNER_TEMP/review.md"
+
+      - name: Post or update the review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                 --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- claude-review -->"))) | .id' | tail -1)
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$ID" -F body=@"$RUNNER_TEMP/review.md" > /dev/null
+            echo "Updated comment $ID"
+          else
+            gh pr comment "$PR" -R "$REPO" --body-file "$RUNNER_TEMP/review.md"
+          fi
+          cat "$RUNNER_TEMP/review.md" >> "$GITHUB_STEP_SUMMARY"
